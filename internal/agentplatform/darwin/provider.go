@@ -3,8 +3,8 @@ package darwin
 import (
 	"time"
 
-	"github.com/labtether/labtether/internal/agentcore"
-	"github.com/labtether/labtether/internal/agentplatform/generic"
+	"github.com/labtether/labtether-agent/internal/agentcore"
+	"github.com/labtether/labtether-agent/internal/agentplatform/generic"
 )
 
 type Provider struct {

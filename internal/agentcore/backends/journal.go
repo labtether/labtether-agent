@@ -5,7 +5,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/protocol"
 )
 
 // journalEntry represents the relevant fields from a journalctl --output=json line.
@@ -33,8 +33,8 @@ func NewJournalManager() *JournalManager {
 func (jm *JournalManager) CloseAll() {}
 
 // HandleJournalQuery runs a historical journal query and sends entries to the hub.
-func (jm *JournalManager) HandleJournalQuery(transport MessageSender, msg agentmgr.Message) {
-	var req agentmgr.JournalQueryData
+func (jm *JournalManager) HandleJournalQuery(transport MessageSender, msg protocol.Message) {
+	var req protocol.JournalQueryData
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		log.Printf("journal: invalid journal.query request: %v", err)
 		return
@@ -47,7 +47,7 @@ func (jm *JournalManager) HandleJournalQuery(transport MessageSender, msg agentm
 		log.Printf("journal: failed to query entries: %v", err)
 	}
 
-	data, marshalErr := json.Marshal(agentmgr.JournalEntriesData{
+	data, marshalErr := json.Marshal(protocol.JournalEntriesData{
 		RequestID: req.RequestID,
 		Entries:   entries,
 		Error:     errMsg,
@@ -57,8 +57,8 @@ func (jm *JournalManager) HandleJournalQuery(transport MessageSender, msg agentm
 		return
 	}
 
-	if sendErr := transport.Send(agentmgr.Message{
-		Type: agentmgr.MsgJournalEntries,
+	if sendErr := transport.Send(protocol.Message{
+		Type: protocol.MsgJournalEntries,
 		ID:   req.RequestID,
 		Data: data,
 	}); sendErr != nil {
@@ -68,18 +68,18 @@ func (jm *JournalManager) HandleJournalQuery(transport MessageSender, msg agentm
 
 // ParseJournalLine decodes a single journalctl JSON line into a LogStreamData
 // entry. Returns (entry, false) when the line is empty or unparseable.
-func ParseJournalLine(raw []byte) (agentmgr.LogStreamData, bool) {
+func ParseJournalLine(raw []byte) (protocol.LogStreamData, bool) {
 	if len(raw) == 0 {
-		return agentmgr.LogStreamData{}, false
+		return protocol.LogStreamData{}, false
 	}
 
 	var je journalEntry
 	if err := json.Unmarshal(raw, &je); err != nil {
-		return agentmgr.LogStreamData{}, false
+		return protocol.LogStreamData{}, false
 	}
 
 	if je.Message == "" {
-		return agentmgr.LogStreamData{}, false
+		return protocol.LogStreamData{}, false
 	}
 
 	// Convert microsecond epoch string to RFC3339.
@@ -96,7 +96,7 @@ func ParseJournalLine(raw []byte) (agentmgr.LogStreamData, bool) {
 		}
 	}
 
-	return agentmgr.LogStreamData{
+	return protocol.LogStreamData{
 		Timestamp: ts,
 		Level:     journalPriorityToLevel(je.Priority),
 		Message:   je.Message,

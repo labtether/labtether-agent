@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/labtether/labtether/internal/agentmgr"
-	"github.com/labtether/labtether/internal/securityruntime"
+	"github.com/labtether/labtether-agent/internal/securityruntime"
+	"github.com/labtether/protocol"
 )
 
 const launchdPlistCommandTimeout = 5 * time.Second
@@ -21,8 +21,8 @@ const launchdPlistCommandTimeout = 5 * time.Second
 type DarwinCronBackend struct{}
 
 // ListEntries lists launchd entries and crontab entries.
-func (DarwinCronBackend) ListEntries() ([]agentmgr.CronEntry, error) {
-	entries := make([]agentmgr.CronEntry, 0)
+func (DarwinCronBackend) ListEntries() ([]protocol.CronEntry, error) {
+	entries := make([]protocol.CronEntry, 0)
 
 	launchdEntries, launchdErr := collectLaunchdEntries()
 	entries = append(entries, launchdEntries...)
@@ -44,7 +44,7 @@ func (DarwinCronBackend) ListEntries() ([]agentmgr.CronEntry, error) {
 	return entries, nil
 }
 
-func collectLaunchdEntries() ([]agentmgr.CronEntry, error) {
+func collectLaunchdEntries() ([]protocol.CronEntry, error) {
 	if _, err := exec.LookPath("plutil"); err != nil {
 		return nil, fmt.Errorf("plutil is not available on this host")
 	}
@@ -69,7 +69,7 @@ func collectLaunchdEntries() ([]agentmgr.CronEntry, error) {
 		})
 	}
 
-	entries := make([]agentmgr.CronEntry, 0)
+	entries := make([]protocol.CronEntry, 0)
 	var firstErr error
 	for _, directory := range directories {
 		dirEntries, err := os.ReadDir(directory.path)
@@ -106,25 +106,25 @@ func collectLaunchdEntries() ([]agentmgr.CronEntry, error) {
 	return entries, nil
 }
 
-func parseLaunchdPlist(path, user string) (agentmgr.CronEntry, bool, error) {
+func parseLaunchdPlist(path, user string) (protocol.CronEntry, bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), launchdPlistCommandTimeout)
 	defer cancel()
 
 	out, err := securityruntime.CommandContextCombinedOutput(ctx, "plutil", "-convert", "json", "-o", "-", path)
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
-			return agentmgr.CronEntry{}, false, fmt.Errorf("launchd plist parse timed out: %s", path)
+			return protocol.CronEntry{}, false, fmt.Errorf("launchd plist parse timed out: %s", path)
 		}
 		trimmed := strings.TrimSpace(string(out))
 		if trimmed != "" {
-			return agentmgr.CronEntry{}, false, fmt.Errorf("launchd plist parse failed for %s: %s", path, trimmed)
+			return protocol.CronEntry{}, false, fmt.Errorf("launchd plist parse failed for %s: %s", path, trimmed)
 		}
-		return agentmgr.CronEntry{}, false, fmt.Errorf("launchd plist parse failed for %s: %w", path, err)
+		return protocol.CronEntry{}, false, fmt.Errorf("launchd plist parse failed for %s: %w", path, err)
 	}
 
 	var payload map[string]any
 	if err := json.Unmarshal(out, &payload); err != nil {
-		return agentmgr.CronEntry{}, false, fmt.Errorf("launchd plist JSON decode failed for %s: %w", path, err)
+		return protocol.CronEntry{}, false, fmt.Errorf("launchd plist JSON decode failed for %s: %w", path, err)
 	}
 
 	entry, ok := BuildLaunchdCronEntry(payload, user)
@@ -132,11 +132,11 @@ func parseLaunchdPlist(path, user string) (agentmgr.CronEntry, bool, error) {
 }
 
 // BuildLaunchdCronEntry builds a CronEntry from a launchd plist payload.
-func BuildLaunchdCronEntry(payload map[string]any, user string) (agentmgr.CronEntry, bool) {
+func BuildLaunchdCronEntry(payload map[string]any, user string) (protocol.CronEntry, bool) {
 	label := strings.TrimSpace(asLaunchdString(payload["Label"]))
 	command := buildLaunchdCommand(payload)
 	if label == "" && command == "" {
-		return agentmgr.CronEntry{}, false
+		return protocol.CronEntry{}, false
 	}
 	if command == "" {
 		command = label
@@ -148,7 +148,7 @@ func BuildLaunchdCronEntry(payload map[string]any, user string) (agentmgr.CronEn
 	if schedule == "" {
 		schedule = "on-demand"
 	}
-	return agentmgr.CronEntry{
+	return protocol.CronEntry{
 		Source:   "launchd",
 		Schedule: schedule,
 		Command:  command,

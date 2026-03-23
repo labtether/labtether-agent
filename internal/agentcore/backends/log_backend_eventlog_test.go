@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/protocol"
 )
 
 func TestParseWevtutilOutputCount(t *testing.T) {
@@ -184,31 +184,31 @@ func TestBuildWevtutilQueryArgs(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		req      agentmgr.JournalQueryData
+		req      protocol.JournalQueryData
 		channel  string
 		wantArgs []string
 	}{
 		{
 			name:     "basic-system-channel",
-			req:      agentmgr.JournalQueryData{Limit: 50},
+			req:      protocol.JournalQueryData{Limit: 50},
 			channel:  "System",
 			wantArgs: []string{"qe", "System", "/f:json", "/c:50"},
 		},
 		{
 			name:     "with-since",
-			req:      agentmgr.JournalQueryData{Limit: 10, Since: "2026-03-21T00:00:00Z"},
+			req:      protocol.JournalQueryData{Limit: 10, Since: "2026-03-21T00:00:00Z"},
 			channel:  "Application",
 			wantArgs: []string{"qe", "Application", "/f:json", "/c:10", "/q:*[System[TimeCreated[@SystemTime>='2026-03-21T00:00:00Z']]]"},
 		},
 		{
 			name:     "default-limit",
-			req:      agentmgr.JournalQueryData{Limit: 0},
+			req:      protocol.JournalQueryData{Limit: 0},
 			channel:  "System",
 			wantArgs: []string{"qe", "System", "/f:json", "/c:200"},
 		},
 		{
 			name:     "clamped-limit",
-			req:      agentmgr.JournalQueryData{Limit: 9999},
+			req:      protocol.JournalQueryData{Limit: 9999},
 			channel:  "System",
 			wantArgs: []string{"qe", "System", "/f:json", "/c:1000"},
 		},

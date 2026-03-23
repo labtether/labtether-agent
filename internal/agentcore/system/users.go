@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/labtether/labtether/internal/agentmgr"
-	"github.com/labtether/labtether/internal/securityruntime"
+	"github.com/labtether/labtether-agent/internal/securityruntime"
+	"github.com/labtether/protocol"
 )
 
 // CollectUserSessionsFn is the function used to collect active user sessions.
@@ -30,8 +30,8 @@ func NewUsersManager() *UsersManager { return &UsersManager{} }
 func (um *UsersManager) CloseAll() {}
 
 // HandleUsersList collects active user sessions and sends them to the hub.
-func (um *UsersManager) HandleUsersList(transport MessageSender, msg agentmgr.Message) {
-	var req agentmgr.UsersListData
+func (um *UsersManager) HandleUsersList(transport MessageSender, msg protocol.Message) {
+	var req protocol.UsersListData
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		log.Printf("users: invalid users.list request: %v", err)
 		return
@@ -45,7 +45,7 @@ func (um *UsersManager) HandleUsersList(transport MessageSender, msg agentmgr.Me
 		log.Printf("users: failed to collect user sessions: %v", err)
 	}
 
-	data, marshalErr := json.Marshal(agentmgr.UsersListedData{
+	data, marshalErr := json.Marshal(protocol.UsersListedData{
 		RequestID: req.RequestID,
 		Sessions:  sessions,
 		Error:     errMsg,
@@ -55,8 +55,8 @@ func (um *UsersManager) HandleUsersList(transport MessageSender, msg agentmgr.Me
 		return
 	}
 
-	if sendErr := transport.Send(agentmgr.Message{
-		Type: agentmgr.MsgUsersListed,
+	if sendErr := transport.Send(protocol.Message{
+		Type: protocol.MsgUsersListed,
 		ID:   req.RequestID,
 		Data: data,
 	}); sendErr != nil {
@@ -66,7 +66,7 @@ func (um *UsersManager) HandleUsersList(transport MessageSender, msg agentmgr.Me
 
 // CollectUserSessions runs `who` and parses the output to extract active user sessions.
 // who output format: username tty    YYYY-MM-DD HH:MM (remote_host)
-func CollectUserSessions() ([]agentmgr.UserSession, error) {
+func CollectUserSessions() ([]protocol.UserSession, error) {
 	whoBin, err := exec.LookPath("who")
 	if err != nil {
 		return nil, err
@@ -81,8 +81,8 @@ func CollectUserSessions() ([]agentmgr.UserSession, error) {
 }
 
 // ParseUserSessionsOutput parses `who` command output into user sessions.
-func ParseUserSessionsOutput(out []byte) []agentmgr.UserSession {
-	var sessions []agentmgr.UserSession
+func ParseUserSessionsOutput(out []byte) []protocol.UserSession {
+	var sessions []protocol.UserSession
 	scanner := bufio.NewScanner(bytes.NewReader(out))
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -95,7 +95,7 @@ func ParseUserSessionsOutput(out []byte) []agentmgr.UserSession {
 			continue
 		}
 
-		session := agentmgr.UserSession{
+		session := protocol.UserSession{
 			Username: fields[0],
 			Terminal: fields[1],
 		}

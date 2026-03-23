@@ -7,8 +7,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/labtether/labtether/internal/assets"
-	"github.com/labtether/labtether/internal/platforms"
+	"github.com/labtether/labtether-agent/internal/assets"
+	"github.com/labtether/labtether-agent/internal/platforms"
 )
 
 func TestResolveHeartbeatPlatform(t *testing.T) {

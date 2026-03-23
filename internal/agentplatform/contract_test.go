@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/labtether/labtether/internal/platforms"
+	"github.com/labtether/labtether-agent/internal/platforms"
 )
 
 func TestProviderContract(t *testing.T) {

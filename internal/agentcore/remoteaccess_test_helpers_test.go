@@ -5,15 +5,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/protocol"
 )
 
 // mockMessageSender implements remoteaccess.MessageSender for root tests.
 type mockMessageSender struct {
-	messages chan agentmgr.Message
+	messages chan protocol.Message
 }
 
-func (m *mockMessageSender) Send(msg agentmgr.Message) error {
+func (m *mockMessageSender) Send(msg protocol.Message) error {
 	m.messages <- msg
 	return nil
 }
@@ -26,20 +26,20 @@ func (m *mockMessageSender) AssetID() string {
 	return "test-asset"
 }
 
-func newDesktopRuntimeTransport(t *testing.T) (*mockMessageSender, <-chan agentmgr.Message, func()) {
+func newDesktopRuntimeTransport(t *testing.T) (*mockMessageSender, <-chan protocol.Message, func()) {
 	t.Helper()
-	mt := &mockMessageSender{messages: make(chan agentmgr.Message, 64)}
+	mt := &mockMessageSender{messages: make(chan protocol.Message, 64)}
 	return mt, mt.messages, func() {}
 }
 
-func readDesktopRuntimeMessage(t *testing.T, messages <-chan agentmgr.Message) agentmgr.Message {
+func readDesktopRuntimeMessage(t *testing.T, messages <-chan protocol.Message) protocol.Message {
 	t.Helper()
 	select {
 	case msg := <-messages:
 		return msg
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for desktop runtime message")
-		return agentmgr.Message{}
+		return protocol.Message{}
 	}
 }
 

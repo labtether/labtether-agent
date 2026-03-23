@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/labtether/labtether/internal/agentmgr"
-	"github.com/labtether/labtether/internal/securityruntime"
+	"github.com/labtether/labtether-agent/internal/securityruntime"
+	"github.com/labtether/protocol"
 )
 
 const darwinLogCommandTimeout = 25 * time.Second
@@ -25,7 +25,7 @@ var darwinRelativeSincePattern = regexp.MustCompile(`^([0-9]+)\s*([smhdw])(?:\s*
 type DarwinLogBackend struct{}
 
 // QueryEntries queries historical log entries via `log show`.
-func (DarwinLogBackend) QueryEntries(req agentmgr.JournalQueryData) ([]agentmgr.LogStreamData, error) {
+func (DarwinLogBackend) QueryEntries(req protocol.JournalQueryData) ([]protocol.LogStreamData, error) {
 	if _, err := exec.LookPath("log"); err != nil {
 		return nil, fmt.Errorf("system log query is not available on this host")
 	}
@@ -76,7 +76,7 @@ func (DarwinLogBackend) QueryEntries(req agentmgr.JournalQueryData) ([]agentmgr.
 		buffer = buffer[:limit]
 	}
 
-	entries := make([]agentmgr.LogStreamData, 0, len(buffer))
+	entries := make([]protocol.LogStreamData, 0, len(buffer))
 	for _, item := range buffer {
 		entries = append(entries, item.entry)
 	}
@@ -84,7 +84,7 @@ func (DarwinLogBackend) QueryEntries(req agentmgr.JournalQueryData) ([]agentmgr.
 }
 
 // StreamEntries streams log entries via `log stream`.
-func (DarwinLogBackend) StreamEntries(ctx context.Context, emit func(agentmgr.LogStreamData)) error {
+func (DarwinLogBackend) StreamEntries(ctx context.Context, emit func(protocol.LogStreamData)) error {
 	if _, err := exec.LookPath("log"); err != nil {
 		return ErrLogStreamingUnsupported
 	}
@@ -130,7 +130,7 @@ func (DarwinLogBackend) StreamEntries(ctx context.Context, emit func(agentmgr.Lo
 }
 
 // BuildDarwinLogShowArgs builds the arguments for `log show`.
-func BuildDarwinLogShowArgs(req agentmgr.JournalQueryData) []string {
+func BuildDarwinLogShowArgs(req protocol.JournalQueryData) []string {
 	args := []string{"show", "--style", "ndjson", "--color", "none", "--debug"}
 	start, end, last := ResolveDarwinLogRange(req.Since, req.Until)
 	if last != "" {
@@ -190,7 +190,7 @@ func parseDarwinRelativeSince(raw string) string {
 }
 
 type timedLogEntry struct {
-	entry agentmgr.LogStreamData
+	entry protocol.LogStreamData
 	when  time.Time
 }
 
@@ -206,28 +206,28 @@ type osLogEntry struct {
 }
 
 // ParseOSLogLine parses a single macOS log JSON line with timestamps.
-func ParseOSLogLine(raw []byte) (agentmgr.LogStreamData, bool) {
+func ParseOSLogLine(raw []byte) (protocol.LogStreamData, bool) {
 	return parseOSLogLineWithTimestamp(raw, true)
 }
 
 // ParseOSLogLineForStream parses a single macOS log JSON line without timestamps.
-func ParseOSLogLineForStream(raw []byte) (agentmgr.LogStreamData, bool) {
+func ParseOSLogLineForStream(raw []byte) (protocol.LogStreamData, bool) {
 	return parseOSLogLineWithTimestamp(raw, false)
 }
 
-func parseOSLogLineWithTimestamp(raw []byte, includeTimestamp bool) (agentmgr.LogStreamData, bool) {
+func parseOSLogLineWithTimestamp(raw []byte, includeTimestamp bool) (protocol.LogStreamData, bool) {
 	if len(raw) == 0 {
-		return agentmgr.LogStreamData{}, false
+		return protocol.LogStreamData{}, false
 	}
 
 	var parsed osLogEntry
 	if err := json.Unmarshal(raw, &parsed); err != nil {
-		return agentmgr.LogStreamData{}, false
+		return protocol.LogStreamData{}, false
 	}
 
 	message := firstNonEmptyTrimmed(parsed.EventMessage, parsed.ComposedMessage)
 	if message == "" {
-		return agentmgr.LogStreamData{}, false
+		return protocol.LogStreamData{}, false
 	}
 
 	source := firstNonEmptyTrimmed(parsed.Subsystem, parsed.Process)
@@ -241,7 +241,7 @@ func parseOSLogLineWithTimestamp(raw []byte, includeTimestamp bool) (agentmgr.Lo
 		source = "oslog"
 	}
 
-	entry := agentmgr.LogStreamData{
+	entry := protocol.LogStreamData{
 		Level:   osLogMessageTypeToLevel(parsed.MessageType),
 		Message: message,
 		Source:  source,

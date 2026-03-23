@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/protocol"
 )
 
 // XrandrMonitorRe matches xrandr --listmonitors output lines.
@@ -19,9 +19,9 @@ var XrandrMonitorRe = regexp.MustCompile(
 )
 
 // ParseXrandrMonitors extracts display info from xrandr --listmonitors output.
-func ParseXrandrMonitors(output string) []agentmgr.DisplayInfo {
+func ParseXrandrMonitors(output string) []protocol.DisplayInfo {
 	lines := strings.Split(output, "\n")
-	displays := make([]agentmgr.DisplayInfo, 0, len(lines))
+	displays := make([]protocol.DisplayInfo, 0, len(lines))
 	for _, line := range lines {
 		matches := XrandrMonitorRe.FindStringSubmatch(line)
 		if matches == nil {
@@ -31,7 +31,7 @@ func ParseXrandrMonitors(output string) []agentmgr.DisplayInfo {
 		height, _ := strconv.Atoi(matches[4])
 		offsetX, _ := strconv.Atoi(matches[5])
 		offsetY, _ := strconv.Atoi(matches[6])
-		displays = append(displays, agentmgr.DisplayInfo{
+		displays = append(displays, protocol.DisplayInfo{
 			Name:    matches[2],
 			Width:   width,
 			Height:  height,
@@ -58,9 +58,9 @@ func ParseResolution(raw string) (int, int) {
 	return width, height
 }
 
-func ParsePowerShellScreenDisplays(output string) []agentmgr.DisplayInfo {
+func ParsePowerShellScreenDisplays(output string) []protocol.DisplayInfo {
 	lines := strings.Split(strings.TrimSpace(output), "\n")
-	displays := make([]agentmgr.DisplayInfo, 0, len(lines))
+	displays := make([]protocol.DisplayInfo, 0, len(lines))
 	for _, line := range lines {
 		fields := strings.Split(strings.TrimSpace(line), "|")
 		if len(fields) != 6 {
@@ -74,7 +74,7 @@ func ParsePowerShellScreenDisplays(output string) []agentmgr.DisplayInfo {
 		if name == "" {
 			name = fmt.Sprintf("Display %d", len(displays)+1)
 		}
-		displays = append(displays, agentmgr.DisplayInfo{
+		displays = append(displays, protocol.DisplayInfo{
 			Name:    name,
 			Width:   width,
 			Height:  height,

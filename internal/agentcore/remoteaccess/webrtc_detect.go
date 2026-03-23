@@ -8,8 +8,8 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/labtether/labtether/internal/agentmgr"
-	"github.com/labtether/labtether/internal/securityruntime"
+	"github.com/labtether/labtether-agent/internal/securityruntime"
+	"github.com/labtether/protocol"
 )
 
 type EncoderCandidate struct {
@@ -65,11 +65,11 @@ func UnsupportedPlatformWebRTCReason(goos string) string {
 }
 
 // detectWebRTCCapabilities checks for GStreamer and available encoder/audio elements.
-func DetectWebRTCCapabilities() agentmgr.WebRTCCapabilitiesData {
+func DetectWebRTCCapabilities() protocol.WebRTCCapabilitiesData {
 	return DetectWebRTCCapabilitiesWithConfig(WebRTCCapabilityConfigFromEnv())
 }
 
-func DetectWebRTCCapabilitiesForSettings(settings map[string]string) agentmgr.WebRTCCapabilitiesData {
+func DetectWebRTCCapabilitiesForSettings(settings map[string]string) protocol.WebRTCCapabilitiesData {
 	return DetectWebRTCCapabilitiesWithConfig(LoadWebRTCConfig(settings))
 }
 
@@ -88,8 +88,8 @@ func WebRTCCapabilityConfigFromEnv() WebRTCConfig {
 	return cfg
 }
 
-func DetectWebRTCCapabilitiesWithConfig(cfg WebRTCConfig) agentmgr.WebRTCCapabilitiesData {
-	caps := agentmgr.WebRTCCapabilitiesData{}
+func DetectWebRTCCapabilitiesWithConfig(cfg WebRTCConfig) protocol.WebRTCCapabilitiesData {
+	caps := protocol.WebRTCCapabilitiesData{}
 	session := DetectDesktopSessionFn()
 	caps.DesktopSessionType = session.Type
 	caps.DesktopBackend = session.Backend
@@ -309,7 +309,7 @@ func BuildGStreamerAudioPipeline(cfg GstAudioConfig) string {
 }
 
 // bestVideoEncoder returns the preferred encoder capability and GStreamer element.
-func BestVideoEncoder(caps agentmgr.WebRTCCapabilitiesData) (name, gstElement string) {
+func BestVideoEncoder(caps protocol.WebRTCCapabilitiesData) (name, gstElement string) {
 	for _, cand := range VideoEncoderPriority() {
 		for _, found := range caps.VideoEncoders {
 			if cand.name == strings.TrimSpace(found) {
@@ -321,7 +321,7 @@ func BestVideoEncoder(caps agentmgr.WebRTCCapabilitiesData) (name, gstElement st
 }
 
 // bestAudioSource returns the preferred GStreamer source element.
-func BestAudioSource(caps agentmgr.WebRTCCapabilitiesData) string {
+func BestAudioSource(caps protocol.WebRTCCapabilitiesData) string {
 	hasPipewire := false
 	hasPulse := false
 	for _, src := range caps.AudioSources {

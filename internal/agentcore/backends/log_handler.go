@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/protocol"
 )
 
 const (
@@ -20,7 +20,7 @@ const (
 // MessageSender abstracts the agent-to-hub send capability so this package
 // does not depend on the concrete wsTransport type in the parent agentcore package.
 type MessageSender interface {
-	Send(msg agentmgr.Message) error
+	Send(msg protocol.Message) error
 	Connected() bool
 	AssetID() string
 }
@@ -78,7 +78,7 @@ func (lm *LogManager) Start(ctx context.Context, transport MessageSender) {
 
 		for {
 			var (
-				batch   = make([]agentmgr.LogStreamData, 0, LogBatchMaxEntries)
+				batch   = make([]protocol.LogStreamData, 0, LogBatchMaxEntries)
 				flushAt = time.Now().Add(logBatchMaxAge)
 			)
 
@@ -91,7 +91,7 @@ func (lm *LogManager) Start(ctx context.Context, transport MessageSender) {
 					flushAt = time.Now().Add(logBatchMaxAge)
 					return
 				}
-				data, err := json.Marshal(agentmgr.LogBatchData{
+				data, err := json.Marshal(protocol.LogBatchData{
 					AssetID: transport.AssetID(),
 					Entries: batch,
 				})
@@ -101,15 +101,15 @@ func (lm *LogManager) Start(ctx context.Context, transport MessageSender) {
 					flushAt = time.Now().Add(logBatchMaxAge)
 					return
 				}
-				_ = transport.Send(agentmgr.Message{
-					Type: agentmgr.MsgLogBatch,
+				_ = transport.Send(protocol.Message{
+					Type: protocol.MsgLogBatch,
 					Data: data,
 				})
 				batch = batch[:0]
 				flushAt = time.Now().Add(logBatchMaxAge)
 			}
 
-			streamErr := lm.Backend.StreamEntries(tailCtx, func(entry agentmgr.LogStreamData) {
+			streamErr := lm.Backend.StreamEntries(tailCtx, func(entry protocol.LogStreamData) {
 				if transport == nil || !transport.Connected() {
 					return
 				}

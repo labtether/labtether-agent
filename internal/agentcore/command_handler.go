@@ -8,11 +8,11 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"github.com/labtether/labtether/internal/agentcore/backends"
-	"github.com/labtether/labtether/internal/agentcore/docker"
-	"github.com/labtether/labtether/internal/agentcore/files"
-	"github.com/labtether/labtether/internal/agentcore/system"
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/labtether-agent/internal/agentcore/backends"
+	"github.com/labtether/labtether-agent/internal/agentcore/docker"
+	"github.com/labtether/labtether-agent/internal/agentcore/files"
+	"github.com/labtether/labtether-agent/internal/agentcore/system"
+	"github.com/labtether/protocol"
 )
 
 // defaultCommandTimeout is defined in remoteaccess_aliases.go
@@ -109,88 +109,88 @@ func receiveLoop(ctx context.Context, transport *wsTransport, cfg RuntimeConfig,
 		}
 
 		switch msg.Type {
-		case agentmgr.MsgCommandRequest:
+		case protocol.MsgCommandRequest:
 			sem <- struct{}{}
 			go func() {
 				defer func() { <-sem }()
 				handleCommandRequest(transport, msg, cfg)
 			}()
-		case agentmgr.MsgPing:
+		case protocol.MsgPing:
 			// Lightweight — no semaphore.
-			_ = transport.Send(agentmgr.Message{Type: agentmgr.MsgPong})
-		case agentmgr.MsgConfigUpdate:
+			_ = transport.Send(protocol.Message{Type: protocol.MsgPong})
+		case protocol.MsgConfigUpdate:
 			// Lightweight — no semaphore.
 			handleConfigUpdate(transport, msg, runtime)
-		case agentmgr.MsgAgentSettingsApply:
+		case protocol.MsgAgentSettingsApply:
 			// Lightweight — no semaphore.
 			handleAgentSettingsApply(transport, msg, runtime)
-		case agentmgr.MsgUpdateRequest:
+		case protocol.MsgUpdateRequest:
 			sem <- struct{}{}
 			go func() {
 				defer func() { <-sem }()
 				handleUpdateRequest(transport, msg, cfg)
 			}()
-		case agentmgr.MsgTerminalProbe:
+		case protocol.MsgTerminalProbe:
 			// Lightweight — no semaphore.
 			termMgr.HandleTerminalProbe(transport)
-		case agentmgr.MsgTerminalStart:
+		case protocol.MsgTerminalStart:
 			sem <- struct{}{}
 			go func() {
 				defer func() { <-sem }()
 				termMgr.HandleTerminalStart(transport, msg)
 			}()
-		case agentmgr.MsgTerminalData:
+		case protocol.MsgTerminalData:
 			// Lightweight — no semaphore.
 			termMgr.HandleTerminalData(msg)
-		case agentmgr.MsgTerminalResize:
+		case protocol.MsgTerminalResize:
 			// Lightweight — no semaphore.
 			termMgr.HandleTerminalResize(msg)
-		case agentmgr.MsgTerminalTmuxKill:
+		case protocol.MsgTerminalTmuxKill:
 			sem <- struct{}{}
 			go func() {
 				defer func() { <-sem }()
 				termMgr.HandleTerminalTmuxKill(transport, msg)
 			}()
-		case agentmgr.MsgTerminalClose:
+		case protocol.MsgTerminalClose:
 			// Lightweight — no semaphore.
 			termMgr.HandleTerminalClose(msg)
-		case agentmgr.MsgSSHKeyInstall:
+		case protocol.MsgSSHKeyInstall:
 			sem <- struct{}{}
 			go func() {
 				defer func() { <-sem }()
 				handleSSHKeyInstall(transport, msg)
 			}()
-		case agentmgr.MsgSSHKeyRemove:
+		case protocol.MsgSSHKeyRemove:
 			sem <- struct{}{}
 			go func() {
 				defer func() { <-sem }()
 				handleSSHKeyRemove(transport, msg)
 			}()
-		case agentmgr.MsgDesktopStart:
+		case protocol.MsgDesktopStart:
 			sem <- struct{}{}
 			go func() {
 				defer func() { <-sem }()
 				deskMgr.HandleDesktopStart(transport, msg)
 			}()
-		case agentmgr.MsgDesktopData:
+		case protocol.MsgDesktopData:
 			// Lightweight — no semaphore.
 			deskMgr.HandleDesktopData(msg)
-		case agentmgr.MsgDesktopClose:
+		case protocol.MsgDesktopClose:
 			// Lightweight — no semaphore.
 			deskMgr.HandleDesktopClose(msg)
-		case agentmgr.MsgDesktopListDisplays:
+		case protocol.MsgDesktopListDisplays:
 			sem <- struct{}{}
 			go func() {
 				defer func() { <-sem }()
 				handleListDisplays(transport, msg)
 			}()
-		case agentmgr.MsgDesktopDiagnose:
+		case protocol.MsgDesktopDiagnose:
 			sem <- struct{}{}
 			go func() {
 				defer func() { <-sem }()
 				handleDesktopDiagnose(transport, msg, deskMgr, webrtcMgr)
 			}()
-		case agentmgr.MsgWebRTCStart:
+		case protocol.MsgWebRTCStart:
 			if webrtcMgr != nil {
 				sem <- struct{}{}
 				go func() {
@@ -198,75 +198,75 @@ func receiveLoop(ctx context.Context, transport *wsTransport, cfg RuntimeConfig,
 					webrtcMgr.HandleWebRTCStart(transport, msg)
 				}()
 			}
-		case agentmgr.MsgWebRTCOffer:
+		case protocol.MsgWebRTCOffer:
 			if webrtcMgr != nil {
 				// Offer handling is signaling-only and lightweight.
 				webrtcMgr.HandleWebRTCOffer(msg, transport)
 			}
-		case agentmgr.MsgWebRTCICE:
+		case protocol.MsgWebRTCICE:
 			if webrtcMgr != nil {
 				// ICE candidate handling is lightweight.
 				webrtcMgr.HandleWebRTCICE(msg)
 			}
-		case agentmgr.MsgWebRTCInput:
+		case protocol.MsgWebRTCInput:
 			if webrtcMgr != nil {
 				// Input relay is lightweight.
 				webrtcMgr.HandleWebRTCInput(msg)
 			}
-		case agentmgr.MsgWebRTCStop:
+		case protocol.MsgWebRTCStop:
 			if webrtcMgr != nil {
 				// Stop is lightweight.
 				webrtcMgr.HandleWebRTCStop(msg, transport)
 			}
-		case agentmgr.MsgWoLSend:
+		case protocol.MsgWoLSend:
 			// Lightweight — no semaphore.
 			system.HandleWoLSend(transport, msg)
-		case agentmgr.MsgFileList:
+		case protocol.MsgFileList:
 			sem <- struct{}{}
 			go func() {
 				defer func() { <-sem }()
 				fileMgr.HandleFileList(transport, msg)
 			}()
-		case agentmgr.MsgFileRead:
+		case protocol.MsgFileRead:
 			sem <- struct{}{}
 			go func() {
 				defer func() { <-sem }()
 				fileMgr.HandleFileRead(transport, msg)
 			}()
-		case agentmgr.MsgFileWrite:
+		case protocol.MsgFileWrite:
 			// Lightweight — no semaphore.
 			fileMgr.HandleFileWrite(transport, msg)
-		case agentmgr.MsgFileMkdir:
+		case protocol.MsgFileMkdir:
 			sem <- struct{}{}
 			go func() {
 				defer func() { <-sem }()
 				fileMgr.HandleFileMkdir(transport, msg)
 			}()
-		case agentmgr.MsgFileDelete:
+		case protocol.MsgFileDelete:
 			sem <- struct{}{}
 			go func() {
 				defer func() { <-sem }()
 				fileMgr.HandleFileDelete(transport, msg)
 			}()
-		case agentmgr.MsgFileRename:
+		case protocol.MsgFileRename:
 			sem <- struct{}{}
 			go func() {
 				defer func() { <-sem }()
 				fileMgr.HandleFileRename(transport, msg)
 			}()
-		case agentmgr.MsgFileCopy:
+		case protocol.MsgFileCopy:
 			sem <- struct{}{}
 			go func() {
 				defer func() { <-sem }()
 				fileMgr.HandleFileCopy(transport, msg)
 			}()
-		case agentmgr.MsgFileSearch:
+		case protocol.MsgFileSearch:
 			sem <- struct{}{}
 			go func() {
 				defer func() { <-sem }()
 				fileMgr.HandleFileSearch(transport, msg)
 			}()
-		case agentmgr.MsgProcessList:
+		case protocol.MsgProcessList:
 			if processMgr != nil {
 				sem <- struct{}{}
 				go func() {
@@ -274,7 +274,7 @@ func receiveLoop(ctx context.Context, transport *wsTransport, cfg RuntimeConfig,
 					processMgr.HandleProcessList(transport, msg)
 				}()
 			}
-		case agentmgr.MsgProcessKill:
+		case protocol.MsgProcessKill:
 			if processMgr != nil {
 				sem <- struct{}{}
 				go func() {
@@ -282,7 +282,7 @@ func receiveLoop(ctx context.Context, transport *wsTransport, cfg RuntimeConfig,
 					processMgr.HandleProcessKill(transport, msg)
 				}()
 			}
-		case agentmgr.MsgServiceList:
+		case protocol.MsgServiceList:
 			if serviceMgr != nil {
 				sem <- struct{}{}
 				go func() {
@@ -290,7 +290,7 @@ func receiveLoop(ctx context.Context, transport *wsTransport, cfg RuntimeConfig,
 					serviceMgr.HandleServiceList(transport, msg)
 				}()
 			}
-		case agentmgr.MsgServiceAction:
+		case protocol.MsgServiceAction:
 			if serviceMgr != nil {
 				sem <- struct{}{}
 				go func() {
@@ -298,7 +298,7 @@ func receiveLoop(ctx context.Context, transport *wsTransport, cfg RuntimeConfig,
 					serviceMgr.HandleServiceAction(transport, msg)
 				}()
 			}
-		case agentmgr.MsgJournalQuery:
+		case protocol.MsgJournalQuery:
 			if journalMgr != nil {
 				sem <- struct{}{}
 				go func() {
@@ -306,7 +306,7 @@ func receiveLoop(ctx context.Context, transport *wsTransport, cfg RuntimeConfig,
 					journalMgr.HandleJournalQuery(transport, msg)
 				}()
 			}
-		case agentmgr.MsgDiskList:
+		case protocol.MsgDiskList:
 			if diskMgr != nil {
 				sem <- struct{}{}
 				go func() {
@@ -314,7 +314,7 @@ func receiveLoop(ctx context.Context, transport *wsTransport, cfg RuntimeConfig,
 					diskMgr.HandleDiskList(transport, msg)
 				}()
 			}
-		case agentmgr.MsgNetworkList:
+		case protocol.MsgNetworkList:
 			if networkMgr != nil {
 				sem <- struct{}{}
 				go func() {
@@ -322,7 +322,7 @@ func receiveLoop(ctx context.Context, transport *wsTransport, cfg RuntimeConfig,
 					networkMgr.HandleNetworkList(transport, msg)
 				}()
 			}
-		case agentmgr.MsgNetworkAction:
+		case protocol.MsgNetworkAction:
 			if networkMgr != nil {
 				sem <- struct{}{}
 				go func() {
@@ -330,7 +330,7 @@ func receiveLoop(ctx context.Context, transport *wsTransport, cfg RuntimeConfig,
 					networkMgr.HandleNetworkAction(transport, msg)
 				}()
 			}
-		case agentmgr.MsgPackageList:
+		case protocol.MsgPackageList:
 			if packageMgr != nil {
 				sem <- struct{}{}
 				go func() {
@@ -338,7 +338,7 @@ func receiveLoop(ctx context.Context, transport *wsTransport, cfg RuntimeConfig,
 					packageMgr.HandlePackageList(transport, msg)
 				}()
 			}
-		case agentmgr.MsgPackageAction:
+		case protocol.MsgPackageAction:
 			if packageMgr != nil {
 				sem <- struct{}{}
 				go func() {
@@ -346,7 +346,7 @@ func receiveLoop(ctx context.Context, transport *wsTransport, cfg RuntimeConfig,
 					packageMgr.HandlePackageAction(transport, msg)
 				}()
 			}
-		case agentmgr.MsgCronList:
+		case protocol.MsgCronList:
 			if cronMgr != nil {
 				sem <- struct{}{}
 				go func() {
@@ -354,7 +354,7 @@ func receiveLoop(ctx context.Context, transport *wsTransport, cfg RuntimeConfig,
 					cronMgr.HandleCronList(transport, msg)
 				}()
 			}
-		case agentmgr.MsgUsersList:
+		case protocol.MsgUsersList:
 			if usersMgr != nil {
 				sem <- struct{}{}
 				go func() {
@@ -362,20 +362,20 @@ func receiveLoop(ctx context.Context, transport *wsTransport, cfg RuntimeConfig,
 					usersMgr.HandleUsersList(transport, msg)
 				}()
 			}
-		case agentmgr.MsgAlertNotify:
+		case protocol.MsgAlertNotify:
 			// Lightweight — no semaphore.
 			handleAlertNotify(msg, runtime)
-		case agentmgr.MsgEnrollmentChallenge:
+		case protocol.MsgEnrollmentChallenge:
 			// Lightweight — no semaphore.
 			handleEnrollmentChallenge(transport, msg, cfg)
-		case agentmgr.MsgEnrollmentApproved:
+		case protocol.MsgEnrollmentApproved:
 			// Lightweight — no semaphore.
 			handleEnrollmentApproved(transport, msg, cfg)
-		case agentmgr.MsgEnrollmentRejected:
+		case protocol.MsgEnrollmentRejected:
 			// Lightweight — no semaphore.
 			handleEnrollmentRejected(msg)
 		// Clipboard messages.
-		case agentmgr.MsgClipboardGet:
+		case protocol.MsgClipboardGet:
 			if clipMgr != nil {
 				sem <- struct{}{}
 				go func() {
@@ -383,7 +383,7 @@ func receiveLoop(ctx context.Context, transport *wsTransport, cfg RuntimeConfig,
 					clipMgr.HandleClipboardGet(transport, msg)
 				}()
 			}
-		case agentmgr.MsgClipboardSet:
+		case protocol.MsgClipboardSet:
 			if clipMgr != nil {
 				sem <- struct{}{}
 				go func() {
@@ -392,7 +392,7 @@ func receiveLoop(ctx context.Context, transport *wsTransport, cfg RuntimeConfig,
 				}()
 			}
 		// Desktop audio sideband messages.
-		case agentmgr.MsgDesktopAudioStart:
+		case protocol.MsgDesktopAudioStart:
 			if audioMgr != nil {
 				sem <- struct{}{}
 				go func() {
@@ -400,13 +400,13 @@ func receiveLoop(ctx context.Context, transport *wsTransport, cfg RuntimeConfig,
 					audioMgr.HandleAudioStart(transport, msg)
 				}()
 			}
-		case agentmgr.MsgDesktopAudioStop:
+		case protocol.MsgDesktopAudioStop:
 			// Lightweight — no semaphore.
 			if audioMgr != nil {
 				audioMgr.HandleAudioStop(msg)
 			}
 		// Docker container management messages.
-		case agentmgr.MsgDockerAction:
+		case protocol.MsgDockerAction:
 			if dockerCollector != nil {
 				sem <- struct{}{}
 				go func() {
@@ -414,7 +414,7 @@ func receiveLoop(ctx context.Context, transport *wsTransport, cfg RuntimeConfig,
 					dockerCollector.HandleDockerAction(transport, msg)
 				}()
 			}
-		case agentmgr.MsgDockerExecStart:
+		case protocol.MsgDockerExecStart:
 			if execMgr != nil {
 				sem <- struct{}{}
 				go func() {
@@ -422,22 +422,22 @@ func receiveLoop(ctx context.Context, transport *wsTransport, cfg RuntimeConfig,
 					execMgr.HandleExecStart(transport, msg)
 				}()
 			}
-		case agentmgr.MsgDockerExecInput:
+		case protocol.MsgDockerExecInput:
 			// Lightweight — no semaphore.
 			if execMgr != nil {
 				execMgr.HandleExecInput(msg)
 			}
-		case agentmgr.MsgDockerExecResize:
+		case protocol.MsgDockerExecResize:
 			// Lightweight — no semaphore.
 			if execMgr != nil {
 				execMgr.HandleExecResize(msg)
 			}
-		case agentmgr.MsgDockerExecClose:
+		case protocol.MsgDockerExecClose:
 			// Lightweight — no semaphore.
 			if execMgr != nil {
 				execMgr.HandleExecClose(msg)
 			}
-		case agentmgr.MsgDockerLogsStart:
+		case protocol.MsgDockerLogsStart:
 			if dockerLogMgr != nil {
 				sem <- struct{}{}
 				go func() {
@@ -445,12 +445,12 @@ func receiveLoop(ctx context.Context, transport *wsTransport, cfg RuntimeConfig,
 					dockerLogMgr.HandleLogsStart(ctx, transport, msg)
 				}()
 			}
-		case agentmgr.MsgDockerLogsStop:
+		case protocol.MsgDockerLogsStop:
 			// Lightweight — no semaphore.
 			if dockerLogMgr != nil {
 				dockerLogMgr.HandleLogsStop(msg)
 			}
-		case agentmgr.MsgDockerComposeAction:
+		case protocol.MsgDockerComposeAction:
 			if dockerCollector != nil {
 				sem <- struct{}{}
 				go func() {
@@ -458,7 +458,7 @@ func receiveLoop(ctx context.Context, transport *wsTransport, cfg RuntimeConfig,
 					dockerCollector.HandleComposeAction(transport, msg)
 				}()
 			}
-		case agentmgr.MsgWebServiceSync:
+		case protocol.MsgWebServiceSync:
 			if webServiceCollector != nil {
 				sem <- struct{}{}
 				go func() {
@@ -473,8 +473,8 @@ func receiveLoop(ctx context.Context, transport *wsTransport, cfg RuntimeConfig,
 }
 
 // handleAlertNotify processes an alert notification from the hub and caches it locally.
-func handleAlertNotify(msg agentmgr.Message, runtime *Runtime) {
-	var data agentmgr.AlertNotifyData
+func handleAlertNotify(msg protocol.Message, runtime *Runtime) {
+	var data protocol.AlertNotifyData
 	if err := json.Unmarshal(msg.Data, &data); err != nil {
 		log.Printf("agentws: invalid alert.notify: %v", err)
 		return
@@ -496,7 +496,7 @@ func handleAlertNotify(msg agentmgr.Message, runtime *Runtime) {
 // sendTelemetrySample sends a TelemetrySample as a telemetry message over
 // the WebSocket transport.
 func sendTelemetrySample(transport *wsTransport, sample TelemetrySample) {
-	td := agentmgr.TelemetryData{
+	td := protocol.TelemetryData{
 		AssetID:          sample.AssetID,
 		CPUPercent:       sample.CPUPercent,
 		MemoryPercent:    sample.MemoryPercent,
@@ -509,8 +509,8 @@ func sendTelemetrySample(transport *wsTransport, sample TelemetrySample) {
 	if err != nil {
 		return
 	}
-	_ = transport.Send(agentmgr.Message{
-		Type: agentmgr.MsgTelemetry,
+	_ = transport.Send(protocol.Message{
+		Type: protocol.MsgTelemetry,
 		Data: data,
 	})
 }

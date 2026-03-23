@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/protocol"
 )
 
 func TestDockerExecCreate(t *testing.T) {
@@ -120,7 +120,7 @@ func TestDockerExecInputWritesToSessionConn(t *testing.T) {
 	em.mu.Unlock()
 
 	expected := "echo test\n"
-	raw, _ := json.Marshal(agentmgr.DockerExecInputData{
+	raw, _ := json.Marshal(protocol.DockerExecInputData{
 		SessionID: sessionID,
 		Data:      base64.StdEncoding.EncodeToString([]byte(expected)),
 	})
@@ -136,8 +136,8 @@ func TestDockerExecInputWritesToSessionConn(t *testing.T) {
 		received <- string(buf[:n])
 	}()
 
-	em.HandleExecInput(agentmgr.Message{
-		Type: agentmgr.MsgDockerExecInput,
+	em.HandleExecInput(protocol.Message{
+		Type: protocol.MsgDockerExecInput,
 		ID:   sessionID,
 		Data: raw,
 	})

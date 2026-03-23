@@ -6,9 +6,9 @@ import (
 	"strconv"
 	"strings"
 
-	dockerpkg "github.com/labtether/labtether/internal/agentcore/docker"
-	proxypkg "github.com/labtether/labtether/internal/agentcore/proxy"
-	"github.com/labtether/labtether/internal/agentmgr"
+	dockerpkg "github.com/labtether/labtether-agent/internal/agentcore/docker"
+	proxypkg "github.com/labtether/labtether-agent/internal/agentcore/proxy"
+	"github.com/labtether/protocol"
 )
 
 // ---------------------------------------------------------------------------
@@ -52,13 +52,13 @@ type containerPortEntry struct {
 //   - Strategy 2 (fallback): Direct port match (backend port == service URL port)
 //     for non-Docker backends or when container info is unavailable.
 func enrichServicesWithRoutes(
-	services []agentmgr.DiscoveredWebService,
+	services []protocol.DiscoveredWebService,
 	routes []ProxyRoute,
 	providerName string,
 	hostAssetID string,
 	hostIP string,
 	containers []dockerpkg.DockerContainer,
-) []agentmgr.DiscoveredWebService {
+) []protocol.DiscoveredWebService {
 	if len(routes) == 0 {
 		return services
 	}
@@ -200,7 +200,7 @@ func enrichServicesWithRoutes(
 //   - Additional domain from same provider: appends to alt_urls.
 //   - Already enriched service (same or different provider): appends to
 //     alt_urls only (does not overwrite URL or raw_url).
-func applyEnrichment(svc *agentmgr.DiscoveredWebService, proxiedURL, providerName string, enriched map[int]bool, idx int) {
+func applyEnrichment(svc *protocol.DiscoveredWebService, proxiedURL, providerName string, enriched map[int]bool, idx int) {
 	if svc.Metadata == nil {
 		svc.Metadata = make(map[string]string)
 	}
@@ -230,7 +230,7 @@ func applyEnrichment(svc *agentmgr.DiscoveredWebService, proxiedURL, providerNam
 // that couldn't be matched to an existing Docker-discovered service. It uses
 // the service registry to attempt matching by unique backend port for serviceKey,
 // category, and iconKey.
-func buildProxyOnlyService(route ProxyRoute, providerName, hostAssetID, hostIP string) agentmgr.DiscoveredWebService {
+func buildProxyOnlyService(route ProxyRoute, providerName, hostAssetID, hostIP string) protocol.DiscoveredWebService {
 	proxiedURL := buildProxiedURL(route.Domain, route.TLS)
 	name := domainToName(route.Domain)
 	serviceKey := ""
@@ -268,7 +268,7 @@ func buildProxyOnlyService(route ProxyRoute, providerName, hostAssetID, hostIP s
 	}
 	id := makeServiceID(idSeed, "proxy", route.Domain)
 
-	svc := agentmgr.DiscoveredWebService{
+	svc := protocol.DiscoveredWebService{
 		ID:          id,
 		ServiceKey:  serviceKey,
 		Name:        name,
@@ -394,7 +394,7 @@ func appendAltURL(existing, newURL string) string {
 	return strings.Join(normalized, ",")
 }
 
-func appendServiceAliasURL(svc *agentmgr.DiscoveredWebService, proxiedURL string) {
+func appendServiceAliasURL(svc *protocol.DiscoveredWebService, proxiedURL string) {
 	if strings.EqualFold(strings.TrimSpace(svc.URL), strings.TrimSpace(proxiedURL)) {
 		return
 	}

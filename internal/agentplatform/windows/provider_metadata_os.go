@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/labtether/labtether/internal/agentplatform/tailscale"
+	"github.com/labtether/labtether-agent/internal/agentplatform/tailscale"
 )
 
 func readWindowsOSMetadata() map[string]string {

@@ -3,8 +3,8 @@ package webservice
 import (
 	"testing"
 
-	dockerpkg "github.com/labtether/labtether/internal/agentcore/docker"
-	"github.com/labtether/labtether/internal/agentmgr"
+	dockerpkg "github.com/labtether/labtether-agent/internal/agentcore/docker"
+	"github.com/labtether/protocol"
 )
 
 // ---------------------------------------------------------------------------
@@ -73,7 +73,7 @@ func TestEnrichServicesWithRoutes(t *testing.T) {
 	}
 
 	// Service discovered from Docker (URL uses host-mapped port).
-	services := []agentmgr.DiscoveredWebService{
+	services := []protocol.DiscoveredWebService{
 		{
 			ID:          "svc-1",
 			ServiceKey:  "plex",
@@ -107,8 +107,8 @@ func TestEnrichServicesWithRoutes(t *testing.T) {
 	result := enrichServicesWithRoutes(services, routes, "traefik", hostAssetID, hostIP, containers)
 
 	// The Plex service should be enriched with the proxied URL.
-	var plexSvc *agentmgr.DiscoveredWebService
-	var wikiSvc *agentmgr.DiscoveredWebService
+	var plexSvc *protocol.DiscoveredWebService
+	var wikiSvc *protocol.DiscoveredWebService
 	for i := range result {
 		if result[i].ServiceKey == "plex" {
 			plexSvc = &result[i]
@@ -165,7 +165,7 @@ func TestEnrichServicesPrivatePortBridging(t *testing.T) {
 	}
 
 	// Service discovered via Docker: uses host-mapped port 8085.
-	services := []agentmgr.DiscoveredWebService{
+	services := []protocol.DiscoveredWebService{
 		{
 			ID:          "svc-nginx",
 			Name:        "my-nginx",
@@ -189,7 +189,7 @@ func TestEnrichServicesPrivatePortBridging(t *testing.T) {
 	result := enrichServicesWithRoutes(services, routes, "traefik", hostAssetID, hostIP, containers)
 
 	// Should match via private port bridging: proxy port 80 → container PrivatePort 80 → ContainerID nginx-abc → service.
-	var found *agentmgr.DiscoveredWebService
+	var found *protocol.DiscoveredWebService
 	for i := range result {
 		if result[i].ContainerID == "nginx-abc" {
 			found = &result[i]
@@ -228,7 +228,7 @@ func TestEnrichServicesMultiDomain(t *testing.T) {
 		},
 	}
 
-	services := []agentmgr.DiscoveredWebService{
+	services := []protocol.DiscoveredWebService{
 		{
 			ID:          "svc-plex",
 			ServiceKey:  "plex",
@@ -258,7 +258,7 @@ func TestEnrichServicesMultiDomain(t *testing.T) {
 
 	result := enrichServicesWithRoutes(services, routes, "traefik", hostAssetID, hostIP, containers)
 
-	var plexSvc *agentmgr.DiscoveredWebService
+	var plexSvc *protocol.DiscoveredWebService
 	for i := range result {
 		if result[i].ServiceKey == "plex" {
 			plexSvc = &result[i]
@@ -343,7 +343,7 @@ func TestEnrichServicesTraefikSkipsDuplicatePrimaryAlias(t *testing.T) {
 		},
 	}
 
-	services := []agentmgr.DiscoveredWebService{
+	services := []protocol.DiscoveredWebService{
 		{
 			ID:          "svc-app",
 			Name:        "app",
@@ -410,7 +410,7 @@ func TestEnrichServicesDoubleEnrichGuard(t *testing.T) {
 	}
 
 	// Service already enriched by a previous proxy provider (e.g. Traefik).
-	services := []agentmgr.DiscoveredWebService{
+	services := []protocol.DiscoveredWebService{
 		{
 			ID:          "svc-grafana",
 			ServiceKey:  "grafana",
@@ -438,7 +438,7 @@ func TestEnrichServicesDoubleEnrichGuard(t *testing.T) {
 
 	result := enrichServicesWithRoutes(services, routes, "caddy", hostAssetID, hostIP, containers)
 
-	var grafanaSvc *agentmgr.DiscoveredWebService
+	var grafanaSvc *protocol.DiscoveredWebService
 	for i := range result {
 		if result[i].ServiceKey == "grafana" {
 			grafanaSvc = &result[i]
@@ -508,7 +508,7 @@ func TestEnrichServicesTraefikRouterLabelCorrelation(t *testing.T) {
 		},
 	}
 
-	services := []agentmgr.DiscoveredWebService{
+	services := []protocol.DiscoveredWebService{
 		{
 			ID:          "svc-app1",
 			Name:        "app1",
@@ -547,8 +547,8 @@ func TestEnrichServicesTraefikRouterLabelCorrelation(t *testing.T) {
 		t.Fatalf("got %d services; want 2 (no proxy-only entries expected)", len(result))
 	}
 
-	var app1Svc *agentmgr.DiscoveredWebService
-	var app2Svc *agentmgr.DiscoveredWebService
+	var app1Svc *protocol.DiscoveredWebService
+	var app2Svc *protocol.DiscoveredWebService
 	for i := range result {
 		if result[i].ContainerID == "app1-ctr" {
 			app1Svc = &result[i]
@@ -692,7 +692,7 @@ func TestDomainToName(t *testing.T) {
 
 func TestEnrichServicesNoContainers(t *testing.T) {
 	// When no containers are available, enrichment should be a no-op
-	services := []agentmgr.DiscoveredWebService{
+	services := []protocol.DiscoveredWebService{
 		{ID: "svc1", Name: "Plex", URL: "http://192.168.1.50:32400", Source: "docker", HostAssetID: "host1"},
 	}
 

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/protocol"
 )
 
 const (
@@ -26,7 +26,7 @@ type fingerprintCacheEntry struct {
 	expiresAt time.Time
 }
 
-func (wsc *WebServiceCollector) applyFingerprintMetadata(svc *agentmgr.DiscoveredWebService) {
+func (wsc *WebServiceCollector) applyFingerprintMetadata(svc *protocol.DiscoveredWebService) {
 	if svc == nil {
 		return
 	}
@@ -122,7 +122,7 @@ func (wsc *WebServiceCollector) pruneFingerprintCache(now time.Time) {
 	}
 }
 
-func serviceFingerprintBaseURL(svc agentmgr.DiscoveredWebService) string {
+func serviceFingerprintBaseURL(svc protocol.DiscoveredWebService) string {
 	baseURL := strings.TrimSpace(svc.URL)
 	if svc.Metadata == nil {
 		return baseURL
@@ -359,7 +359,7 @@ func (wsc *WebServiceCollector) hasLabTetherAuthLoginEndpointWithResponse(baseUR
 	}
 }
 
-func normalizeLabTetherServices(services []agentmgr.DiscoveredWebService) {
+func normalizeLabTetherServices(services []protocol.DiscoveredWebService) {
 	if len(services) == 0 {
 		return
 	}
@@ -408,7 +408,7 @@ func normalizeLabTetherServices(services []agentmgr.DiscoveredWebService) {
 	}
 }
 
-func classifyLabTetherComponent(svc agentmgr.DiscoveredWebService) string {
+func classifyLabTetherComponent(svc protocol.DiscoveredWebService) string {
 	if strings.TrimSpace(svc.ServiceKey) != labtetherServiceKey {
 		return ""
 	}

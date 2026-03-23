@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/protocol"
 )
 
 // CleanupOrphanedTempFiles removes .lt-upload-* temp files older than 5 minutes
@@ -72,8 +72,8 @@ func (fm *Manager) CleanupOrphanedTempFiles() {
 }
 
 // HandleFileWrite handles a file write (upload) request from the hub.
-func (fm *Manager) HandleFileWrite(transport MessageSender, msg agentmgr.Message) {
-	var req agentmgr.FileWriteData
+func (fm *Manager) HandleFileWrite(transport MessageSender, msg protocol.Message) {
+	var req protocol.FileWriteData
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		log.Printf("file: invalid write request: %v", err)
 		return
@@ -90,7 +90,7 @@ func (fm *Manager) HandleFileWrite(transport MessageSender, msg agentmgr.Message
 }
 
 // WriteChunk processes a single upload chunk, returning bytes written so far.
-func (fm *Manager) WriteChunk(req agentmgr.FileWriteData) (int64, error) {
+func (fm *Manager) WriteChunk(req protocol.FileWriteData) (int64, error) {
 	filePath, err := fm.ValidatePath(req.Path)
 	if err != nil {
 		return 0, err

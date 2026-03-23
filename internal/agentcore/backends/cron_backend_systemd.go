@@ -3,15 +3,15 @@ package backends
 import (
 	"fmt"
 
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/protocol"
 )
 
 // LinuxCronBackend implements CronBackend using systemd timers and crontabs.
 type LinuxCronBackend struct{}
 
 // ListEntries lists systemd timers and crontab entries.
-func (LinuxCronBackend) ListEntries() ([]agentmgr.CronEntry, error) {
-	var entries []agentmgr.CronEntry
+func (LinuxCronBackend) ListEntries() ([]protocol.CronEntry, error) {
+	var entries []protocol.CronEntry
 
 	timers, timerErr := CollectSystemdTimers()
 	if timerErr != nil {

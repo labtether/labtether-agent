@@ -7,14 +7,14 @@ import (
 	"log"
 	"strings"
 
-	"github.com/labtether/labtether/internal/agentidentity"
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/labtether-agent/internal/agentidentity"
+	"github.com/labtether/protocol"
 )
 
 // handleEnrollmentChallenge signs the hub-issued enrollment challenge with the
 // agent device private key and sends enrollment.proof back to the hub.
-func handleEnrollmentChallenge(transport *wsTransport, msg agentmgr.Message, cfg RuntimeConfig) {
-	var data agentmgr.EnrollmentChallengeData
+func handleEnrollmentChallenge(transport *wsTransport, msg protocol.Message, cfg RuntimeConfig) {
+	var data protocol.EnrollmentChallengeData
 	if err := json.Unmarshal(msg.Data, &data); err != nil {
 		log.Printf("agentws: invalid enrollment.challenge payload: %v", err)
 		return
@@ -41,7 +41,7 @@ func handleEnrollmentChallenge(transport *wsTransport, msg agentmgr.Message, cfg
 	signingPayload := agentidentity.BuildEnrollmentProofPayload(connectionID, nonce, identity.Fingerprint)
 	signature := ed25519.Sign(identity.PrivateKey, signingPayload)
 
-	proof := agentmgr.EnrollmentProofData{
+	proof := protocol.EnrollmentProofData{
 		ConnectionID: connectionID,
 		Nonce:        nonce,
 		KeyAlgorithm: identity.KeyAlgorithm,
@@ -55,8 +55,8 @@ func handleEnrollmentChallenge(transport *wsTransport, msg agentmgr.Message, cfg
 		return
 	}
 
-	if err := transport.Send(agentmgr.Message{
-		Type: agentmgr.MsgEnrollmentProof,
+	if err := transport.Send(protocol.Message{
+		Type: protocol.MsgEnrollmentProof,
 		Data: rawProof,
 	}); err != nil {
 		log.Printf("agentws: failed to send enrollment proof: %v", err)
@@ -69,8 +69,8 @@ func handleEnrollmentChallenge(transport *wsTransport, msg agentmgr.Message, cfg
 // handleEnrollmentApproved processes an enrollment.approved message from the hub.
 // It saves the token to disk, updates the transport credentials, and closes the
 // current (unauthenticated) connection so the reconnect loop re-dials with the token.
-func handleEnrollmentApproved(transport *wsTransport, msg agentmgr.Message, cfg RuntimeConfig) {
-	var data agentmgr.EnrollmentApprovedData
+func handleEnrollmentApproved(transport *wsTransport, msg protocol.Message, cfg RuntimeConfig) {
+	var data protocol.EnrollmentApprovedData
 	if err := json.Unmarshal(msg.Data, &data); err != nil {
 		log.Printf("agentws: invalid enrollment.approved payload: %v", err)
 		return
@@ -105,8 +105,8 @@ func handleEnrollmentApproved(transport *wsTransport, msg agentmgr.Message, cfg 
 
 // handleEnrollmentRejected processes an enrollment.rejected message from the hub.
 // The agent keeps the connection open and will retry; the admin may still approve later.
-func handleEnrollmentRejected(msg agentmgr.Message) {
-	var data agentmgr.EnrollmentRejectedData
+func handleEnrollmentRejected(msg protocol.Message) {
+	var data protocol.EnrollmentRejectedData
 	if err := json.Unmarshal(msg.Data, &data); err != nil {
 		log.Printf("agentws: invalid enrollment.rejected payload: %v", err)
 		return

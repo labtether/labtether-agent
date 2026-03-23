@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/protocol"
 )
 
 // NetworkManager handles network interface info and network actions from the hub.
@@ -36,8 +36,8 @@ func NewNetworkManager() *NetworkManager {
 func (nm *NetworkManager) CloseAll() {}
 
 // HandleNetworkList collects network interface info and sends it to the hub.
-func (nm *NetworkManager) HandleNetworkList(transport MessageSender, msg agentmgr.Message) {
-	var req agentmgr.NetworkListData
+func (nm *NetworkManager) HandleNetworkList(transport MessageSender, msg protocol.Message) {
+	var req protocol.NetworkListData
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		log.Printf("network: invalid network.list request: %v", err)
 		return
@@ -51,7 +51,7 @@ func (nm *NetworkManager) HandleNetworkList(transport MessageSender, msg agentmg
 		log.Printf("network: failed to collect interfaces: %v", err)
 	}
 
-	data, marshalErr := json.Marshal(agentmgr.NetworkListedData{
+	data, marshalErr := json.Marshal(protocol.NetworkListedData{
 		RequestID:  req.RequestID,
 		Interfaces: ifaces,
 		Error:      errMsg,
@@ -61,8 +61,8 @@ func (nm *NetworkManager) HandleNetworkList(transport MessageSender, msg agentmg
 		return
 	}
 
-	if sendErr := transport.Send(agentmgr.Message{
-		Type: agentmgr.MsgNetworkListed,
+	if sendErr := transport.Send(protocol.Message{
+		Type: protocol.MsgNetworkListed,
 		ID:   req.RequestID,
 		Data: data,
 	}); sendErr != nil {
@@ -72,14 +72,14 @@ func (nm *NetworkManager) HandleNetworkList(transport MessageSender, msg agentmg
 
 // HandleNetworkAction applies or rolls back network changes using the
 // platform-specific backend.
-func (nm *NetworkManager) HandleNetworkAction(transport MessageSender, msg agentmgr.Message) {
-	var req agentmgr.NetworkActionData
+func (nm *NetworkManager) HandleNetworkAction(transport MessageSender, msg protocol.Message) {
+	var req protocol.NetworkActionData
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		log.Printf("network: invalid network.action request: %v", err)
 		return
 	}
 
-	result := agentmgr.NetworkResultData{
+	result := protocol.NetworkResultData{
 		RequestID: req.RequestID,
 	}
 
@@ -96,15 +96,15 @@ func (nm *NetworkManager) HandleNetworkAction(transport MessageSender, msg agent
 	nm.SendNetworkResult(transport, result)
 }
 
-func (nm *NetworkManager) SendNetworkResult(transport MessageSender, result agentmgr.NetworkResultData) {
+func (nm *NetworkManager) SendNetworkResult(transport MessageSender, result protocol.NetworkResultData) {
 	data, marshalErr := json.Marshal(result)
 	if marshalErr != nil {
 		log.Printf("network: failed to marshal network.result: %v", marshalErr)
 		return
 	}
 
-	if sendErr := transport.Send(agentmgr.Message{
-		Type: agentmgr.MsgNetworkResult,
+	if sendErr := transport.Send(protocol.Message{
+		Type: protocol.MsgNetworkResult,
 		ID:   result.RequestID,
 		Data: data,
 	}); sendErr != nil {
@@ -115,13 +115,13 @@ func (nm *NetworkManager) SendNetworkResult(transport MessageSender, result agen
 // collectNetInterfaces enumerates host network interfaces using the standard
 // library. Per-interface counters are read via ReadIfaceStats which is
 // implemented per platform (Linux reads /sys/class/net, other platforms return 0).
-func collectNetInterfaces() ([]agentmgr.NetInterface, error) {
+func collectNetInterfaces() ([]protocol.NetInterface, error) {
 	raw, err := net.Interfaces()
 	if err != nil {
 		return nil, err
 	}
 
-	var result []agentmgr.NetInterface
+	var result []protocol.NetInterface
 	for _, iface := range raw {
 		// Skip loopback interfaces.
 		if iface.Flags&net.FlagLoopback != 0 {
@@ -151,7 +151,7 @@ func collectNetInterfaces() ([]agentmgr.NetInterface, error) {
 
 		rxBytes, txBytes, rxPackets, txPackets := ReadIfaceStats(iface.Name)
 
-		result = append(result, agentmgr.NetInterface{
+		result = append(result, protocol.NetInterface{
 			Name:      iface.Name,
 			State:     state,
 			MAC:       mac,

@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"runtime"
 
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/protocol"
 )
 
 // CronBackend is the platform abstraction for querying cron/timer entries.
 type CronBackend interface {
-	ListEntries() ([]agentmgr.CronEntry, error)
+	ListEntries() ([]protocol.CronEntry, error)
 }
 
 // NewCronBackendForOS returns the cron backend appropriate for the current OS.
@@ -37,6 +37,6 @@ type UnsupportedCronBackend struct {
 }
 
 // ListEntries returns an error indicating the platform is unsupported.
-func (b UnsupportedCronBackend) ListEntries() ([]agentmgr.CronEntry, error) {
+func (b UnsupportedCronBackend) ListEntries() ([]protocol.CronEntry, error) {
 	return nil, fmt.Errorf("schedule listing is not supported on %s", b.OS)
 }

@@ -7,9 +7,9 @@ import (
 	"log"
 	"strconv"
 
-	"github.com/labtether/labtether/internal/agentmgr"
-	"github.com/labtether/labtether/internal/metricschema"
-	"github.com/labtether/labtether/internal/platforms"
+	"github.com/labtether/labtether-agent/internal/metricschema"
+	"github.com/labtether/labtether-agent/internal/platforms"
+	"github.com/labtether/protocol"
 )
 
 // wsHeartbeatPublisher sends heartbeats over a WebSocket transport. If the
@@ -71,7 +71,7 @@ func (p *wsHeartbeatPublisher) Publish(ctx context.Context, sample TelemetrySamp
 		metadata["platform"] = resolvedPlatform
 	}
 
-	heartbeat := agentmgr.HeartbeatData{
+	heartbeat := protocol.HeartbeatData{
 		AssetID:      sample.AssetID,
 		Type:         "host",
 		Name:         sample.AssetID,
@@ -89,8 +89,8 @@ func (p *wsHeartbeatPublisher) Publish(ctx context.Context, sample TelemetrySamp
 		return fmt.Errorf("marshal ws heartbeat: %w", err)
 	}
 
-	msg := agentmgr.Message{
-		Type: agentmgr.MsgHeartbeat,
+	msg := protocol.Message{
+		Type: protocol.MsgHeartbeat,
 		Data: data,
 	}
 

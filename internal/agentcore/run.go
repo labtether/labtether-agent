@@ -8,11 +8,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/labtether/labtether/internal/agentcore/backends"
-	dockerpkg "github.com/labtether/labtether/internal/agentcore/docker"
-	"github.com/labtether/labtether/internal/agentcore/files"
-	"github.com/labtether/labtether/internal/agentcore/system"
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/labtether-agent/internal/agentcore/backends"
+	dockerpkg "github.com/labtether/labtether-agent/internal/agentcore/docker"
+	"github.com/labtether/labtether-agent/internal/agentcore/files"
+	"github.com/labtether/labtether-agent/internal/agentcore/system"
+	"github.com/labtether/protocol"
 )
 
 func init() {
@@ -274,7 +274,7 @@ func replayBufferedTelemetry(transport *wsTransport, telemetryBuf *RingBuffer[Te
 	}
 }
 
-func sendWebRTCCapabilities(transport *wsTransport, caps agentmgr.WebRTCCapabilitiesData) {
+func sendWebRTCCapabilities(transport *wsTransport, caps protocol.WebRTCCapabilitiesData) {
 	if transport == nil || !transport.Connected() {
 		return
 	}
@@ -282,8 +282,8 @@ func sendWebRTCCapabilities(transport *wsTransport, caps agentmgr.WebRTCCapabili
 	if err != nil {
 		return
 	}
-	_ = transport.Send(agentmgr.Message{
-		Type: agentmgr.MsgWebRTCCapabilities,
+	_ = transport.Send(protocol.Message{
+		Type: protocol.MsgWebRTCCapabilities,
 		Data: data,
 	})
 }

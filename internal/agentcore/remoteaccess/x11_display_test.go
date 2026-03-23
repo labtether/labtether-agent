@@ -4,8 +4,8 @@ import (
 	"os/exec"
 	"testing"
 
-	"github.com/labtether/labtether/internal/agentcore/system"
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/labtether-agent/internal/agentcore/system"
+	"github.com/labtether/protocol"
 )
 
 func TestPreferredX11DisplayUsesDetectedSessionDisplay(t *testing.T) {
@@ -19,7 +19,7 @@ func TestPreferredX11DisplayUsesDetectedSessionDisplay(t *testing.T) {
 	DetectDesktopSessionFn = func() DesktopSessionInfo {
 		return DesktopSessionInfo{Type: DesktopSessionTypeX11, Display: ":1"}
 	}
-	system.CollectUserSessionsFn = func() ([]agentmgr.UserSession, error) {
+	system.CollectUserSessionsFn = func() ([]protocol.UserSession, error) {
 		return nil, nil
 	}
 

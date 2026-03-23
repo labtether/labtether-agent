@@ -5,7 +5,7 @@ import (
 	"log"
 	"strings"
 
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/protocol"
 )
 
 // PackageManager handles package inventory requests from the hub.
@@ -25,8 +25,8 @@ func NewPackageManager() *PackageManager {
 func (pm *PackageManager) CloseAll() {}
 
 // HandlePackageList collects installed packages and sends them to the hub.
-func (pm *PackageManager) HandlePackageList(transport MessageSender, msg agentmgr.Message) {
-	var req agentmgr.PackageListData
+func (pm *PackageManager) HandlePackageList(transport MessageSender, msg protocol.Message) {
+	var req protocol.PackageListData
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		log.Printf("package: invalid package.list request: %v", err)
 		return
@@ -40,7 +40,7 @@ func (pm *PackageManager) HandlePackageList(transport MessageSender, msg agentmg
 		log.Printf("package: failed to collect packages: %v", err)
 	}
 
-	data, marshalErr := json.Marshal(agentmgr.PackageListedData{
+	data, marshalErr := json.Marshal(protocol.PackageListedData{
 		RequestID: req.RequestID,
 		Packages:  pkgs,
 		Error:     errMsg,
@@ -50,8 +50,8 @@ func (pm *PackageManager) HandlePackageList(transport MessageSender, msg agentmg
 		return
 	}
 
-	if sendErr := transport.Send(agentmgr.Message{
-		Type: agentmgr.MsgPackageListed,
+	if sendErr := transport.Send(protocol.Message{
+		Type: protocol.MsgPackageListed,
 		ID:   req.RequestID,
 		Data: data,
 	}); sendErr != nil {
@@ -60,8 +60,8 @@ func (pm *PackageManager) HandlePackageList(transport MessageSender, msg agentmg
 }
 
 // HandlePackageAction performs a package-manager operation and returns result details.
-func (pm *PackageManager) HandlePackageAction(transport MessageSender, msg agentmgr.Message) {
-	var req agentmgr.PackageActionData
+func (pm *PackageManager) HandlePackageAction(transport MessageSender, msg protocol.Message) {
+	var req protocol.PackageActionData
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		log.Printf("package: invalid package.action request: %v", err)
 		return
@@ -96,7 +96,7 @@ func (pm *PackageManager) sendPackageResult(
 	errMsg string,
 	rebootRequired bool,
 ) {
-	data, marshalErr := json.Marshal(agentmgr.PackageResultData{
+	data, marshalErr := json.Marshal(protocol.PackageResultData{
 		RequestID:      requestID,
 		OK:             ok,
 		Output:         output,
@@ -108,8 +108,8 @@ func (pm *PackageManager) sendPackageResult(
 		return
 	}
 
-	if sendErr := transport.Send(agentmgr.Message{
-		Type: agentmgr.MsgPackageResult,
+	if sendErr := transport.Send(protocol.Message{
+		Type: protocol.MsgPackageResult,
 		ID:   requestID,
 		Data: data,
 	}); sendErr != nil {

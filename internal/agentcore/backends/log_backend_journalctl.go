@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/labtether/labtether/internal/agentmgr"
-	"github.com/labtether/labtether/internal/securityruntime"
+	"github.com/labtether/labtether-agent/internal/securityruntime"
+	"github.com/labtether/protocol"
 )
 
 const journalQueryCommandTimeout = 20 * time.Second
@@ -30,7 +30,7 @@ var (
 )
 
 // QueryEntries runs a historical journal query and returns entries.
-func (LinuxLogBackend) QueryEntries(req agentmgr.JournalQueryData) ([]agentmgr.LogStreamData, error) {
+func (LinuxLogBackend) QueryEntries(req protocol.JournalQueryData) ([]protocol.LogStreamData, error) {
 	if _, err := JournalLookPath("journalctl"); err != nil {
 		return nil, fmt.Errorf("journalctl is not available on this host")
 	}
@@ -55,7 +55,7 @@ func (LinuxLogBackend) QueryEntries(req agentmgr.JournalQueryData) ([]agentmgr.L
 		return nil, fmt.Errorf("journalctl query failed: %w", err)
 	}
 
-	entries := make([]agentmgr.LogStreamData, 0, NormalizedJournalLimit(req.Limit))
+	entries := make([]protocol.LogStreamData, 0, NormalizedJournalLimit(req.Limit))
 	scanner := bufio.NewScanner(bytes.NewReader(out))
 	scanner.Buffer(make([]byte, 256*1024), 256*1024)
 	for scanner.Scan() {
@@ -73,7 +73,7 @@ func (LinuxLogBackend) QueryEntries(req agentmgr.JournalQueryData) ([]agentmgr.L
 }
 
 // StreamEntries streams journal entries via `journalctl -f`.
-func (LinuxLogBackend) StreamEntries(ctx context.Context, emit func(agentmgr.LogStreamData)) error {
+func (LinuxLogBackend) StreamEntries(ctx context.Context, emit func(protocol.LogStreamData)) error {
 	if _, err := JournalLookPath("journalctl"); err != nil {
 		return ErrLogStreamingUnsupported
 	}
@@ -119,7 +119,7 @@ func (LinuxLogBackend) StreamEntries(ctx context.Context, emit func(agentmgr.Log
 }
 
 // BuildJournalQueryArgs builds the arguments for a journalctl query.
-func BuildJournalQueryArgs(req agentmgr.JournalQueryData) []string {
+func BuildJournalQueryArgs(req protocol.JournalQueryData) []string {
 	limit := NormalizedJournalLimit(req.Limit)
 	args := []string{
 		"--no-pager",

@@ -8,11 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/protocol"
 )
 
 func TestResolveWebRTCDisplay(t *testing.T) {
-	caps := agentmgr.WebRTCCapabilitiesData{
+	caps := protocol.WebRTCCapabilitiesData{
 		Displays: []string{":2", ":0"},
 	}
 
@@ -24,17 +24,17 @@ func TestResolveWebRTCDisplay(t *testing.T) {
 		t.Fatalf("expected advertised X display to be preserved, got %q", got)
 	}
 
-	if got := ResolveWebRTCDisplay(":9", agentmgr.WebRTCCapabilitiesData{}); got != ":9" {
+	if got := ResolveWebRTCDisplay(":9", protocol.WebRTCCapabilitiesData{}); got != ":9" {
 		t.Fatalf("expected explicit X display to be preserved when no capabilities are advertised, got %q", got)
 	}
 
-	if got := ResolveWebRTCDisplay("", agentmgr.WebRTCCapabilitiesData{}); got != ":0" {
+	if got := ResolveWebRTCDisplay("", protocol.WebRTCCapabilitiesData{}); got != ":0" {
 		t.Fatalf("expected empty display to fall back to :0, got %q", got)
 	}
 }
 
 func TestResolveWebRTCDisplayWaylandIgnoresX11Selection(t *testing.T) {
-	caps := agentmgr.WebRTCCapabilitiesData{
+	caps := protocol.WebRTCCapabilitiesData{
 		DesktopSessionType: DesktopSessionTypeWayland,
 		DesktopBackend:     DesktopBackendWaylandPipeWire,
 		Displays:           []string{":2"},
@@ -68,10 +68,10 @@ func TestWebRTCManagerHandleWebRTCStartReportsUnavailable(t *testing.T) {
 	transport, messages, cleanup := newDesktopRuntimeTransport(t)
 	defer cleanup()
 
-	manager := NewWebRTCManager(agentmgr.WebRTCCapabilitiesData{}, nil, nil, nil)
-	manager.HandleWebRTCStart(transport, agentmgr.Message{
-		Type: agentmgr.MsgWebRTCStart,
-		Data: mustMarshalDesktopRuntime(t, agentmgr.WebRTCSessionData{SessionID: "sess-unavailable"}),
+	manager := NewWebRTCManager(protocol.WebRTCCapabilitiesData{}, nil, nil, nil)
+	manager.HandleWebRTCStart(transport, protocol.Message{
+		Type: protocol.MsgWebRTCStart,
+		Data: mustMarshalDesktopRuntime(t, protocol.WebRTCSessionData{SessionID: "sess-unavailable"}),
 	})
 
 	stopped := readWebRTCStopped(t, messages)
@@ -85,10 +85,10 @@ func TestWebRTCManagerHandleWebRTCStartHonorsDisabledSetting(t *testing.T) {
 	defer cleanup()
 
 	settings := newDisabledWebRTCSettings()
-	manager := NewWebRTCManager(agentmgr.WebRTCCapabilitiesData{Available: true}, settings, nil, nil)
-	manager.HandleWebRTCStart(transport, agentmgr.Message{
-		Type: agentmgr.MsgWebRTCStart,
-		Data: mustMarshalDesktopRuntime(t, agentmgr.WebRTCSessionData{SessionID: "sess-disabled"}),
+	manager := NewWebRTCManager(protocol.WebRTCCapabilitiesData{Available: true}, settings, nil, nil)
+	manager.HandleWebRTCStart(transport, protocol.Message{
+		Type: protocol.MsgWebRTCStart,
+		Data: mustMarshalDesktopRuntime(t, protocol.WebRTCSessionData{SessionID: "sess-disabled"}),
 	})
 
 	stopped := readWebRTCStopped(t, messages)
@@ -101,10 +101,10 @@ func TestWebRTCManagerHandleWebRTCStartRequiresSupportedEncoder(t *testing.T) {
 	transport, messages, cleanup := newDesktopRuntimeTransport(t)
 	defer cleanup()
 
-	manager := NewWebRTCManager(agentmgr.WebRTCCapabilitiesData{Available: true}, nil, nil, nil)
-	manager.HandleWebRTCStart(transport, agentmgr.Message{
-		Type: agentmgr.MsgWebRTCStart,
-		Data: mustMarshalDesktopRuntime(t, agentmgr.WebRTCSessionData{SessionID: "sess-no-encoder"}),
+	manager := NewWebRTCManager(protocol.WebRTCCapabilitiesData{Available: true}, nil, nil, nil)
+	manager.HandleWebRTCStart(transport, protocol.Message{
+		Type: protocol.MsgWebRTCStart,
+		Data: mustMarshalDesktopRuntime(t, protocol.WebRTCSessionData{SessionID: "sess-no-encoder"}),
 	})
 
 	stopped := readWebRTCStopped(t, messages)
@@ -144,14 +144,14 @@ func TestWebRTCManagerHandleWebRTCStartSetsManagedDisplayX11Env(t *testing.T) {
 	FindDesktopFreeDisplay = func() int { return 77 }
 
 	manager := NewWebRTCManager(
-		agentmgr.WebRTCCapabilitiesData{Available: true, VideoEncoders: []string{"x264"}},
+		protocol.WebRTCCapabilitiesData{Available: true, VideoEncoders: []string{"x264"}},
 		nil,
 		nil,
 		NewDisplayManager(),
 	)
-	manager.HandleWebRTCStart(transport, agentmgr.Message{
-		Type: agentmgr.MsgWebRTCStart,
-		Data: mustMarshalDesktopRuntime(t, agentmgr.WebRTCSessionData{
+	manager.HandleWebRTCStart(transport, protocol.Message{
+		Type: protocol.MsgWebRTCStart,
+		Data: mustMarshalDesktopRuntime(t, protocol.WebRTCSessionData{
 			SessionID: "sess-managed-display",
 			Display:   ":777",
 		}),
@@ -161,8 +161,8 @@ func TestWebRTCManagerHandleWebRTCStartSetsManagedDisplayX11Env(t *testing.T) {
 	})
 
 	msg := readDesktopRuntimeMessage(t, messages)
-	if msg.Type != agentmgr.MsgWebRTCStarted {
-		t.Fatalf("message type=%q, want %q", msg.Type, agentmgr.MsgWebRTCStarted)
+	if msg.Type != protocol.MsgWebRTCStarted {
+		t.Fatalf("message type=%q, want %q", msg.Type, protocol.MsgWebRTCStarted)
 	}
 	if len(startedCommands) == 0 {
 		t.Fatal("expected gst-launch command to be started")
@@ -181,7 +181,7 @@ func TestWebRTCManagerHandleWebRTCStopCleansSessionAndNotifiesHub(t *testing.T) 
 	defer cleanup()
 
 	cancelled := make(chan struct{})
-	manager := NewWebRTCManager(agentmgr.WebRTCCapabilitiesData{Available: true}, nil, nil, nil)
+	manager := NewWebRTCManager(protocol.WebRTCCapabilitiesData{Available: true}, nil, nil, nil)
 	sess := &WebRTCSession{
 		sessionID: "sess-stop",
 		inputCh:   make(chan WebRTCInputEvent, 1),
@@ -196,9 +196,9 @@ func TestWebRTCManagerHandleWebRTCStopCleansSessionAndNotifiesHub(t *testing.T) 
 	}
 	manager.Sessions["sess-stop"] = sess
 
-	manager.HandleWebRTCStop(agentmgr.Message{
-		Type: agentmgr.MsgWebRTCStop,
-		Data: mustMarshalDesktopRuntime(t, agentmgr.WebRTCStoppedData{SessionID: "sess-stop"}),
+	manager.HandleWebRTCStop(protocol.Message{
+		Type: protocol.MsgWebRTCStop,
+		Data: mustMarshalDesktopRuntime(t, protocol.WebRTCStoppedData{SessionID: "sess-stop"}),
 	}, transport)
 
 	select {
@@ -225,7 +225,7 @@ func TestWebRTCManagerHandleWebRTCStopCleansSessionAndNotifiesHub(t *testing.T) 
 }
 
 func TestWebRTCManagerHandleWebRTCInputQueuesEvent(t *testing.T) {
-	manager := NewWebRTCManager(agentmgr.WebRTCCapabilitiesData{Available: true}, nil, nil, nil)
+	manager := NewWebRTCManager(protocol.WebRTCCapabilitiesData{Available: true}, nil, nil, nil)
 	sess := &WebRTCSession{
 		sessionID: "sess-input",
 		inputCh:   make(chan WebRTCInputEvent, 1),
@@ -233,9 +233,9 @@ func TestWebRTCManagerHandleWebRTCInputQueuesEvent(t *testing.T) {
 	}
 	manager.Sessions["sess-input"] = sess
 
-	manager.HandleWebRTCInput(agentmgr.Message{
-		Type: agentmgr.MsgWebRTCInput,
-		Data: mustMarshalDesktopRuntime(t, agentmgr.WebRTCInputData{
+	manager.HandleWebRTCInput(protocol.Message{
+		Type: protocol.MsgWebRTCInput,
+		Data: mustMarshalDesktopRuntime(t, protocol.WebRTCInputData{
 			SessionID: "sess-input",
 			Type:      " mousemove ",
 			X:         11,
@@ -257,7 +257,7 @@ func TestWebRTCManagerHandleWebRTCInputQueuesEvent(t *testing.T) {
 }
 
 func TestDecodeWebRTCInputEventAcceptsFallbackPayload(t *testing.T) {
-	raw, err := json.Marshal(agentmgr.WebRTCInputData{
+	raw, err := json.Marshal(protocol.WebRTCInputData{
 		SessionID: "sess-fallback",
 		Type:      "keydown",
 		KeyCode:   13,
@@ -316,7 +316,7 @@ func TestICECandidateSendDelay(t *testing.T) {
 }
 
 func TestWebRTCManagerWatchPipelineExitKeepsSessionOnAudioFailure(t *testing.T) {
-	manager := NewWebRTCManager(agentmgr.WebRTCCapabilitiesData{Available: true}, nil, nil, nil)
+	manager := NewWebRTCManager(protocol.WebRTCCapabilitiesData{Available: true}, nil, nil, nil)
 	sess := &WebRTCSession{
 		sessionID:    "sess-audio-exit",
 		inputCh:      make(chan WebRTCInputEvent, 1),

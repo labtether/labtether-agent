@@ -1,13 +1,13 @@
 package sysconfig
 
-import "github.com/labtether/labtether/internal/agentmgr"
+import "github.com/labtether/protocol"
 
 type LinuxNetworkBackend struct{}
 
-func (LinuxNetworkBackend) ApplyAction(nm *NetworkManager, req agentmgr.NetworkActionData) agentmgr.NetworkResultData {
+func (LinuxNetworkBackend) ApplyAction(nm *NetworkManager, req protocol.NetworkActionData) protocol.NetworkResultData {
 	return nm.ApplyActionLinux(req)
 }
 
-func (LinuxNetworkBackend) RollbackAction(nm *NetworkManager, req agentmgr.NetworkActionData) agentmgr.NetworkResultData {
+func (LinuxNetworkBackend) RollbackAction(nm *NetworkManager, req protocol.NetworkActionData) protocol.NetworkResultData {
 	return nm.RollbackActionLinux(req)
 }

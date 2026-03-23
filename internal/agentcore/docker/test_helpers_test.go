@@ -6,25 +6,25 @@ import (
 	"testing"
 	"time"
 
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/protocol"
 )
 
 type recordingCollectorTransport struct {
 	mu        sync.Mutex
 	connected bool
-	messages  []agentmgr.Message
-	ch        chan agentmgr.Message
-	onSend    func(agentmgr.Message)
+	messages  []protocol.Message
+	ch        chan protocol.Message
+	onSend    func(protocol.Message)
 }
 
 func newRecordingCollectorTransport(connected bool) *recordingCollectorTransport {
 	return &recordingCollectorTransport{
 		connected: connected,
-		ch:        make(chan agentmgr.Message, 32),
+		ch:        make(chan protocol.Message, 32),
 	}
 }
 
-func (r *recordingCollectorTransport) Send(msg agentmgr.Message) error {
+func (r *recordingCollectorTransport) Send(msg protocol.Message) error {
 	r.mu.Lock()
 	r.messages = append(r.messages, msg)
 	r.mu.Unlock()
@@ -41,8 +41,8 @@ func (r *recordingCollectorTransport) Send(msg agentmgr.Message) error {
 
 func (r *recordingCollectorTransport) Connect(context.Context) error { return nil }
 
-func (r *recordingCollectorTransport) Receive() (agentmgr.Message, error) {
-	return agentmgr.Message{}, nil
+func (r *recordingCollectorTransport) Receive() (protocol.Message, error) {
+	return protocol.Message{}, nil
 }
 
 func (r *recordingCollectorTransport) Close() {}
@@ -59,7 +59,7 @@ func (r *recordingCollectorTransport) MessageCount() int {
 	return len(r.messages)
 }
 
-func waitForCollectorMessage(t *testing.T, transport *recordingCollectorTransport, timeout time.Duration) agentmgr.Message {
+func waitForCollectorMessage(t *testing.T, transport *recordingCollectorTransport, timeout time.Duration) protocol.Message {
 	t.Helper()
 
 	select {
@@ -67,6 +67,6 @@ func waitForCollectorMessage(t *testing.T, transport *recordingCollectorTranspor
 		return msg
 	case <-time.After(timeout):
 		t.Fatal("timed out waiting for collector transport message")
-		return agentmgr.Message{}
+		return protocol.Message{}
 	}
 }

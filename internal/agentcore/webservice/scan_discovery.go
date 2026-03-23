@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/protocol"
 )
 
 func scannedPortMetadata(port int) (name, category, iconKey, serviceKey, healthPath string, known bool) {
@@ -28,11 +28,11 @@ func scannedPortMetadata(port int) (name, category, iconKey, serviceKey, healthP
 	return knownSvc.Name, knownSvc.Category, knownSvc.IconKey, knownSvc.Key, knownSvc.HealthPath, true
 }
 
-func (wsc *WebServiceCollector) discoverPortScannedServices(ctx context.Context, existing []agentmgr.DiscoveredWebService) []agentmgr.DiscoveredWebService {
+func (wsc *WebServiceCollector) discoverPortScannedServices(ctx context.Context, existing []protocol.DiscoveredWebService) []protocol.DiscoveredWebService {
 	return wsc.discoverPortScannedServicesWithConfig(ctx, existing, normalizeWebServiceDiscoveryConfig(wsc.discoveryCfg))
 }
 
-func (wsc *WebServiceCollector) discoverPortScannedServicesWithConfig(ctx context.Context, existing []agentmgr.DiscoveredWebService, cfg WebServiceDiscoveryConfig) []agentmgr.DiscoveredWebService {
+func (wsc *WebServiceCollector) discoverPortScannedServicesWithConfig(ctx context.Context, existing []protocol.DiscoveredWebService, cfg WebServiceDiscoveryConfig) []protocol.DiscoveredWebService {
 	if !cfg.PortScanEnabled {
 		return nil
 	}
@@ -102,7 +102,7 @@ func (wsc *WebServiceCollector) discoverPortScannedServicesWithConfig(ctx contex
 		return pi < pj
 	})
 
-	services := make([]agentmgr.DiscoveredWebService, 0, len(openPorts))
+	services := make([]protocol.DiscoveredWebService, 0, len(openPorts))
 	unknownAdded := 0
 
 	for _, port := range openPorts {
@@ -115,7 +115,7 @@ func (wsc *WebServiceCollector) discoverPortScannedServicesWithConfig(ctx contex
 			unknownAdded++
 		}
 
-		svc := agentmgr.DiscoveredWebService{
+		svc := protocol.DiscoveredWebService{
 			ID:          makeServiceID(wsc.assetID, "scan", strconv.Itoa(port)),
 			ServiceKey:  serviceKey,
 			Name:        name,
@@ -141,11 +141,11 @@ func (wsc *WebServiceCollector) discoverPortScannedServicesWithConfig(ctx contex
 	return services
 }
 
-func (wsc *WebServiceCollector) discoverLANScannedServices(ctx context.Context, existing []agentmgr.DiscoveredWebService) []agentmgr.DiscoveredWebService {
+func (wsc *WebServiceCollector) discoverLANScannedServices(ctx context.Context, existing []protocol.DiscoveredWebService) []protocol.DiscoveredWebService {
 	return wsc.discoverLANScannedServicesWithConfig(ctx, existing, normalizeWebServiceDiscoveryConfig(wsc.discoveryCfg))
 }
 
-func (wsc *WebServiceCollector) discoverLANScannedServicesWithConfig(ctx context.Context, existing []agentmgr.DiscoveredWebService, cfg WebServiceDiscoveryConfig) []agentmgr.DiscoveredWebService {
+func (wsc *WebServiceCollector) discoverLANScannedServicesWithConfig(ctx context.Context, existing []protocol.DiscoveredWebService, cfg WebServiceDiscoveryConfig) []protocol.DiscoveredWebService {
 	if !cfg.LANScanEnabled {
 		return nil
 	}
@@ -226,7 +226,7 @@ func (wsc *WebServiceCollector) discoverLANScannedServicesWithConfig(ctx context
 		return openEndpoints[i].port < openEndpoints[j].port
 	})
 
-	services := make([]agentmgr.DiscoveredWebService, 0, len(openEndpoints))
+	services := make([]protocol.DiscoveredWebService, 0, len(openEndpoints))
 	unknownAdded := 0
 	for _, item := range openEndpoints {
 		name, category, iconKey, serviceKey, healthPath, knownOK := scannedPortMetadata(item.port)
@@ -238,7 +238,7 @@ func (wsc *WebServiceCollector) discoverLANScannedServicesWithConfig(ctx context
 			name = fmt.Sprintf("Port %d on %s", item.port, item.host)
 		}
 
-		svc := agentmgr.DiscoveredWebService{
+		svc := protocol.DiscoveredWebService{
 			ID:          makeServiceID(wsc.assetID, "scan", net.JoinHostPort(item.host, strconv.Itoa(item.port))),
 			ServiceKey:  serviceKey,
 			Name:        name,

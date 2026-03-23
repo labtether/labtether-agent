@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/labtether/labtether/internal/agentcore"
-	"github.com/labtether/labtether/internal/agentplatform/windows"
+	"github.com/labtether/labtether-agent/internal/agentcore"
+	"github.com/labtether/labtether-agent/internal/agentplatform/windows"
 )
 
 func handleWindowsServiceArgs(args []string) (handled bool) {

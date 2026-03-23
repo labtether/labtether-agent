@@ -9,12 +9,12 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/protocol"
 )
 
 // HandleFileCopy handles a file copy request from the hub.
-func (fm *Manager) HandleFileCopy(transport MessageSender, msg agentmgr.Message) {
-	var req agentmgr.FileCopyData
+func (fm *Manager) HandleFileCopy(transport MessageSender, msg protocol.Message) {
+	var req protocol.FileCopyData
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		log.Printf("file: invalid copy request: %v", err)
 		return

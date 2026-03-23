@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/labtether/labtether/internal/agentmgr"
-	"github.com/labtether/labtether/internal/securityruntime"
+	"github.com/labtether/labtether-agent/internal/securityruntime"
+	"github.com/labtether/protocol"
 )
 
 const darwinServiceActionTimeout = 30 * time.Second
@@ -20,7 +20,7 @@ const darwinServiceActionTimeout = 30 * time.Second
 type DarwinServiceBackend struct{}
 
 // ListServices lists launchd services.
-func (DarwinServiceBackend) ListServices() ([]agentmgr.ServiceInfo, error) {
+func (DarwinServiceBackend) ListServices() ([]protocol.ServiceInfo, error) {
 	if _, err := exec.LookPath("launchctl"); err != nil {
 		return nil, fmt.Errorf("launchctl is not available on this host")
 	}
@@ -54,8 +54,8 @@ func (DarwinServiceBackend) PerformAction(action, service string) (string, error
 }
 
 // ParseLaunchctlListOutput parses the output of `launchctl list`.
-func ParseLaunchctlListOutput(raw string) []agentmgr.ServiceInfo {
-	var services []agentmgr.ServiceInfo
+func ParseLaunchctlListOutput(raw string) []protocol.ServiceInfo {
+	var services []protocol.ServiceInfo
 	for _, line := range strings.Split(strings.TrimSpace(raw), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "PID") {
@@ -83,7 +83,7 @@ func ParseLaunchctlListOutput(raw string) []agentmgr.ServiceInfo {
 			subState = "failed"
 		}
 
-		services = append(services, agentmgr.ServiceInfo{
+		services = append(services, protocol.ServiceInfo{
 			Name:        label,
 			Description: label,
 			ActiveState: activeState,

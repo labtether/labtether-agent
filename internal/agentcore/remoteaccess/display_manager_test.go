@@ -6,8 +6,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/labtether/labtether/internal/agentcore/system"
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/labtether-agent/internal/agentcore/system"
+	"github.com/labtether/protocol"
 )
 
 func TestDisplayManagerAcquireCreatesXvfb(t *testing.T) {
@@ -201,8 +201,8 @@ func TestIsDisplayAvailableUsesActiveUserSession(t *testing.T) {
 		system.CollectUserSessionsFn = originalCollectUserSessions
 	})
 
-	system.CollectUserSessionsFn = func() ([]agentmgr.UserSession, error) {
-		return []agentmgr.UserSession{
+	system.CollectUserSessionsFn = func() ([]protocol.UserSession, error) {
+		return []protocol.UserSession{
 			{Username: "lightdm", Terminal: "seat0", RemoteHost: ":0"},
 		}, nil
 	}
@@ -218,8 +218,8 @@ func TestAppendDetectedActiveDisplaysAddsSessionBackedDisplay(t *testing.T) {
 		system.CollectUserSessionsFn = originalCollectUserSessions
 	})
 
-	system.CollectUserSessionsFn = func() ([]agentmgr.UserSession, error) {
-		return []agentmgr.UserSession{
+	system.CollectUserSessionsFn = func() ([]protocol.UserSession, error) {
+		return []protocol.UserSession{
 			{Username: "lightdm", Terminal: "seat0", RemoteHost: ":0"},
 		}, nil
 	}

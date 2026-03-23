@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/labtether/labtether/internal/agentmgr"
-	"github.com/labtether/labtether/internal/securityruntime"
+	"github.com/labtether/labtether-agent/internal/securityruntime"
+	"github.com/labtether/protocol"
 )
 
 // DesktopSessionType and DesktopSessionDetector are injectable hooks for
@@ -27,7 +27,7 @@ var (
 // DesktopSessionTypeWayland is the session type constant for Wayland sessions.
 const DesktopSessionTypeWayland = "wayland"
 
-func PlatformListDisplays() ([]agentmgr.DisplayInfo, error) {
+func PlatformListDisplays() ([]protocol.DisplayInfo, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 

@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"log"
 
-	"github.com/labtether/labtether/internal/agentmgr"
-	"github.com/labtether/labtether/internal/wol"
+	"github.com/labtether/labtether-agent/internal/wol"
+	"github.com/labtether/protocol"
 )
 
 // WoLSendFn is the function used to send Wake-on-LAN packets.
@@ -13,14 +13,14 @@ import (
 var WoLSendFn = wol.Send
 
 // HandleWoLSend handles a Wake-on-LAN send request from the hub.
-func HandleWoLSend(transport MessageSender, msg agentmgr.Message) {
-	var req agentmgr.WoLSendData
+func HandleWoLSend(transport MessageSender, msg protocol.Message) {
+	var req protocol.WoLSendData
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		log.Printf("wol: invalid request payload: %v", err)
 		return
 	}
 
-	result := agentmgr.WoLResultData{
+	result := protocol.WoLResultData{
 		RequestID: req.RequestID,
 		MAC:       req.MAC,
 		OK:        false,
@@ -48,14 +48,14 @@ func HandleWoLSend(transport MessageSender, msg agentmgr.Message) {
 	log.Printf("wol: sent magic packet for %s via %s", req.MAC, broadcast)
 }
 
-func sendWoLResult(transport MessageSender, result agentmgr.WoLResultData) {
+func sendWoLResult(transport MessageSender, result protocol.WoLResultData) {
 	data, err := json.Marshal(result)
 	if err != nil {
 		log.Printf("wol: marshal result failed: %v", err)
 		return
 	}
-	_ = transport.Send(agentmgr.Message{
-		Type: agentmgr.MsgWoLResult,
+	_ = transport.Send(protocol.Message{
+		Type: protocol.MsgWoLResult,
 		ID:   result.RequestID,
 		Data: data,
 	})

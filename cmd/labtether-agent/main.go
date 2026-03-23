@@ -8,8 +8,8 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/labtether/labtether/internal/agentcore"
-	"github.com/labtether/labtether/internal/agentplatform"
+	"github.com/labtether/labtether-agent/internal/agentcore"
+	"github.com/labtether/labtether-agent/internal/agentplatform"
 )
 
 func main() {

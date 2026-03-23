@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"runtime"
 
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/protocol"
 )
 
 type NetworkBackend interface {
-	ApplyAction(nm *NetworkManager, req agentmgr.NetworkActionData) agentmgr.NetworkResultData
-	RollbackAction(nm *NetworkManager, req agentmgr.NetworkActionData) agentmgr.NetworkResultData
+	ApplyAction(nm *NetworkManager, req protocol.NetworkActionData) protocol.NetworkResultData
+	RollbackAction(nm *NetworkManager, req protocol.NetworkActionData) protocol.NetworkResultData
 }
 
 func NewNetworkBackendForOS() NetworkBackend {
@@ -33,15 +33,15 @@ type UnsupportedNetworkBackend struct {
 	OS string
 }
 
-func (b UnsupportedNetworkBackend) ApplyAction(_ *NetworkManager, req agentmgr.NetworkActionData) agentmgr.NetworkResultData {
-	return agentmgr.NetworkResultData{
+func (b UnsupportedNetworkBackend) ApplyAction(_ *NetworkManager, req protocol.NetworkActionData) protocol.NetworkResultData {
+	return protocol.NetworkResultData{
 		RequestID: req.RequestID,
 		Error:     fmt.Sprintf("network actions are not supported on %s", b.OS),
 	}
 }
 
-func (b UnsupportedNetworkBackend) RollbackAction(_ *NetworkManager, req agentmgr.NetworkActionData) agentmgr.NetworkResultData {
-	return agentmgr.NetworkResultData{
+func (b UnsupportedNetworkBackend) RollbackAction(_ *NetworkManager, req protocol.NetworkActionData) protocol.NetworkResultData {
+	return protocol.NetworkResultData{
 		RequestID: req.RequestID,
 		Error:     fmt.Sprintf("network rollback is not supported on %s", b.OS),
 	}

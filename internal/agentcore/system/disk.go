@@ -11,8 +11,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/labtether/labtether/internal/agentmgr"
-	"github.com/labtether/labtether/internal/securityruntime"
+	"github.com/labtether/labtether-agent/internal/securityruntime"
+	"github.com/labtether/protocol"
 )
 
 // CollectMountsFn is the function used to collect mount information.
@@ -32,8 +32,8 @@ func NewDiskManager() *DiskManager { return &DiskManager{} }
 func (dm *DiskManager) CloseAll() {}
 
 // HandleDiskList collects mount/disk info and sends it to the hub.
-func (dm *DiskManager) HandleDiskList(transport MessageSender, msg agentmgr.Message) {
-	var req agentmgr.DiskListData
+func (dm *DiskManager) HandleDiskList(transport MessageSender, msg protocol.Message) {
+	var req protocol.DiskListData
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		log.Printf("disk: invalid disk.list request: %v", err)
 		return
@@ -47,7 +47,7 @@ func (dm *DiskManager) HandleDiskList(transport MessageSender, msg agentmgr.Mess
 		log.Printf("disk: failed to collect mounts: %v", err)
 	}
 
-	data, marshalErr := json.Marshal(agentmgr.DiskListedData{
+	data, marshalErr := json.Marshal(protocol.DiskListedData{
 		RequestID: req.RequestID,
 		Mounts:    mounts,
 		Error:     errMsg,
@@ -57,8 +57,8 @@ func (dm *DiskManager) HandleDiskList(transport MessageSender, msg agentmgr.Mess
 		return
 	}
 
-	if sendErr := transport.Send(agentmgr.Message{
-		Type: agentmgr.MsgDiskListed,
+	if sendErr := transport.Send(protocol.Message{
+		Type: protocol.MsgDiskListed,
 		ID:   req.RequestID,
 		Data: data,
 	}); sendErr != nil {
@@ -92,7 +92,7 @@ var VirtualFSTypes = map[string]bool{
 // CollectMounts collects mount/disk information from the system.
 // On Linux it reads /proc/mounts and uses syscall.Statfs for space info.
 // On macOS and other platforms it parses `df -k` output.
-func CollectMounts() ([]agentmgr.MountInfo, error) {
+func CollectMounts() ([]protocol.MountInfo, error) {
 	if runtime.GOOS == "linux" {
 		return collectMountsLinux()
 	}
@@ -101,14 +101,14 @@ func CollectMounts() ([]agentmgr.MountInfo, error) {
 
 // collectMountsLinux reads /proc/mounts and calls StatfsMountPoint for each
 // real filesystem entry.
-func collectMountsLinux() ([]agentmgr.MountInfo, error) {
+func collectMountsLinux() ([]protocol.MountInfo, error) {
 	data, err := os.ReadFile("/proc/mounts")
 	if err != nil {
 		// Fall back to df -k if /proc/mounts is unavailable.
 		return collectMountsDF()
 	}
 
-	var mounts []agentmgr.MountInfo
+	var mounts []protocol.MountInfo
 	scanner := bufio.NewScanner(bytes.NewReader(data))
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -157,13 +157,13 @@ func collectMountsLinux() ([]agentmgr.MountInfo, error) {
 //
 //	Filesystem  1024-blocks  Used  Available  Use%  Mounted on
 //	0           1            2     3          4     5
-func collectMountsDF() ([]agentmgr.MountInfo, error) {
+func collectMountsDF() ([]protocol.MountInfo, error) {
 	out, err := exec.Command("df", "-k").CombinedOutput()
 	if err != nil {
 		return nil, err
 	}
 
-	var mounts []agentmgr.MountInfo
+	var mounts []protocol.MountInfo
 	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
 	// Skip the header line.
 	for _, line := range lines[1:] {
@@ -200,7 +200,7 @@ func collectMountsDF() ([]agentmgr.MountInfo, error) {
 			usePct = float64(used) / float64(total) * 100
 		}
 
-		mounts = append(mounts, agentmgr.MountInfo{
+		mounts = append(mounts, protocol.MountInfo{
 			Device:     device,
 			MountPoint: mountPoint,
 			FSType:     "", // df -k does not include fstype by default

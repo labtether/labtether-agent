@@ -7,8 +7,8 @@ package agentcore
 import (
 	"time"
 
-	"github.com/labtether/labtether/internal/agentcore/sysconfig"
-	webservicepkg "github.com/labtether/labtether/internal/agentcore/webservice"
+	"github.com/labtether/labtether-agent/internal/agentcore/sysconfig"
+	webservicepkg "github.com/labtether/labtether-agent/internal/agentcore/webservice"
 )
 
 // Setting type aliases.

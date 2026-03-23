@@ -1,7 +1,7 @@
 package proxy
 
 import (
-	dockerpkg "github.com/labtether/labtether/internal/agentcore/docker"
+	dockerpkg "github.com/labtether/labtether-agent/internal/agentcore/docker"
 )
 
 // Route represents a single routing rule discovered from a reverse proxy.

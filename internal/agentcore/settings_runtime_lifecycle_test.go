@@ -12,7 +12,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/protocol"
 )
 
 func TestApplyAgentSettingsRejectsLocalOnlyKey(t *testing.T) {
@@ -44,14 +44,14 @@ func TestHandleAgentSettingsApplyRejectsDisabledRemoteOverridesAndReportsState(t
 	transport, messages, cleanup := newSettingsLifecycleTransport(t)
 	defer cleanup()
 
-	request := mustMarshalSettingsMessage(t, agentmgr.AgentSettingsApplyData{
+	request := mustMarshalSettingsMessage(t, protocol.AgentSettingsApplyData{
 		RequestID: "req-disabled",
 		Revision:  "rev-disabled",
 		Values: map[string]string{
 			SettingKeyCollectIntervalSec: "30",
 		},
 	})
-	handleAgentSettingsApply(transport, agentmgr.Message{Type: agentmgr.MsgAgentSettingsApply, Data: request}, runtime)
+	handleAgentSettingsApply(transport, protocol.Message{Type: protocol.MsgAgentSettingsApply, Data: request}, runtime)
 
 	applied := decodeAgentSettingsApplied(t, readSettingsLifecycleMessage(t, messages))
 	if applied.Applied {
@@ -86,7 +86,7 @@ func TestHandleAgentSettingsApplyRejectsFingerprintMismatchAndReportsCurrentStat
 	transport, messages, cleanup := newSettingsLifecycleTransport(t)
 	defer cleanup()
 
-	request := mustMarshalSettingsMessage(t, agentmgr.AgentSettingsApplyData{
+	request := mustMarshalSettingsMessage(t, protocol.AgentSettingsApplyData{
 		RequestID:           "req-fp",
 		Revision:            "rev-fp",
 		ExpectedFingerprint: "fp-other",
@@ -94,7 +94,7 @@ func TestHandleAgentSettingsApplyRejectsFingerprintMismatchAndReportsCurrentStat
 			SettingKeyLogLevel: "debug",
 		},
 	})
-	handleAgentSettingsApply(transport, agentmgr.Message{Type: agentmgr.MsgAgentSettingsApply, Data: request}, runtime)
+	handleAgentSettingsApply(transport, protocol.Message{Type: protocol.MsgAgentSettingsApply, Data: request}, runtime)
 
 	applied := decodeAgentSettingsApplied(t, readSettingsLifecycleMessage(t, messages))
 	if applied.Applied {
@@ -124,7 +124,7 @@ func TestHandleAgentSettingsApplyReportsRestartRequiredAndPersistsValues(t *test
 	transport, messages, cleanup := newSettingsLifecycleTransport(t)
 	defer cleanup()
 
-	request := mustMarshalSettingsMessage(t, agentmgr.AgentSettingsApplyData{
+	request := mustMarshalSettingsMessage(t, protocol.AgentSettingsApplyData{
 		RequestID: "req-success",
 		Revision:  "rev-success",
 		Values: map[string]string{
@@ -133,7 +133,7 @@ func TestHandleAgentSettingsApplyReportsRestartRequiredAndPersistsValues(t *test
 			SettingKeyLogLevel:           "DEBUG",
 		},
 	})
-	handleAgentSettingsApply(transport, agentmgr.Message{Type: agentmgr.MsgAgentSettingsApply, Data: request}, runtime)
+	handleAgentSettingsApply(transport, protocol.Message{Type: protocol.MsgAgentSettingsApply, Data: request}, runtime)
 
 	applied := decodeAgentSettingsApplied(t, readSettingsLifecycleMessage(t, messages))
 	if !applied.Applied {
@@ -239,11 +239,11 @@ func newSettingsLifecycleRuntime(t *testing.T, overrides RuntimeConfig) *Runtime
 	return NewRuntime(cfg, nil, nil)
 }
 
-func newSettingsLifecycleTransport(t *testing.T) (*wsTransport, <-chan agentmgr.Message, func()) {
+func newSettingsLifecycleTransport(t *testing.T) (*wsTransport, <-chan protocol.Message, func()) {
 	t.Helper()
 	t.Setenv(envAllowInsecureTransport, "true")
 
-	messages := make(chan agentmgr.Message, 8)
+	messages := make(chan protocol.Message, 8)
 	upgrader := websocket.Upgrader{CheckOrigin: func(_ *http.Request) bool { return true }}
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -254,7 +254,7 @@ func newSettingsLifecycleTransport(t *testing.T) (*wsTransport, <-chan agentmgr.
 		}
 		defer conn.Close()
 		for {
-			var msg agentmgr.Message
+			var msg protocol.Message
 			if err := conn.ReadJSON(&msg); err != nil {
 				return
 			}
@@ -288,35 +288,35 @@ func newSettingsLifecycleTransport(t *testing.T) (*wsTransport, <-chan agentmgr.
 	return transport, messages, cleanup
 }
 
-func readSettingsLifecycleMessage(t *testing.T, messages <-chan agentmgr.Message) agentmgr.Message {
+func readSettingsLifecycleMessage(t *testing.T, messages <-chan protocol.Message) protocol.Message {
 	t.Helper()
 	select {
 	case msg := <-messages:
 		return msg
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for agent settings message")
-		return agentmgr.Message{}
+		return protocol.Message{}
 	}
 }
 
-func decodeAgentSettingsApplied(t *testing.T, msg agentmgr.Message) agentmgr.AgentSettingsAppliedData {
+func decodeAgentSettingsApplied(t *testing.T, msg protocol.Message) protocol.AgentSettingsAppliedData {
 	t.Helper()
-	if msg.Type != agentmgr.MsgAgentSettingsApplied {
-		t.Fatalf("message type=%q, want %q", msg.Type, agentmgr.MsgAgentSettingsApplied)
+	if msg.Type != protocol.MsgAgentSettingsApplied {
+		t.Fatalf("message type=%q, want %q", msg.Type, protocol.MsgAgentSettingsApplied)
 	}
-	var payload agentmgr.AgentSettingsAppliedData
+	var payload protocol.AgentSettingsAppliedData
 	if err := json.Unmarshal(msg.Data, &payload); err != nil {
 		t.Fatalf("decode applied payload: %v", err)
 	}
 	return payload
 }
 
-func decodeAgentSettingsState(t *testing.T, msg agentmgr.Message) agentmgr.AgentSettingsStateData {
+func decodeAgentSettingsState(t *testing.T, msg protocol.Message) protocol.AgentSettingsStateData {
 	t.Helper()
-	if msg.Type != agentmgr.MsgAgentSettingsState {
-		t.Fatalf("message type=%q, want %q", msg.Type, agentmgr.MsgAgentSettingsState)
+	if msg.Type != protocol.MsgAgentSettingsState {
+		t.Fatalf("message type=%q, want %q", msg.Type, protocol.MsgAgentSettingsState)
 	}
-	var payload agentmgr.AgentSettingsStateData
+	var payload protocol.AgentSettingsStateData
 	if err := json.Unmarshal(msg.Data, &payload); err != nil {
 		t.Fatalf("decode state payload: %v", err)
 	}

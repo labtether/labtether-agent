@@ -3,13 +3,13 @@
 package sysconfig
 
 import (
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/protocol"
 )
 
 // PlatformListDisplays returns a single default display for unsupported
 // platforms (FreeBSD, etc.) where display enumeration tools are unavailable.
-func PlatformListDisplays() ([]agentmgr.DisplayInfo, error) {
-	return []agentmgr.DisplayInfo{
+func PlatformListDisplays() ([]protocol.DisplayInfo, error) {
+	return []protocol.DisplayInfo{
 		{
 			Name:    ":0",
 			Width:   1920,

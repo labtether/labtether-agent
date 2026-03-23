@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/labtether/labtether/internal/servicehttp"
+	"github.com/labtether/labtether-agent/internal/servicehttp"
 )
 
 // StatusResponse is the unified status payload served by the /agent/status endpoint.

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/labtether/labtether/internal/agentmgr"
-	"github.com/labtether/labtether/internal/securityruntime"
+	"github.com/labtether/labtether-agent/internal/securityruntime"
+	"github.com/labtether/protocol"
 )
 
 const (
@@ -22,7 +22,7 @@ var RunWindowsServiceCommand = securityruntime.CommandContextCombinedOutput
 type WindowsServiceBackend struct{}
 
 // ListServices lists Windows services via `sc.exe query type= service state= all`.
-func (WindowsServiceBackend) ListServices() ([]agentmgr.ServiceInfo, error) {
+func (WindowsServiceBackend) ListServices() ([]protocol.ServiceInfo, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), windowsServiceListTimeout)
 	defer cancel()
 
@@ -87,12 +87,12 @@ func (WindowsServiceBackend) PerformAction(action, service string) (string, erro
 
 // parseSCQueryOutput parses the text output of `sc.exe query type= service state= all`
 // into a slice of ServiceInfo. No build tags — runs on all platforms.
-func parseSCQueryOutput(raw string) []agentmgr.ServiceInfo {
+func parseSCQueryOutput(raw string) []protocol.ServiceInfo {
 	if strings.TrimSpace(raw) == "" {
 		return nil
 	}
 
-	var services []agentmgr.ServiceInfo
+	var services []protocol.ServiceInfo
 
 	// Split on blank lines to get per-service blocks.
 	// Windows line endings (\r\n) are normalised to \n first.
@@ -139,7 +139,7 @@ func parseSCQueryOutput(raw string) []agentmgr.ServiceInfo {
 
 		activeState, subState := parseSCState(stateWord)
 
-		services = append(services, agentmgr.ServiceInfo{
+		services = append(services, protocol.ServiceInfo{
 			Name:        name,
 			Description: displayName,
 			ActiveState: activeState,

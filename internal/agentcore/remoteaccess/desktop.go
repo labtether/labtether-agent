@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/protocol"
 )
 
 var DesktopDebugEnabled = sync.OnceValue(func() bool {
@@ -52,8 +52,8 @@ func NewDesktopManager(dispMgr *DisplayManager) *DesktopManager {
 }
 
 // handleDesktopStart starts a VNC server and connects to it.
-func (dm *DesktopManager) HandleDesktopStart(transport MessageSender, msg agentmgr.Message) {
-	var req agentmgr.DesktopStartData
+func (dm *DesktopManager) HandleDesktopStart(transport MessageSender, msg protocol.Message) {
+	var req protocol.DesktopStartData
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		log.Printf("desktop: invalid start request: %v", err)
 		return
@@ -157,8 +157,8 @@ func (dm *DesktopManager) HandleDesktopStart(transport MessageSender, msg agentm
 }
 
 // handleDesktopData writes incoming VNC data to the local VNC connection.
-func (dm *DesktopManager) HandleDesktopData(msg agentmgr.Message) {
-	var payload agentmgr.DesktopDataPayload
+func (dm *DesktopManager) HandleDesktopData(msg protocol.Message) {
+	var payload protocol.DesktopDataPayload
 	if err := json.Unmarshal(msg.Data, &payload); err != nil {
 		log.Printf("desktop: failed to unmarshal input data: %v", err)
 		return
@@ -184,8 +184,8 @@ func (dm *DesktopManager) HandleDesktopData(msg agentmgr.Message) {
 }
 
 // handleDesktopClose terminates a desktop session.
-func (dm *DesktopManager) HandleDesktopClose(msg agentmgr.Message) {
-	var req agentmgr.DesktopCloseData
+func (dm *DesktopManager) HandleDesktopClose(msg protocol.Message) {
+	var req protocol.DesktopCloseData
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		return
 	}
@@ -224,12 +224,12 @@ func (dm *DesktopManager) streamVNCOutput(transport MessageSender, sess *Desktop
 				lastLog = time.Now()
 			}
 			encoded := base64.StdEncoding.EncodeToString(buf[:n])
-			data, _ := json.Marshal(agentmgr.DesktopDataPayload{
+			data, _ := json.Marshal(protocol.DesktopDataPayload{
 				SessionID: sess.sessionID,
 				Data:      encoded,
 			})
-			_ = transport.Send(agentmgr.Message{
-				Type: agentmgr.MsgDesktopData,
+			_ = transport.Send(protocol.Message{
+				Type: protocol.MsgDesktopData,
 				ID:   sess.sessionID,
 				Data: data,
 			})
@@ -308,22 +308,22 @@ func TerminateProcess(cmd *exec.Cmd) {
 }
 
 func SendDesktopStarted(transport MessageSender, sessionID string, width, height int) {
-	data, _ := json.Marshal(agentmgr.DesktopStartedData{
+	data, _ := json.Marshal(protocol.DesktopStartedData{
 		SessionID: sessionID,
 		Width:     width,
 		Height:    height,
 	})
-	_ = transport.Send(agentmgr.Message{
-		Type: agentmgr.MsgDesktopStarted,
+	_ = transport.Send(protocol.Message{
+		Type: protocol.MsgDesktopStarted,
 		ID:   sessionID,
 		Data: data,
 	})
 }
 
 func SendDesktopClosed(transport MessageSender, sessionID, reason string) {
-	data, _ := json.Marshal(agentmgr.DesktopCloseData{SessionID: sessionID, Reason: reason})
-	_ = transport.Send(agentmgr.Message{
-		Type: agentmgr.MsgDesktopClosed,
+	data, _ := json.Marshal(protocol.DesktopCloseData{SessionID: sessionID, Reason: reason})
+	_ = transport.Send(protocol.Message{
+		Type: protocol.MsgDesktopClosed,
 		ID:   sessionID,
 		Data: data,
 	})

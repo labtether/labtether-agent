@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/labtether/labtether/internal/agentcore/sysconfig"
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/labtether-agent/internal/agentcore/sysconfig"
+	"github.com/labtether/protocol"
 )
 
 func TestDesktopManagerHandleDesktopStartRejectsMaxSessions(t *testing.T) {
@@ -23,14 +23,14 @@ func TestDesktopManagerHandleDesktopStartRejectsMaxSessions(t *testing.T) {
 	transport, messages, cleanup := newDesktopRuntimeTransport(t)
 	defer cleanup()
 
-	req := mustMarshalDesktopRuntime(t, agentmgr.DesktopStartData{SessionID: "sess-max"})
-	dm.HandleDesktopStart(transport, agentmgr.Message{Type: agentmgr.MsgDesktopStart, Data: req})
+	req := mustMarshalDesktopRuntime(t, protocol.DesktopStartData{SessionID: "sess-max"})
+	dm.HandleDesktopStart(transport, protocol.Message{Type: protocol.MsgDesktopStart, Data: req})
 
 	msg := readDesktopRuntimeMessage(t, messages)
-	if msg.Type != agentmgr.MsgDesktopClosed {
-		t.Fatalf("message type=%q, want %q", msg.Type, agentmgr.MsgDesktopClosed)
+	if msg.Type != protocol.MsgDesktopClosed {
+		t.Fatalf("message type=%q, want %q", msg.Type, protocol.MsgDesktopClosed)
 	}
-	var closed agentmgr.DesktopCloseData
+	var closed protocol.DesktopCloseData
 	if err := json.Unmarshal(msg.Data, &closed); err != nil {
 		t.Fatalf("decode close payload: %v", err)
 	}
@@ -76,7 +76,7 @@ func TestDesktopManagerHandleDesktopStartStreamsOutputAndCleansUpOnEOF(t *testin
 	defer dm.CloseAll()
 	defer peerVNC.Close()
 
-	req := mustMarshalDesktopRuntime(t, agentmgr.DesktopStartData{
+	req := mustMarshalDesktopRuntime(t, protocol.DesktopStartData{
 		SessionID:   "sess-stream",
 		Width:       1280,
 		Height:      720,
@@ -84,13 +84,13 @@ func TestDesktopManagerHandleDesktopStartStreamsOutputAndCleansUpOnEOF(t *testin
 		Display:     ":99",
 		VNCPassword: "secret",
 	})
-	dm.HandleDesktopStart(transport, agentmgr.Message{Type: agentmgr.MsgDesktopStart, Data: req})
+	dm.HandleDesktopStart(transport, protocol.Message{Type: protocol.MsgDesktopStart, Data: req})
 
 	startedMsg := readDesktopRuntimeMessage(t, messages)
-	if startedMsg.Type != agentmgr.MsgDesktopStarted {
-		t.Fatalf("message type=%q, want %q", startedMsg.Type, agentmgr.MsgDesktopStarted)
+	if startedMsg.Type != protocol.MsgDesktopStarted {
+		t.Fatalf("message type=%q, want %q", startedMsg.Type, protocol.MsgDesktopStarted)
 	}
-	var started agentmgr.DesktopStartedData
+	var started protocol.DesktopStartedData
 	if err := json.Unmarshal(startedMsg.Data, &started); err != nil {
 		t.Fatalf("decode started payload: %v", err)
 	}
@@ -103,10 +103,10 @@ func TestDesktopManagerHandleDesktopStartStreamsOutputAndCleansUpOnEOF(t *testin
 	}
 
 	dataMsg := readDesktopRuntimeMessage(t, messages)
-	if dataMsg.Type != agentmgr.MsgDesktopData {
-		t.Fatalf("message type=%q, want %q", dataMsg.Type, agentmgr.MsgDesktopData)
+	if dataMsg.Type != protocol.MsgDesktopData {
+		t.Fatalf("message type=%q, want %q", dataMsg.Type, protocol.MsgDesktopData)
 	}
-	var payload agentmgr.DesktopDataPayload
+	var payload protocol.DesktopDataPayload
 	if err := json.Unmarshal(dataMsg.Data, &payload); err != nil {
 		t.Fatalf("decode desktop data payload: %v", err)
 	}
@@ -121,10 +121,10 @@ func TestDesktopManagerHandleDesktopStartStreamsOutputAndCleansUpOnEOF(t *testin
 	_ = peerVNC.Close()
 
 	closedMsg := readDesktopRuntimeMessage(t, messages)
-	if closedMsg.Type != agentmgr.MsgDesktopClosed {
-		t.Fatalf("message type=%q, want %q", closedMsg.Type, agentmgr.MsgDesktopClosed)
+	if closedMsg.Type != protocol.MsgDesktopClosed {
+		t.Fatalf("message type=%q, want %q", closedMsg.Type, protocol.MsgDesktopClosed)
 	}
-	var closed agentmgr.DesktopCloseData
+	var closed protocol.DesktopCloseData
 	if err := json.Unmarshal(closedMsg.Data, &closed); err != nil {
 		t.Fatalf("decode close payload: %v", err)
 	}
@@ -152,8 +152,8 @@ func TestHandleListDisplaysReturnsDisplaysAndErrors(t *testing.T) {
 	})
 
 	t.Run("success", func(t *testing.T) {
-		sysconfig.PlatformListDisplaysFn = func() ([]agentmgr.DisplayInfo, error) {
-			return []agentmgr.DisplayInfo{
+		sysconfig.PlatformListDisplaysFn = func() ([]protocol.DisplayInfo, error) {
+			return []protocol.DisplayInfo{
 				{Name: "DP-1", Width: 1920, Height: 1080, Primary: true},
 				{Name: "HDMI-1", Width: 2560, Height: 1440},
 			}, nil
@@ -162,16 +162,16 @@ func TestHandleListDisplaysReturnsDisplaysAndErrors(t *testing.T) {
 		transport, messages, cleanup := newDesktopRuntimeTransport(t)
 		defer cleanup()
 
-		sysconfig.HandleListDisplays(transport, agentmgr.Message{
-			Type: agentmgr.MsgDesktopListDisplays,
+		sysconfig.HandleListDisplays(transport, protocol.Message{
+			Type: protocol.MsgDesktopListDisplays,
 			Data: mustMarshalDesktopRuntime(t, map[string]string{"request_id": "req-success"}),
 		})
 
 		msg := readDesktopRuntimeMessage(t, messages)
-		if msg.Type != agentmgr.MsgDesktopDisplays {
-			t.Fatalf("message type=%q, want %q", msg.Type, agentmgr.MsgDesktopDisplays)
+		if msg.Type != protocol.MsgDesktopDisplays {
+			t.Fatalf("message type=%q, want %q", msg.Type, protocol.MsgDesktopDisplays)
 		}
-		var resp agentmgr.DisplayListData
+		var resp protocol.DisplayListData
 		if err := json.Unmarshal(msg.Data, &resp); err != nil {
 			t.Fatalf("decode display response: %v", err)
 		}
@@ -187,20 +187,20 @@ func TestHandleListDisplaysReturnsDisplaysAndErrors(t *testing.T) {
 	})
 
 	t.Run("error", func(t *testing.T) {
-		sysconfig.PlatformListDisplaysFn = func() ([]agentmgr.DisplayInfo, error) {
+		sysconfig.PlatformListDisplaysFn = func() ([]protocol.DisplayInfo, error) {
 			return nil, errors.New("xrandr failed")
 		}
 
 		transport, messages, cleanup := newDesktopRuntimeTransport(t)
 		defer cleanup()
 
-		sysconfig.HandleListDisplays(transport, agentmgr.Message{
-			Type: agentmgr.MsgDesktopListDisplays,
+		sysconfig.HandleListDisplays(transport, protocol.Message{
+			Type: protocol.MsgDesktopListDisplays,
 			Data: mustMarshalDesktopRuntime(t, map[string]string{"request_id": "req-error"}),
 		})
 
 		msg := readDesktopRuntimeMessage(t, messages)
-		var resp agentmgr.DisplayListData
+		var resp protocol.DisplayListData
 		if err := json.Unmarshal(msg.Data, &resp); err != nil {
 			t.Fatalf("decode display response: %v", err)
 		}

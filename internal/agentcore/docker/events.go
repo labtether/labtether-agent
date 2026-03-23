@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/protocol"
 )
 
 const (
@@ -88,11 +88,11 @@ func (dc *DockerCollector) forwardEvent(ev DockerEvent) {
 		return
 	}
 
-	eventData := agentmgr.DockerEventData{
+	eventData := protocol.DockerEventData{
 		HostID: dc.assetID,
 		Type:   ev.Type,
 		Action: ev.Action,
-		Actor: agentmgr.DockerEventActor{
+		Actor: protocol.DockerEventActor{
 			ID:         ev.Actor.ID,
 			Attributes: ev.Actor.Attributes,
 		},
@@ -105,8 +105,8 @@ func (dc *DockerCollector) forwardEvent(ev DockerEvent) {
 		return
 	}
 
-	if err := dc.transport.Send(agentmgr.Message{
-		Type: agentmgr.MsgDockerEvents,
+	if err := dc.transport.Send(protocol.Message{
+		Type: protocol.MsgDockerEvents,
 		Data: data,
 	}); err != nil {
 		log.Printf("docker: failed to send event: %v", err)

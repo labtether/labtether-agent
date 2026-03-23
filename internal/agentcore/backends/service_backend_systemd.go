@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/labtether/labtether/internal/agentmgr"
-	"github.com/labtether/labtether/internal/securityruntime"
+	"github.com/labtether/labtether-agent/internal/securityruntime"
+	"github.com/labtether/protocol"
 )
 
 const (
@@ -23,7 +23,7 @@ type LinuxServiceBackend struct{}
 var RunLinuxServiceCommand = securityruntime.CommandContextCombinedOutput
 
 // ListServices lists systemd services.
-func (LinuxServiceBackend) ListServices() ([]agentmgr.ServiceInfo, error) {
+func (LinuxServiceBackend) ListServices() ([]protocol.ServiceInfo, error) {
 	enabledMap, err := collectEnabledStatesLinux()
 	if err != nil {
 		enabledMap = map[string]string{}
@@ -45,7 +45,7 @@ func (LinuxServiceBackend) ListServices() ([]agentmgr.ServiceInfo, error) {
 		return nil, fmt.Errorf("systemctl list-units: %w", err)
 	}
 
-	var services []agentmgr.ServiceInfo
+	var services []protocol.ServiceInfo
 	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
@@ -68,7 +68,7 @@ func (LinuxServiceBackend) ListServices() ([]agentmgr.ServiceInfo, error) {
 		}
 		name := strings.TrimSuffix(unit, ".service")
 
-		services = append(services, agentmgr.ServiceInfo{
+		services = append(services, protocol.ServiceInfo{
 			Name:        name,
 			Description: description,
 			ActiveState: activeState,

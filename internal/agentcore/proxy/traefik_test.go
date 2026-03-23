@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	dockerpkg "github.com/labtether/labtether/internal/agentcore/docker"
+	dockerpkg "github.com/labtether/labtether-agent/internal/agentcore/docker"
 )
 
 // ---------------------------------------------------------------------------

@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/labtether/labtether/internal/agentmgr"
-	"github.com/labtether/labtether/internal/securityruntime"
+	"github.com/labtether/labtether-agent/internal/securityruntime"
+	"github.com/labtether/protocol"
 )
 
 var (
@@ -56,8 +56,8 @@ func composeCommandArgs(version int, projectDir string, action string, extraArgs
 }
 
 // handleComposeAction handles a docker.compose.action message from the hub.
-func (dc *DockerCollector) HandleComposeAction(transport Transport, msg agentmgr.Message) {
-	var req agentmgr.DockerComposeActionData
+func (dc *DockerCollector) HandleComposeAction(transport Transport, msg protocol.Message) {
+	var req protocol.DockerComposeActionData
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		log.Printf("docker-compose: invalid action payload: %v", err)
 		return
@@ -163,15 +163,15 @@ func sanitizeDockerStackName(raw string) string {
 }
 
 func sendComposeResult(transport Transport, requestID string, success bool, output, errMsg string) {
-	result := agentmgr.DockerComposeResultData{
+	result := protocol.DockerComposeResultData{
 		RequestID: requestID,
 		Success:   success,
 		Output:    output,
 		Error:     errMsg,
 	}
 	data, _ := json.Marshal(result)
-	_ = transport.Send(agentmgr.Message{
-		Type: agentmgr.MsgDockerComposeResult,
+	_ = transport.Send(protocol.Message{
+		Type: protocol.MsgDockerComposeResult,
 		ID:   requestID,
 		Data: data,
 	})

@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/labtether/labtether/internal/agentmgr"
-	"github.com/labtether/labtether/internal/securityruntime"
+	"github.com/labtether/labtether-agent/internal/securityruntime"
+	"github.com/labtether/protocol"
 )
 
 const (
@@ -32,7 +32,7 @@ type WindowsLogBackend struct {
 var RunWevtutilCommand = securityruntime.CommandContextCombinedOutput
 
 // QueryEntries queries Windows Event Log entries via wevtutil across configured channels.
-func (b WindowsLogBackend) QueryEntries(req agentmgr.JournalQueryData) ([]agentmgr.LogStreamData, error) {
+func (b WindowsLogBackend) QueryEntries(req protocol.JournalQueryData) ([]protocol.LogStreamData, error) {
 	channels := b.resolvedChannels()
 
 	limit := NormalizedJournalLimit(req.Limit)
@@ -42,7 +42,7 @@ func (b WindowsLogBackend) QueryEntries(req agentmgr.JournalQueryData) ([]agentm
 		perChannel = limit
 	}
 
-	var all []agentmgr.LogStreamData
+	var all []protocol.LogStreamData
 	for _, ch := range channels {
 		// Filter by unit: skip channels that don't match when a unit filter is set.
 		if unit := strings.TrimSpace(req.Unit); unit != "" {
@@ -60,7 +60,7 @@ func (b WindowsLogBackend) QueryEntries(req agentmgr.JournalQueryData) ([]agentm
 	}
 
 	// Apply search filter and trim to limit.
-	filtered := make([]agentmgr.LogStreamData, 0, len(all))
+	filtered := make([]protocol.LogStreamData, 0, len(all))
 	for _, e := range all {
 		if EntryMatchesQuery(e, req) {
 			filtered = append(filtered, e)
@@ -74,7 +74,7 @@ func (b WindowsLogBackend) QueryEntries(req agentmgr.JournalQueryData) ([]agentm
 }
 
 // StreamEntries polls wevtutil periodically to simulate streaming (Event Log has no follow mode).
-func (b WindowsLogBackend) StreamEntries(ctx context.Context, emit func(agentmgr.LogStreamData)) error {
+func (b WindowsLogBackend) StreamEntries(ctx context.Context, emit func(protocol.LogStreamData)) error {
 	channels := b.resolvedChannels()
 
 	// Track the latest timestamp seen per channel to use as a pagination cursor.
@@ -92,7 +92,7 @@ func (b WindowsLogBackend) StreamEntries(ctx context.Context, emit func(agentmgr
 
 		for _, ch := range channels {
 			since := cursors[ch]
-			req := agentmgr.JournalQueryData{
+			req := protocol.JournalQueryData{
 				Limit: 100,
 				Since: since,
 			}
@@ -129,7 +129,7 @@ func (b WindowsLogBackend) resolvedChannels() []string {
 	return channels
 }
 
-func (b WindowsLogBackend) queryChannel(req agentmgr.JournalQueryData, channel string, limit int) ([]agentmgr.LogStreamData, error) {
+func (b WindowsLogBackend) queryChannel(req protocol.JournalQueryData, channel string, limit int) ([]protocol.LogStreamData, error) {
 	overrideReq := req
 	overrideReq.Limit = limit
 
@@ -153,7 +153,7 @@ func (b WindowsLogBackend) queryChannel(req agentmgr.JournalQueryData, channel s
 }
 
 // BuildWevtutilQueryArgs builds the argument list for a wevtutil qe command.
-func BuildWevtutilQueryArgs(req agentmgr.JournalQueryData, channel string) []string {
+func BuildWevtutilQueryArgs(req protocol.JournalQueryData, channel string) []string {
 	limit := NormalizedJournalLimit(req.Limit)
 	args := []string{
 		"qe", channel,
@@ -189,8 +189,8 @@ type wevtutilEvent struct {
 
 // parseWevtutilOutput parses newline-delimited JSON from wevtutil qe /f:json.
 // Each line is an independent JSON object representing one event.
-func parseWevtutilOutput(raw []byte) ([]agentmgr.LogStreamData, error) {
-	var entries []agentmgr.LogStreamData
+func parseWevtutilOutput(raw []byte) ([]protocol.LogStreamData, error) {
+	var entries []protocol.LogStreamData
 
 	scanner := bufio.NewScanner(bytes.NewReader(raw))
 	scanner.Buffer(make([]byte, 256*1024), 256*1024)
@@ -219,7 +219,7 @@ func parseWevtutilOutput(raw []byte) ([]agentmgr.LogStreamData, error) {
 		level := wevtutilLevelToString(parseWevtutilLevelNum(ev.Event.System.Level))
 		timestamp := wevtutilSystemTimeToRFC3339(ev.Event.System.TimeCreated.SystemTime)
 
-		entries = append(entries, agentmgr.LogStreamData{
+		entries = append(entries, protocol.LogStreamData{
 			Timestamp: timestamp,
 			Level:     level,
 			Message:   message,

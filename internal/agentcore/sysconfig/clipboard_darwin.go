@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/labtether/labtether/internal/securityruntime"
+	"github.com/labtether/labtether-agent/internal/securityruntime"
 )
 
 // PlatformClipboardRead reads the macOS clipboard using pbpaste.

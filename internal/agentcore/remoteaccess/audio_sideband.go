@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/protocol"
 )
 
 var StartAudioCapture = PlatformStartAudioCapture
@@ -44,8 +44,8 @@ func (m *AudioSidebandManager) CloseAll() {
 }
 
 // handleAudioStart processes a desktop.audio.start message from the hub.
-func (m *AudioSidebandManager) HandleAudioStart(transport MessageSender, msg agentmgr.Message) {
-	var req agentmgr.DesktopAudioStartData
+func (m *AudioSidebandManager) HandleAudioStart(transport MessageSender, msg protocol.Message) {
+	var req protocol.DesktopAudioStartData
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		log.Printf("audio: invalid start request: %v", err)
 		return
@@ -74,8 +74,8 @@ func (m *AudioSidebandManager) HandleAudioStart(transport MessageSender, msg age
 }
 
 // handleAudioStop processes a desktop.audio.stop message from the hub.
-func (m *AudioSidebandManager) HandleAudioStop(msg agentmgr.Message) {
-	var req agentmgr.DesktopAudioStopData
+func (m *AudioSidebandManager) HandleAudioStop(msg protocol.Message) {
+	var req protocol.DesktopAudioStopData
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		log.Printf("audio: invalid stop request: %v", err)
 		return
@@ -116,7 +116,7 @@ func (m *AudioSidebandManager) runCapture(ctx context.Context, transport Message
 		n, readErr := reader.Read(buf)
 		if n > 0 {
 			encoded := base64.StdEncoding.EncodeToString(buf[:n])
-			payload := agentmgr.DesktopAudioDataPayload{
+			payload := protocol.DesktopAudioDataPayload{
 				SessionID: sessionID,
 				Data:      encoded,
 				Timestamp: time.Now().UnixMilli(),
@@ -125,8 +125,8 @@ func (m *AudioSidebandManager) runCapture(ctx context.Context, transport Message
 			if err != nil {
 				continue
 			}
-			_ = transport.Send(agentmgr.Message{
-				Type: agentmgr.MsgDesktopAudioData,
+			_ = transport.Send(protocol.Message{
+				Type: protocol.MsgDesktopAudioData,
 				ID:   sessionID,
 				Data: data,
 			})
@@ -146,7 +146,7 @@ func (m *AudioSidebandManager) runCapture(ctx context.Context, transport Message
 
 // sendState sends a desktop.audio.state message to the hub.
 func (m *AudioSidebandManager) sendState(transport MessageSender, sessionID, state, errMsg string) {
-	payload := agentmgr.DesktopAudioStateData{
+	payload := protocol.DesktopAudioStateData{
 		SessionID: sessionID,
 		State:     state,
 		Error:     errMsg,
@@ -155,8 +155,8 @@ func (m *AudioSidebandManager) sendState(transport MessageSender, sessionID, sta
 	if err != nil {
 		return
 	}
-	_ = transport.Send(agentmgr.Message{
-		Type: agentmgr.MsgDesktopAudioState,
+	_ = transport.Send(protocol.Message{
+		Type: protocol.MsgDesktopAudioState,
 		ID:   sessionID,
 		Data: data,
 	})

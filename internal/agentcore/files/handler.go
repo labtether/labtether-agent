@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/protocol"
 )
 
 const (
@@ -27,7 +27,7 @@ const (
 // MessageSender abstracts the agent-to-hub send capability so this package
 // does not depend on the concrete wsTransport type in the parent agentcore package.
 type MessageSender interface {
-	Send(msg agentmgr.Message) error
+	Send(msg protocol.Message) error
 }
 
 // Manager manages file operations on the agent.
@@ -59,8 +59,8 @@ func NewManager(fileRootMode string) *Manager {
 }
 
 // HandleFileList handles a file list request from the hub.
-func (fm *Manager) HandleFileList(transport MessageSender, msg agentmgr.Message) {
-	var req agentmgr.FileListData
+func (fm *Manager) HandleFileList(transport MessageSender, msg protocol.Message) {
+	var req protocol.FileListData
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		log.Printf("file: invalid list request: %v", err)
 		return
@@ -78,7 +78,7 @@ func (fm *Manager) HandleFileList(transport MessageSender, msg agentmgr.Message)
 		return
 	}
 
-	var fileEntries []agentmgr.FileEntry
+	var fileEntries []protocol.FileEntry
 	for _, entry := range entries {
 		if !req.ShowHidden && strings.HasPrefix(entry.Name(), ".") {
 			continue
@@ -87,7 +87,7 @@ func (fm *Manager) HandleFileList(transport MessageSender, msg agentmgr.Message)
 		if infoErr != nil {
 			continue
 		}
-		fileEntries = append(fileEntries, agentmgr.FileEntry{
+		fileEntries = append(fileEntries, protocol.FileEntry{
 			Name:    entry.Name(),
 			Size:    info.Size(),
 			Mode:    info.Mode().String(),
@@ -99,26 +99,26 @@ func (fm *Manager) HandleFileList(transport MessageSender, msg agentmgr.Message)
 	fm.sendFileListed(transport, req.RequestID, dirPath, fileEntries, "")
 }
 
-func (fm *Manager) sendFileListed(transport MessageSender, requestID, path string, entries []agentmgr.FileEntry, errMsg string) {
+func (fm *Manager) sendFileListed(transport MessageSender, requestID, path string, entries []protocol.FileEntry, errMsg string) {
 	if entries == nil {
-		entries = []agentmgr.FileEntry{}
+		entries = []protocol.FileEntry{}
 	}
-	data, _ := json.Marshal(agentmgr.FileListedData{
+	data, _ := json.Marshal(protocol.FileListedData{
 		RequestID: requestID,
 		Path:      path,
 		Entries:   entries,
 		Error:     errMsg,
 	})
-	_ = transport.Send(agentmgr.Message{
-		Type: agentmgr.MsgFileListed,
+	_ = transport.Send(protocol.Message{
+		Type: protocol.MsgFileListed,
 		ID:   requestID,
 		Data: data,
 	})
 }
 
 // HandleFileRead handles a file read request from the hub.
-func (fm *Manager) HandleFileRead(transport MessageSender, msg agentmgr.Message) {
-	var req agentmgr.FileReadData
+func (fm *Manager) HandleFileRead(transport MessageSender, msg protocol.Message) {
+	var req protocol.FileReadData
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		log.Printf("file: invalid read request: %v", err)
 		return
@@ -177,15 +177,15 @@ func (fm *Manager) HandleFileRead(transport MessageSender, msg agentmgr.Message)
 }
 
 func (fm *Manager) sendFileData(transport MessageSender, requestID, data string, offset int64, done bool, errMsg string) {
-	payload, _ := json.Marshal(agentmgr.FileDataPayload{
+	payload, _ := json.Marshal(protocol.FileDataPayload{
 		RequestID: requestID,
 		Data:      data,
 		Offset:    offset,
 		Done:      done,
 		Error:     errMsg,
 	})
-	_ = transport.Send(agentmgr.Message{
-		Type: agentmgr.MsgFileData,
+	_ = transport.Send(protocol.Message{
+		Type: protocol.MsgFileData,
 		ID:   requestID,
 		Data: payload,
 	})
@@ -193,21 +193,21 @@ func (fm *Manager) sendFileData(transport MessageSender, requestID, data string,
 
 // SendFileWritten sends a file-written acknowledgement to the hub.
 func (fm *Manager) SendFileWritten(transport MessageSender, requestID string, bytesWritten int64, errMsg string) {
-	data, _ := json.Marshal(agentmgr.FileWrittenData{
+	data, _ := json.Marshal(protocol.FileWrittenData{
 		RequestID:    requestID,
 		BytesWritten: bytesWritten,
 		Error:        errMsg,
 	})
-	_ = transport.Send(agentmgr.Message{
-		Type: agentmgr.MsgFileWritten,
+	_ = transport.Send(protocol.Message{
+		Type: protocol.MsgFileWritten,
 		ID:   requestID,
 		Data: data,
 	})
 }
 
 // HandleFileMkdir handles a mkdir request from the hub.
-func (fm *Manager) HandleFileMkdir(transport MessageSender, msg agentmgr.Message) {
-	var req agentmgr.FileMkdirData
+func (fm *Manager) HandleFileMkdir(transport MessageSender, msg protocol.Message) {
+	var req protocol.FileMkdirData
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		log.Printf("file: invalid mkdir request: %v", err)
 		return
@@ -228,8 +228,8 @@ func (fm *Manager) HandleFileMkdir(transport MessageSender, msg agentmgr.Message
 }
 
 // HandleFileDelete handles a file delete request from the hub.
-func (fm *Manager) HandleFileDelete(transport MessageSender, msg agentmgr.Message) {
-	var req agentmgr.FileDeleteData
+func (fm *Manager) HandleFileDelete(transport MessageSender, msg protocol.Message) {
+	var req protocol.FileDeleteData
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		log.Printf("file: invalid delete request: %v", err)
 		return
@@ -256,8 +256,8 @@ func (fm *Manager) HandleFileDelete(transport MessageSender, msg agentmgr.Messag
 }
 
 // HandleFileRename handles a file rename request from the hub.
-func (fm *Manager) HandleFileRename(transport MessageSender, msg agentmgr.Message) {
-	var req agentmgr.FileRenameData
+func (fm *Manager) HandleFileRename(transport MessageSender, msg protocol.Message) {
+	var req protocol.FileRenameData
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		log.Printf("file: invalid rename request: %v", err)
 		return
@@ -291,13 +291,13 @@ func (fm *Manager) HandleFileRename(transport MessageSender, msg agentmgr.Messag
 
 // SendFileResult sends a generic file operation result to the hub.
 func (fm *Manager) SendFileResult(transport MessageSender, requestID string, ok bool, errMsg string) {
-	data, _ := json.Marshal(agentmgr.FileResultData{
+	data, _ := json.Marshal(protocol.FileResultData{
 		RequestID: requestID,
 		OK:        ok,
 		Error:     errMsg,
 	})
-	_ = transport.Send(agentmgr.Message{
-		Type: agentmgr.MsgFileResult,
+	_ = transport.Send(protocol.Message{
+		Type: protocol.MsgFileResult,
 		ID:   requestID,
 		Data: data,
 	})
@@ -313,25 +313,25 @@ var SkipSearchDirs = map[string]bool{
 // HandleFileSearch performs a recursive filename search under a base path,
 // matching filenames against a glob pattern. Results are capped at MaxResults
 // (default 100, max 500) and the walk is bounded to a 10-second context timeout.
-func (fm *Manager) HandleFileSearch(transport MessageSender, msg agentmgr.Message) {
-	var req agentmgr.FileSearchData
+func (fm *Manager) HandleFileSearch(transport MessageSender, msg protocol.Message) {
+	var req protocol.FileSearchData
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		log.Printf("file: invalid search request: %v", err)
 		return
 	}
 
-	sendResult := func(matches []agentmgr.FileEntry, truncated bool, errMsg string) {
+	sendResult := func(matches []protocol.FileEntry, truncated bool, errMsg string) {
 		if matches == nil {
-			matches = []agentmgr.FileEntry{}
+			matches = []protocol.FileEntry{}
 		}
-		data, _ := json.Marshal(agentmgr.FileSearchResultData{
+		data, _ := json.Marshal(protocol.FileSearchResultData{
 			RequestID: req.RequestID,
 			Matches:   matches,
 			Error:     errMsg,
 			Truncated: truncated,
 		})
-		_ = transport.Send(agentmgr.Message{
-			Type: agentmgr.MsgFileSearchResult,
+		_ = transport.Send(protocol.Message{
+			Type: protocol.MsgFileSearchResult,
 			ID:   req.RequestID,
 			Data: data,
 		})
@@ -361,7 +361,7 @@ func (fm *Manager) HandleFileSearch(transport MessageSender, msg agentmgr.Messag
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	var matches []agentmgr.FileEntry
+	var matches []protocol.FileEntry
 	truncated := false
 
 	walkErr := filepath.WalkDir(searchPath, func(path string, d os.DirEntry, err error) error {
@@ -398,7 +398,7 @@ func (fm *Manager) HandleFileSearch(transport MessageSender, msg agentmgr.Messag
 			return nil
 		}
 
-		matches = append(matches, agentmgr.FileEntry{
+		matches = append(matches, protocol.FileEntry{
 			Name:    d.Name(),
 			Path:    path,
 			Size:    info.Size(),

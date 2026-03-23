@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/protocol"
 )
 
 type recordingHeartbeatPublisher struct {
@@ -91,14 +91,14 @@ func TestReplayBufferedTelemetrySendsSamplesInOrder(t *testing.T) {
 		t.Fatalf("expected replay buffer to be drained, got len=%d", got)
 	}
 
-	first := waitForCapturedAgentMessage(t, messages, agentmgr.MsgTelemetry, 2*time.Second)
-	second := waitForCapturedAgentMessage(t, messages, agentmgr.MsgTelemetry, 2*time.Second)
+	first := waitForCapturedAgentMessage(t, messages, protocol.MsgTelemetry, 2*time.Second)
+	second := waitForCapturedAgentMessage(t, messages, protocol.MsgTelemetry, 2*time.Second)
 
-	var firstPayload agentmgr.TelemetryData
+	var firstPayload protocol.TelemetryData
 	if err := json.Unmarshal(first.Data, &firstPayload); err != nil {
 		t.Fatalf("decode first telemetry payload: %v", err)
 	}
-	var secondPayload agentmgr.TelemetryData
+	var secondPayload protocol.TelemetryData
 	if err := json.Unmarshal(second.Data, &secondPayload); err != nil {
 		t.Fatalf("decode second telemetry payload: %v", err)
 	}
@@ -158,8 +158,8 @@ func TestWSHeartbeatPublisherSendsHeartbeatWhenConnected(t *testing.T) {
 		t.Fatalf("Publish returned error: %v", err)
 	}
 
-	msg := waitForCapturedAgentMessage(t, messages, agentmgr.MsgHeartbeat, 2*time.Second)
-	var heartbeat agentmgr.HeartbeatData
+	msg := waitForCapturedAgentMessage(t, messages, protocol.MsgHeartbeat, 2*time.Second)
+	var heartbeat protocol.HeartbeatData
 	if err := json.Unmarshal(msg.Data, &heartbeat); err != nil {
 		t.Fatalf("decode heartbeat payload: %v", err)
 	}

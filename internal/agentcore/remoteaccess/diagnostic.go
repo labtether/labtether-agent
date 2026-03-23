@@ -8,15 +8,15 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/protocol"
 )
 
 var strictLocalX11DisplayPattern = regexp.MustCompile(`^:[0-9]+(?:\.[0-9]+)?$`)
 
 // CollectDesktopDiagnostic gathers a snapshot of the desktop stack state on the agent.
 // Both deskMgr and webrtcMgr may be nil (e.g. on platforms without desktop support).
-func CollectDesktopDiagnostic(deskMgr *DesktopManager, webrtcMgr *WebRTCManager) agentmgr.DesktopDiagnosticData {
-	var d agentmgr.DesktopDiagnosticData
+func CollectDesktopDiagnostic(deskMgr *DesktopManager, webrtcMgr *WebRTCManager) protocol.DesktopDiagnosticData {
+	var d protocol.DesktopDiagnosticData
 	session := DetectDesktopSessionFn()
 	d.DesktopSessionType = session.Type
 	d.DesktopBackend = session.Backend
@@ -149,16 +149,16 @@ func CollectDesktopDiagnostic(deskMgr *DesktopManager, webrtcMgr *WebRTCManager)
 }
 
 // handleDesktopDiagnose handles a MsgDesktopDiagnose request from the hub.
-func HandleDesktopDiagnose(transport MessageSender, msg agentmgr.Message, deskMgr *DesktopManager, webrtcMgr *WebRTCManager) {
-	var req agentmgr.DesktopDiagnosticRequest
+func HandleDesktopDiagnose(transport MessageSender, msg protocol.Message, deskMgr *DesktopManager, webrtcMgr *WebRTCManager) {
+	var req protocol.DesktopDiagnosticRequest
 	_ = json.Unmarshal(msg.Data, &req)
 
 	diag := CollectDesktopDiagnostic(deskMgr, webrtcMgr)
 	diag.RequestID = req.RequestID
 
 	data, _ := json.Marshal(diag)
-	_ = transport.Send(agentmgr.Message{
-		Type: agentmgr.MsgDesktopDiagnosed,
+	_ = transport.Send(protocol.Message{
+		Type: protocol.MsgDesktopDiagnosed,
 		ID:   req.RequestID,
 		Data: data,
 	})

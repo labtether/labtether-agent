@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/protocol"
 )
 
 // WindowsRunCommandWithTimeout is the command runner used by the Windows
@@ -34,16 +34,16 @@ type WindowsNetworkSnapshot struct {
 	DNSServers []string
 }
 
-func (WindowsNetworkBackend) ApplyAction(nm *NetworkManager, req agentmgr.NetworkActionData) agentmgr.NetworkResultData {
+func (WindowsNetworkBackend) ApplyAction(nm *NetworkManager, req protocol.NetworkActionData) protocol.NetworkResultData {
 	return nm.applyActionWindows(req)
 }
 
-func (WindowsNetworkBackend) RollbackAction(nm *NetworkManager, req agentmgr.NetworkActionData) agentmgr.NetworkResultData {
+func (WindowsNetworkBackend) RollbackAction(nm *NetworkManager, req protocol.NetworkActionData) protocol.NetworkResultData {
 	return nm.rollbackActionWindows(req)
 }
 
-func (nm *NetworkManager) applyActionWindows(req agentmgr.NetworkActionData) agentmgr.NetworkResultData {
-	result := agentmgr.NetworkResultData{RequestID: req.RequestID}
+func (nm *NetworkManager) applyActionWindows(req protocol.NetworkActionData) protocol.NetworkResultData {
+	result := protocol.NetworkResultData{RequestID: req.RequestID}
 
 	method, err := ResolveWindowsNetworkMethod(req.Method)
 	if err != nil {
@@ -185,8 +185,8 @@ func (nm *NetworkManager) applyActionWindows(req agentmgr.NetworkActionData) age
 	return result
 }
 
-func (nm *NetworkManager) rollbackActionWindows(req agentmgr.NetworkActionData) agentmgr.NetworkResultData {
-	result := agentmgr.NetworkResultData{RequestID: req.RequestID}
+func (nm *NetworkManager) rollbackActionWindows(req protocol.NetworkActionData) protocol.NetworkResultData {
+	result := protocol.NetworkResultData{RequestID: req.RequestID}
 
 	method := strings.ToLower(strings.TrimSpace(req.Method))
 	if method == "" || method == "auto" {

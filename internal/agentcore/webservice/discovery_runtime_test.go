@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	dockerpkg "github.com/labtether/labtether/internal/agentcore/docker"
-	"github.com/labtether/labtether/internal/agentmgr"
+	dockerpkg "github.com/labtether/labtether-agent/internal/agentcore/docker"
+	"github.com/labtether/protocol"
 )
 
 type fakeProxyProvider struct {
@@ -48,19 +48,19 @@ func (f fakeProxyProvider) FetchRoutes(string) ([]ProxyRoute, error) {
 type recordingCollectorTransport struct {
 	mu        sync.Mutex
 	connected bool
-	messages  []agentmgr.Message
-	ch        chan agentmgr.Message
-	onSend    func(agentmgr.Message)
+	messages  []protocol.Message
+	ch        chan protocol.Message
+	onSend    func(protocol.Message)
 }
 
 func newRecordingCollectorTransport(connected bool) *recordingCollectorTransport {
 	return &recordingCollectorTransport{
 		connected: connected,
-		ch:        make(chan agentmgr.Message, 32),
+		ch:        make(chan protocol.Message, 32),
 	}
 }
 
-func (r *recordingCollectorTransport) Send(msg agentmgr.Message) error {
+func (r *recordingCollectorTransport) Send(msg protocol.Message) error {
 	r.mu.Lock()
 	r.messages = append(r.messages, msg)
 	r.mu.Unlock()
@@ -77,8 +77,8 @@ func (r *recordingCollectorTransport) Send(msg agentmgr.Message) error {
 
 func (r *recordingCollectorTransport) Connect(context.Context) error { return nil }
 
-func (r *recordingCollectorTransport) Receive() (agentmgr.Message, error) {
-	return agentmgr.Message{}, nil
+func (r *recordingCollectorTransport) Receive() (protocol.Message, error) {
+	return protocol.Message{}, nil
 }
 
 func (r *recordingCollectorTransport) Close() {}
@@ -95,7 +95,7 @@ func (r *recordingCollectorTransport) MessageCount() int {
 	return len(r.messages)
 }
 
-func waitForCollectorMessage(t *testing.T, transport *recordingCollectorTransport, timeout time.Duration) agentmgr.Message {
+func waitForCollectorMessage(t *testing.T, transport *recordingCollectorTransport, timeout time.Duration) protocol.Message {
 	t.Helper()
 
 	select {
@@ -103,7 +103,7 @@ func waitForCollectorMessage(t *testing.T, transport *recordingCollectorTranspor
 		return msg
 	case <-time.After(timeout):
 		t.Fatal("timed out waiting for collector transport message")
-		return agentmgr.Message{}
+		return protocol.Message{}
 	}
 }
 
@@ -175,11 +175,11 @@ func TestDockerCollectorRefreshAndPublishFullSendsInventoryAndCachesState(t *tes
 	}
 
 	msg := waitForCollectorMessage(t, transport, 2*time.Second)
-	if msg.Type != agentmgr.MsgDockerDiscovery {
-		t.Fatalf("message type=%q, want %q", msg.Type, agentmgr.MsgDockerDiscovery)
+	if msg.Type != protocol.MsgDockerDiscovery {
+		t.Fatalf("message type=%q, want %q", msg.Type, protocol.MsgDockerDiscovery)
 	}
 
-	var payload agentmgr.DockerDiscoveryData
+	var payload protocol.DockerDiscoveryData
 	if err := json.Unmarshal(msg.Data, &payload); err != nil {
 		t.Fatalf("decode docker discovery payload: %v", err)
 	}
@@ -230,7 +230,7 @@ func TestDockerCollectorRefreshAndPublishContainerDeltaSendsDeltaForSmallChange(
 
 	dc := dockerpkg.NewTestCollector(srv.URL, transport, "asset-1")
 	dc.SetTestHTTPClient(srv.Client())
-	previousContainers := map[string]agentmgr.DockerContainerInfo{
+	previousContainers := map[string]protocol.DockerContainerInfo{
 		"ct-1": {ID: "ct-1", Name: "one", Image: "busybox", State: "running", Status: "Up", Created: "2023-11-14T22:13:20Z"},
 		"ct-2": {ID: "ct-2", Name: "two", Image: "busybox", State: "running", Status: "Up", Created: "2023-11-14T22:13:21Z"},
 		"ct-3": {ID: "ct-3", Name: "three", Image: "busybox", State: "running", Status: "Up", Created: "2023-11-14T22:13:22Z"},
@@ -238,7 +238,7 @@ func TestDockerCollectorRefreshAndPublishContainerDeltaSendsDeltaForSmallChange(
 		"ct-5": {ID: "ct-5", Name: "five", Image: "busybox", State: "running", Status: "Up", Created: "2023-11-14T22:13:24Z"},
 	}
 	previousRunning := map[string]struct{}{"ct-1": {}, "ct-2": {}, "ct-3": {}, "ct-4": {}, "ct-5": {}}
-	dc.SetTestInventoryState(true, previousContainers, make(map[string]agentmgr.DockerImageInfo), previousRunning)
+	dc.SetTestInventoryState(true, previousContainers, make(map[string]protocol.DockerImageInfo), previousRunning)
 
 	changed, err := dc.RefreshAndPublishContainerDelta(context.Background())
 	if err != nil {
@@ -249,11 +249,11 @@ func TestDockerCollectorRefreshAndPublishContainerDeltaSendsDeltaForSmallChange(
 	}
 
 	msg := waitForCollectorMessage(t, transport, 2*time.Second)
-	if msg.Type != agentmgr.MsgDockerDiscoveryDelta {
-		t.Fatalf("message type=%q, want %q", msg.Type, agentmgr.MsgDockerDiscoveryDelta)
+	if msg.Type != protocol.MsgDockerDiscoveryDelta {
+		t.Fatalf("message type=%q, want %q", msg.Type, protocol.MsgDockerDiscoveryDelta)
 	}
 
-	var payload agentmgr.DockerDiscoveryDeltaData
+	var payload protocol.DockerDiscoveryDeltaData
 	if err := json.Unmarshal(msg.Data, &payload); err != nil {
 		t.Fatalf("decode docker delta payload: %v", err)
 	}
@@ -315,11 +315,11 @@ func TestDockerCollectorCollectAndSendStatsPublishesOnlyWhenDue(t *testing.T) {
 	}
 
 	msg := waitForCollectorMessage(t, transport, 2*time.Second)
-	if msg.Type != agentmgr.MsgDockerStats {
-		t.Fatalf("message type=%q, want %q", msg.Type, agentmgr.MsgDockerStats)
+	if msg.Type != protocol.MsgDockerStats {
+		t.Fatalf("message type=%q, want %q", msg.Type, protocol.MsgDockerStats)
 	}
 
-	var payload agentmgr.DockerStatsData
+	var payload protocol.DockerStatsData
 	if err := json.Unmarshal(msg.Data, &payload); err != nil {
 		t.Fatalf("decode docker stats payload: %v", err)
 	}
@@ -392,15 +392,15 @@ func TestDockerCollectorRunEventLoopReconnectsAndForwardsEvents(t *testing.T) {
 		t.Fatal("timed out waiting for docker event loop to stop")
 	}
 
-	if first.Type != agentmgr.MsgDockerEvents || second.Type != agentmgr.MsgDockerEvents {
+	if first.Type != protocol.MsgDockerEvents || second.Type != protocol.MsgDockerEvents {
 		t.Fatalf("unexpected event message types: %q %q", first.Type, second.Type)
 	}
 
-	var firstEvent agentmgr.DockerEventData
+	var firstEvent protocol.DockerEventData
 	if err := json.Unmarshal(first.Data, &firstEvent); err != nil {
 		t.Fatalf("decode first docker event: %v", err)
 	}
-	var secondEvent agentmgr.DockerEventData
+	var secondEvent protocol.DockerEventData
 	if err := json.Unmarshal(second.Data, &secondEvent); err != nil {
 		t.Fatalf("decode second docker event: %v", err)
 	}
@@ -424,7 +424,7 @@ func TestDockerCollectorRunEventLoopReconnectsAndForwardsEvents(t *testing.T) {
 func TestWebServiceCollectorRunPublishesImmediatelyAndResolvesHostIP(t *testing.T) {
 	transport := newRecordingCollectorTransport(true)
 	ctx, cancel := context.WithCancel(context.Background())
-	transport.onSend = func(agentmgr.Message) { cancel() }
+	transport.onSend = func(protocol.Message) { cancel() }
 
 	wsc := &WebServiceCollector{
 		transport:    transport,
@@ -446,8 +446,8 @@ func TestWebServiceCollectorRunPublishesImmediatelyAndResolvesHostIP(t *testing.
 	}
 
 	msg := waitForCollectorMessage(t, transport, time.Second)
-	if msg.Type != agentmgr.MsgWebServiceReport {
-		t.Fatalf("message type=%q, want %q", msg.Type, agentmgr.MsgWebServiceReport)
+	if msg.Type != protocol.MsgWebServiceReport {
+		t.Fatalf("message type=%q, want %q", msg.Type, protocol.MsgWebServiceReport)
 	}
 }
 
@@ -479,7 +479,7 @@ func TestWebServiceCollectorRunCyclePreservesPreviousDockerServicesOnTransientFa
 		client:           healthServer.Client(),
 		insecureClient:   healthServer.Client(),
 		discoveryCfg:     WebServiceDiscoveryConfig{DockerEnabled: true},
-		lastServices:     []agentmgr.DiscoveredWebService{{ID: "svc-1", HostAssetID: "asset-1", Source: "docker", URL: healthServer.URL, Name: "Grafana", ServiceKey: "grafana", Category: "Monitoring"}},
+		lastServices:     []protocol.DiscoveredWebService{{ID: "svc-1", HostAssetID: "asset-1", Source: "docker", URL: healthServer.URL, Name: "Grafana", ServiceKey: "grafana", Category: "Monitoring"}},
 		compatCache:      make(map[string]compatCacheEntry),
 		fingerprintCache: make(map[string]fingerprintCacheEntry),
 		healthCache:      make(map[string]healthCacheEntry),
@@ -494,11 +494,11 @@ func TestWebServiceCollectorRunCyclePreservesPreviousDockerServicesOnTransientFa
 		t.Fatalf("expected one web-service report, got %d", transport.MessageCount())
 	}
 	msg := waitForCollectorMessage(t, transport, time.Second)
-	if msg.Type != agentmgr.MsgWebServiceReport {
-		t.Fatalf("message type=%q, want %q", msg.Type, agentmgr.MsgWebServiceReport)
+	if msg.Type != protocol.MsgWebServiceReport {
+		t.Fatalf("message type=%q, want %q", msg.Type, protocol.MsgWebServiceReport)
 	}
 
-	var payload agentmgr.WebServiceReportData
+	var payload protocol.WebServiceReportData
 	if err := json.Unmarshal(msg.Data, &payload); err != nil {
 		t.Fatalf("decode web-service report payload: %v", err)
 	}
@@ -560,11 +560,11 @@ func TestWebServiceCollectorRunCyclePublishesProxyOnlyServices(t *testing.T) {
 		t.Fatalf("expected one web-service report, got %d", transport.MessageCount())
 	}
 	msg := waitForCollectorMessage(t, transport, time.Second)
-	if msg.Type != agentmgr.MsgWebServiceReport {
-		t.Fatalf("message type=%q, want %q", msg.Type, agentmgr.MsgWebServiceReport)
+	if msg.Type != protocol.MsgWebServiceReport {
+		t.Fatalf("message type=%q, want %q", msg.Type, protocol.MsgWebServiceReport)
 	}
 
-	var payload agentmgr.WebServiceReportData
+	var payload protocol.WebServiceReportData
 	if err := json.Unmarshal(msg.Data, &payload); err != nil {
 		t.Fatalf("decode web-service report payload: %v", err)
 	}
@@ -624,7 +624,7 @@ func TestWebServiceCollectorRunCyclePreservesPreviousProxyServicesOnTransientFai
 				err:      errors.New("proxy api unavailable"),
 			},
 		},
-		lastServices: []agentmgr.DiscoveredWebService{
+		lastServices: []protocol.DiscoveredWebService{
 			{
 				ID:          "svc-proxy",
 				HostAssetID: "asset-1",
@@ -650,11 +650,11 @@ func TestWebServiceCollectorRunCyclePreservesPreviousProxyServicesOnTransientFai
 		t.Fatalf("expected one web-service report, got %d", transport.MessageCount())
 	}
 	msg := waitForCollectorMessage(t, transport, time.Second)
-	if msg.Type != agentmgr.MsgWebServiceReport {
-		t.Fatalf("message type=%q, want %q", msg.Type, agentmgr.MsgWebServiceReport)
+	if msg.Type != protocol.MsgWebServiceReport {
+		t.Fatalf("message type=%q, want %q", msg.Type, protocol.MsgWebServiceReport)
 	}
 
-	var payload agentmgr.WebServiceReportData
+	var payload protocol.WebServiceReportData
 	if err := json.Unmarshal(msg.Data, &payload); err != nil {
 		t.Fatalf("decode web-service report payload: %v", err)
 	}

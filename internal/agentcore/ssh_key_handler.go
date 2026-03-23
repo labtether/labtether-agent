@@ -10,13 +10,13 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/protocol"
 )
 
 // handleSSHKeyInstall installs the hub's SSH public key into the current user's
 // authorized_keys file, enabling zero-config SSH access from the hub.
-func handleSSHKeyInstall(transport *wsTransport, msg agentmgr.Message) {
-	var req agentmgr.SSHKeyInstallData
+func handleSSHKeyInstall(transport *wsTransport, msg protocol.Message) {
+	var req protocol.SSHKeyInstallData
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		log.Printf("ssh-key: invalid install request: %v", err)
 		return
@@ -49,14 +49,14 @@ func handleSSHKeyInstall(transport *wsTransport, msg agentmgr.Message) {
 		username = currentUser.Username
 	}
 
-	resp := agentmgr.SSHKeyInstalledData{
+	resp := protocol.SSHKeyInstalledData{
 		Username: username,
 		Hostname: hostname,
 		HomeDir:  homeDir,
 	}
 	data, _ := json.Marshal(resp)
-	_ = transport.Send(agentmgr.Message{
-		Type: agentmgr.MsgSSHKeyInstalled,
+	_ = transport.Send(protocol.Message{
+		Type: protocol.MsgSSHKeyInstalled,
 		Data: data,
 	})
 
@@ -65,8 +65,8 @@ func handleSSHKeyInstall(transport *wsTransport, msg agentmgr.Message) {
 
 // handleSSHKeyRemove removes the hub's SSH public key from the current user's
 // authorized_keys file, used during asset decommissioning.
-func handleSSHKeyRemove(transport *wsTransport, msg agentmgr.Message) {
-	var req agentmgr.SSHKeyRemoveData
+func handleSSHKeyRemove(transport *wsTransport, msg protocol.Message) {
+	var req protocol.SSHKeyRemoveData
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		log.Printf("ssh-key: invalid remove request: %v", err)
 		return
@@ -89,7 +89,7 @@ func handleSSHKeyRemove(transport *wsTransport, msg agentmgr.Message) {
 		return
 	}
 
-	resp := agentmgr.SSHKeyInstalledData{} // reuse for confirmation
+	resp := protocol.SSHKeyInstalledData{} // reuse for confirmation
 	currentUser, _ := user.Current()
 	hostname, _ := os.Hostname()
 	homeDir, _ := os.UserHomeDir()
@@ -100,8 +100,8 @@ func handleSSHKeyRemove(transport *wsTransport, msg agentmgr.Message) {
 	resp.HomeDir = homeDir
 
 	data, _ := json.Marshal(resp)
-	_ = transport.Send(agentmgr.Message{
-		Type: agentmgr.MsgSSHKeyRemoved,
+	_ = transport.Send(protocol.Message{
+		Type: protocol.MsgSSHKeyRemoved,
 		Data: data,
 	})
 

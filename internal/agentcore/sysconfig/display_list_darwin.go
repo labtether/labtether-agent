@@ -9,11 +9,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/labtether/labtether/internal/agentmgr"
-	"github.com/labtether/labtether/internal/securityruntime"
+	"github.com/labtether/labtether-agent/internal/securityruntime"
+	"github.com/labtether/protocol"
 )
 
-func PlatformListDisplays() ([]agentmgr.DisplayInfo, error) {
+func PlatformListDisplays() ([]protocol.DisplayInfo, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	out, err := securityruntime.CommandContextOutput(ctx, "system_profiler", "SPDisplaysDataType", "-json")
@@ -38,11 +38,11 @@ func PlatformListDisplays() ([]agentmgr.DisplayInfo, error) {
 		return nil, err
 	}
 
-	displays := make([]agentmgr.DisplayInfo, 0, 4)
+	displays := make([]protocol.DisplayInfo, 0, 4)
 	for _, gpu := range payload.GPUs {
 		for _, display := range gpu.Displays {
 			width, height := ParseResolution(display.Resolution)
-			displays = append(displays, agentmgr.DisplayInfo{
+			displays = append(displays, protocol.DisplayInfo{
 				Name:    strings.TrimSpace(display.Name),
 				Width:   width,
 				Height:  height,

@@ -10,8 +10,8 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/labtether/labtether/internal/agentmgr"
-	"github.com/labtether/labtether/internal/securityruntime"
+	"github.com/labtether/labtether-agent/internal/securityruntime"
+	"github.com/labtether/protocol"
 )
 
 // LinuxPackageBackend implements PackageBackend using dpkg/rpm and apt/dnf/yum/etc.
@@ -45,7 +45,7 @@ var (
 )
 
 // ListPackages lists installed Linux packages using dpkg or rpm.
-func (LinuxPackageBackend) ListPackages() ([]agentmgr.PackageInfo, error) {
+func (LinuxPackageBackend) ListPackages() ([]protocol.PackageInfo, error) {
 	if path, err := LinuxPackageLookPath("dpkg-query"); err == nil && path != "" {
 		return LinuxPackageDpkgLister()
 	}
@@ -226,13 +226,13 @@ type PackageError struct {
 
 func (e *PackageError) Error() string { return e.Msg }
 
-func collectLinuxPackagesDpkg() ([]agentmgr.PackageInfo, error) {
+func collectLinuxPackagesDpkg() ([]protocol.PackageInfo, error) {
 	out, err := securityruntime.CommandCombinedOutput("dpkg-query", "-W", "-f", "${Package}\t${Version}\t${Status}\n")
 	if err != nil {
 		return nil, err
 	}
 
-	var pkgs []agentmgr.PackageInfo
+	var pkgs []protocol.PackageInfo
 	scanner := bufio.NewScanner(bytes.NewReader(out))
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -251,7 +251,7 @@ func collectLinuxPackagesDpkg() ([]agentmgr.PackageInfo, error) {
 			status = statusParts[len(statusParts)-1]
 		}
 
-		pkgs = append(pkgs, agentmgr.PackageInfo{
+		pkgs = append(pkgs, protocol.PackageInfo{
 			Name:    fields[0],
 			Version: fields[1],
 			Status:  status,
@@ -261,13 +261,13 @@ func collectLinuxPackagesDpkg() ([]agentmgr.PackageInfo, error) {
 	return pkgs, nil
 }
 
-func collectLinuxPackagesRPM() ([]agentmgr.PackageInfo, error) {
+func collectLinuxPackagesRPM() ([]protocol.PackageInfo, error) {
 	out, err := securityruntime.CommandCombinedOutput("rpm", "-qa", "--queryformat", "%{NAME}\t%{VERSION}-%{RELEASE}\tinstalled\n")
 	if err != nil {
 		return nil, err
 	}
 
-	var pkgs []agentmgr.PackageInfo
+	var pkgs []protocol.PackageInfo
 	scanner := bufio.NewScanner(bytes.NewReader(out))
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -278,7 +278,7 @@ func collectLinuxPackagesRPM() ([]agentmgr.PackageInfo, error) {
 		if len(fields) < 3 {
 			continue
 		}
-		pkgs = append(pkgs, agentmgr.PackageInfo{
+		pkgs = append(pkgs, protocol.PackageInfo{
 			Name:    fields[0],
 			Version: fields[1],
 			Status:  fields[2],

@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/labtether/labtether/internal/agentmgr"
-	"github.com/labtether/labtether/internal/securityruntime"
+	"github.com/labtether/labtether-agent/internal/securityruntime"
+	"github.com/labtether/protocol"
 )
 
 const darwinPackageListTimeout = 45 * time.Second
@@ -19,7 +19,7 @@ const darwinPackageListTimeout = 45 * time.Second
 type DarwinPackageBackend struct{}
 
 // ListPackages lists installed Homebrew packages.
-func (DarwinPackageBackend) ListPackages() ([]agentmgr.PackageInfo, error) {
+func (DarwinPackageBackend) ListPackages() ([]protocol.PackageInfo, error) {
 	if _, err := exec.LookPath("brew"); err != nil {
 		return nil, fmt.Errorf("brew is not available on this host")
 	}
@@ -145,13 +145,13 @@ func (v *brewCaskInstalledVersions) UnmarshalJSON(data []byte) error {
 }
 
 // ParseBrewInstalledPackages parses the output of `brew info --json=v2 --installed`.
-func ParseBrewInstalledPackages(raw []byte) ([]agentmgr.PackageInfo, error) {
+func ParseBrewInstalledPackages(raw []byte) ([]protocol.PackageInfo, error) {
 	var payload brewInstalledJSON
 	if err := json.Unmarshal(raw, &payload); err != nil {
 		return nil, fmt.Errorf("failed to parse brew package output: %w", err)
 	}
 
-	packages := make([]agentmgr.PackageInfo, 0, len(payload.Formulae)+len(payload.Casks))
+	packages := make([]protocol.PackageInfo, 0, len(payload.Formulae)+len(payload.Casks))
 	seen := make(map[string]struct{}, len(payload.Formulae)+len(payload.Casks))
 
 	for _, formula := range payload.Formulae {
@@ -175,7 +175,7 @@ func ParseBrewInstalledPackages(raw []byte) ([]agentmgr.PackageInfo, error) {
 			}
 		}
 
-		packages = append(packages, agentmgr.PackageInfo{
+		packages = append(packages, protocol.PackageInfo{
 			Name:    name,
 			Version: version,
 			Status:  "installed",
@@ -203,7 +203,7 @@ func ParseBrewInstalledPackages(raw []byte) ([]agentmgr.PackageInfo, error) {
 			}
 		}
 
-		packages = append(packages, agentmgr.PackageInfo{
+		packages = append(packages, protocol.PackageInfo{
 			Name:    name,
 			Version: version,
 			Status:  "installed",

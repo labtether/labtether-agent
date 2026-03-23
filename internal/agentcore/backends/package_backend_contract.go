@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"runtime"
 
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/protocol"
 )
 
 // PackageActionResult holds the output and reboot status of a package action.
@@ -15,7 +15,7 @@ type PackageActionResult struct {
 
 // PackageBackend is the platform abstraction for querying and managing packages.
 type PackageBackend interface {
-	ListPackages() ([]agentmgr.PackageInfo, error)
+	ListPackages() ([]protocol.PackageInfo, error)
 	PerformAction(action string, packages []string) (PackageActionResult, error)
 }
 
@@ -44,7 +44,7 @@ type UnsupportedPackageBackend struct {
 }
 
 // ListPackages returns an error indicating the platform is unsupported.
-func (b UnsupportedPackageBackend) ListPackages() ([]agentmgr.PackageInfo, error) {
+func (b UnsupportedPackageBackend) ListPackages() ([]protocol.PackageInfo, error) {
 	return nil, fmt.Errorf("package listing is not supported on %s", b.OS)
 }
 

@@ -16,8 +16,8 @@ import (
 	"github.com/creack/pty"
 	"github.com/gorilla/websocket"
 
-	"github.com/labtether/labtether/internal/agentcore/files"
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/labtether-agent/internal/agentcore/files"
+	"github.com/labtether/protocol"
 )
 
 func TestTerminalManagerProbeReportsTmuxAvailability(t *testing.T) {
@@ -27,8 +27,8 @@ func TestTerminalManagerProbeReportsTmuxAvailability(t *testing.T) {
 	tm := newTerminalManager()
 	tm.HandleTerminalProbe(transport)
 
-	msg := waitForCapturedAgentMessage(t, messages, agentmgr.MsgTerminalProbed, 2*time.Second)
-	var probe agentmgr.TerminalProbeResponse
+	msg := waitForCapturedAgentMessage(t, messages, protocol.MsgTerminalProbed, 2*time.Second)
+	var probe protocol.TerminalProbeResponse
 	if err := json.Unmarshal(msg.Data, &probe); err != nil {
 		t.Fatalf("decode terminal probe payload: %v", err)
 	}
@@ -62,7 +62,7 @@ func TestTerminalManagerTmuxKillEndsSavedSession(t *testing.T) {
 	defer cleanup()
 
 	tm := newTerminalManager()
-	raw, err := json.Marshal(agentmgr.TerminalTmuxKillData{
+	raw, err := json.Marshal(protocol.TerminalTmuxKillData{
 		JobID:       "job-kill",
 		SessionID:   "sess-kill",
 		CommandID:   "persistent.tmux.kill",
@@ -73,10 +73,10 @@ func TestTerminalManagerTmuxKillEndsSavedSession(t *testing.T) {
 		t.Fatalf("marshal terminal tmux kill request: %v", err)
 	}
 
-	tm.HandleTerminalTmuxKill(transport, agentmgr.Message{Data: raw})
+	tm.HandleTerminalTmuxKill(transport, protocol.Message{Data: raw})
 
-	msg := waitForCapturedAgentMessage(t, messages, agentmgr.MsgCommandResult, 5*time.Second)
-	var result agentmgr.CommandResultData
+	msg := waitForCapturedAgentMessage(t, messages, protocol.MsgCommandResult, 5*time.Second)
+	var result protocol.CommandResultData
 	if err := json.Unmarshal(msg.Data, &result); err != nil {
 		t.Fatalf("decode tmux kill result: %v", err)
 	}
@@ -102,7 +102,7 @@ func TestTerminalManagerStartStreamsOutputAndCleansUp(t *testing.T) {
 	tm := newTerminalManager()
 	defer tm.CloseAll()
 
-	startRaw, err := json.Marshal(agentmgr.TerminalStartData{
+	startRaw, err := json.Marshal(protocol.TerminalStartData{
 		SessionID: "sess-1",
 		Shell:     shellPath,
 		Cols:      80,
@@ -112,10 +112,10 @@ func TestTerminalManagerStartStreamsOutputAndCleansUp(t *testing.T) {
 		t.Fatalf("marshal terminal start: %v", err)
 	}
 
-	tm.HandleTerminalStart(transport, agentmgr.Message{Data: startRaw})
+	tm.HandleTerminalStart(transport, protocol.Message{Data: startRaw})
 
-	startedMsg := waitForCapturedAgentMessage(t, messages, agentmgr.MsgTerminalStarted, 5*time.Second)
-	var started agentmgr.TerminalStartedData
+	startedMsg := waitForCapturedAgentMessage(t, messages, protocol.MsgTerminalStarted, 5*time.Second)
+	var started protocol.TerminalStartedData
 	if err := json.Unmarshal(startedMsg.Data, &started); err != nil {
 		t.Fatalf("decode terminal started payload: %v", err)
 	}
@@ -123,14 +123,14 @@ func TestTerminalManagerStartStreamsOutputAndCleansUp(t *testing.T) {
 		t.Fatalf("expected session_id sess-1, got %q", started.SessionID)
 	}
 
-	inputRaw, err := json.Marshal(agentmgr.TerminalDataPayload{
+	inputRaw, err := json.Marshal(protocol.TerminalDataPayload{
 		SessionID: "sess-1",
 		Data:      base64.StdEncoding.EncodeToString([]byte("printf 'terminal-ok\\n'; exit\n")),
 	})
 	if err != nil {
 		t.Fatalf("marshal terminal input: %v", err)
 	}
-	tm.HandleTerminalData(agentmgr.Message{Data: inputRaw})
+	tm.HandleTerminalData(protocol.Message{Data: inputRaw})
 
 	var output strings.Builder
 	deadline := time.After(5 * time.Second)
@@ -141,8 +141,8 @@ func TestTerminalManagerStartStreamsOutputAndCleansUp(t *testing.T) {
 				t.Fatal("transport closed before terminal session finished")
 			}
 			switch msg.Type {
-			case agentmgr.MsgTerminalData:
-				var payload agentmgr.TerminalDataPayload
+			case protocol.MsgTerminalData:
+				var payload protocol.TerminalDataPayload
 				if err := json.Unmarshal(msg.Data, &payload); err != nil {
 					t.Fatalf("decode terminal data payload: %v", err)
 				}
@@ -151,8 +151,8 @@ func TestTerminalManagerStartStreamsOutputAndCleansUp(t *testing.T) {
 					t.Fatalf("decode terminal data chunk: %v", err)
 				}
 				output.Write(decoded)
-			case agentmgr.MsgTerminalClosed:
-				var closed agentmgr.TerminalCloseData
+			case protocol.MsgTerminalClosed:
+				var closed protocol.TerminalCloseData
 				if err := json.Unmarshal(msg.Data, &closed); err != nil {
 					t.Fatalf("decode terminal closed payload: %v", err)
 				}
@@ -192,7 +192,7 @@ func TestTerminalManagerLargeOutputEmitsMultipleDataFrames(t *testing.T) {
 	tm := newTerminalManager()
 	defer tm.CloseAll()
 
-	startRaw, err := json.Marshal(agentmgr.TerminalStartData{
+	startRaw, err := json.Marshal(protocol.TerminalStartData{
 		SessionID: "sess-large-output",
 		Shell:     shellPath,
 		Cols:      80,
@@ -202,10 +202,10 @@ func TestTerminalManagerLargeOutputEmitsMultipleDataFrames(t *testing.T) {
 		t.Fatalf("marshal terminal start: %v", err)
 	}
 
-	tm.HandleTerminalStart(transport, agentmgr.Message{Data: startRaw})
-	_ = waitForCapturedAgentMessage(t, messages, agentmgr.MsgTerminalStarted, 5*time.Second)
+	tm.HandleTerminalStart(transport, protocol.Message{Data: startRaw})
+	_ = waitForCapturedAgentMessage(t, messages, protocol.MsgTerminalStarted, 5*time.Second)
 
-	inputRaw, err := json.Marshal(agentmgr.TerminalDataPayload{
+	inputRaw, err := json.Marshal(protocol.TerminalDataPayload{
 		SessionID: "sess-large-output",
 		Data: base64.StdEncoding.EncodeToString([]byte(
 			"printf 'BEGIN:'; i=0; while [ $i -lt 6000 ]; do printf x; i=$((i+1)); done; printf ':END\\n'; exit\n",
@@ -214,7 +214,7 @@ func TestTerminalManagerLargeOutputEmitsMultipleDataFrames(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal terminal input: %v", err)
 	}
-	tm.HandleTerminalData(agentmgr.Message{Data: inputRaw})
+	tm.HandleTerminalData(protocol.Message{Data: inputRaw})
 
 	var (
 		output     strings.Builder
@@ -228,8 +228,8 @@ func TestTerminalManagerLargeOutputEmitsMultipleDataFrames(t *testing.T) {
 				t.Fatal("transport closed before terminal session finished")
 			}
 			switch msg.Type {
-			case agentmgr.MsgTerminalData:
-				var payload agentmgr.TerminalDataPayload
+			case protocol.MsgTerminalData:
+				var payload protocol.TerminalDataPayload
 				if err := json.Unmarshal(msg.Data, &payload); err != nil {
 					t.Fatalf("decode terminal data payload: %v", err)
 				}
@@ -239,8 +239,8 @@ func TestTerminalManagerLargeOutputEmitsMultipleDataFrames(t *testing.T) {
 				}
 				dataFrames++
 				output.Write(decoded)
-			case agentmgr.MsgTerminalClosed:
-				var closed agentmgr.TerminalCloseData
+			case protocol.MsgTerminalClosed:
+				var closed protocol.TerminalCloseData
 				if err := json.Unmarshal(msg.Data, &closed); err != nil {
 					t.Fatalf("decode terminal closed payload: %v", err)
 				}
@@ -276,7 +276,7 @@ func TestTerminalManagerResizeUpdatesPTYSize(t *testing.T) {
 	tm := newTerminalManager()
 	defer tm.CloseAll()
 
-	startRaw, err := json.Marshal(agentmgr.TerminalStartData{
+	startRaw, err := json.Marshal(protocol.TerminalStartData{
 		SessionID: "sess-resize",
 		Shell:     shellPath,
 		Cols:      80,
@@ -286,8 +286,8 @@ func TestTerminalManagerResizeUpdatesPTYSize(t *testing.T) {
 		t.Fatalf("marshal terminal start: %v", err)
 	}
 
-	tm.HandleTerminalStart(transport, agentmgr.Message{Data: startRaw})
-	_ = waitForCapturedAgentMessage(t, messages, agentmgr.MsgTerminalStarted, 5*time.Second)
+	tm.HandleTerminalStart(transport, protocol.Message{Data: startRaw})
+	_ = waitForCapturedAgentMessage(t, messages, protocol.MsgTerminalStarted, 5*time.Second)
 
 	tm.Mu.Lock()
 	sess := tm.Sessions["sess-resize"]
@@ -304,7 +304,7 @@ func TestTerminalManagerResizeUpdatesPTYSize(t *testing.T) {
 		t.Fatalf("initial PTY size=%dx%d, want 24x80", rows, cols)
 	}
 
-	resizeRaw, err := json.Marshal(agentmgr.TerminalResizeData{
+	resizeRaw, err := json.Marshal(protocol.TerminalResizeData{
 		SessionID: "sess-resize",
 		Cols:      132,
 		Rows:      51,
@@ -312,7 +312,7 @@ func TestTerminalManagerResizeUpdatesPTYSize(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal terminal resize: %v", err)
 	}
-	tm.HandleTerminalResize(agentmgr.Message{Data: resizeRaw})
+	tm.HandleTerminalResize(protocol.Message{Data: resizeRaw})
 
 	rows, cols, err = pty.Getsize(sess.Ptmx)
 	if err != nil {
@@ -322,14 +322,14 @@ func TestTerminalManagerResizeUpdatesPTYSize(t *testing.T) {
 		t.Fatalf("resized PTY size=%dx%d, want 51x132", rows, cols)
 	}
 
-	closeRaw, err := json.Marshal(agentmgr.TerminalCloseData{SessionID: "sess-resize"})
+	closeRaw, err := json.Marshal(protocol.TerminalCloseData{SessionID: "sess-resize"})
 	if err != nil {
 		t.Fatalf("marshal terminal close: %v", err)
 	}
-	tm.HandleTerminalClose(agentmgr.Message{Data: closeRaw})
+	tm.HandleTerminalClose(protocol.Message{Data: closeRaw})
 
-	closedMsg := waitForCapturedAgentMessage(t, messages, agentmgr.MsgTerminalClosed, 5*time.Second)
-	var closed agentmgr.TerminalCloseData
+	closedMsg := waitForCapturedAgentMessage(t, messages, protocol.MsgTerminalClosed, 5*time.Second)
+	var closed protocol.TerminalCloseData
 	if err := json.Unmarshal(closedMsg.Data, &closed); err != nil {
 		t.Fatalf("decode terminal closed payload: %v", err)
 	}
@@ -354,14 +354,14 @@ func TestTerminalManagerRejectsStartWhenSessionLimitReached(t *testing.T) {
 		tm.Sessions[string(rune('a'+i))] = nil
 	}
 
-	startRaw, err := json.Marshal(agentmgr.TerminalStartData{SessionID: "overflow"})
+	startRaw, err := json.Marshal(protocol.TerminalStartData{SessionID: "overflow"})
 	if err != nil {
 		t.Fatalf("marshal terminal start: %v", err)
 	}
-	tm.HandleTerminalStart(transport, agentmgr.Message{Data: startRaw})
+	tm.HandleTerminalStart(transport, protocol.Message{Data: startRaw})
 
-	msg := waitForCapturedAgentMessage(t, messages, agentmgr.MsgTerminalClosed, 2*time.Second)
-	var closed agentmgr.TerminalCloseData
+	msg := waitForCapturedAgentMessage(t, messages, protocol.MsgTerminalClosed, 2*time.Second)
+	var closed protocol.TerminalCloseData
 	if err := json.Unmarshal(msg.Data, &closed); err != nil {
 		t.Fatalf("decode terminal closed payload: %v", err)
 	}
@@ -384,14 +384,14 @@ func TestFileManagerReadEmitsDataAndDone(t *testing.T) {
 		BaseDir: root,
 	}
 
-	raw, err := json.Marshal(agentmgr.FileReadData{
+	raw, err := json.Marshal(protocol.FileReadData{
 		RequestID: "req-read",
 		Path:      "sample.txt",
 	})
 	if err != nil {
 		t.Fatalf("marshal file read request: %v", err)
 	}
-	fm.HandleFileRead(transport, agentmgr.Message{Data: raw})
+	fm.HandleFileRead(transport, protocol.Message{Data: raw})
 
 	var content strings.Builder
 	deadline := time.After(2 * time.Second)
@@ -401,10 +401,10 @@ func TestFileManagerReadEmitsDataAndDone(t *testing.T) {
 			if !ok {
 				t.Fatal("transport closed before file read completed")
 			}
-			if msg.Type != agentmgr.MsgFileData {
+			if msg.Type != protocol.MsgFileData {
 				continue
 			}
-			var payload agentmgr.FileDataPayload
+			var payload protocol.FileDataPayload
 			if err := json.Unmarshal(msg.Data, &payload); err != nil {
 				t.Fatalf("decode file data payload: %v", err)
 			}
@@ -437,7 +437,7 @@ func TestFileManagerWriteCompletesAndPersistsFile(t *testing.T) {
 		BaseDir: root,
 	}
 
-	raw, err := json.Marshal(agentmgr.FileWriteData{
+	raw, err := json.Marshal(protocol.FileWriteData{
 		RequestID: "req-write",
 		Path:      "nested/output.txt",
 		Data:      base64.StdEncoding.EncodeToString([]byte("written-by-agent")),
@@ -446,10 +446,10 @@ func TestFileManagerWriteCompletesAndPersistsFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal file write request: %v", err)
 	}
-	fm.HandleFileWrite(transport, agentmgr.Message{Data: raw})
+	fm.HandleFileWrite(transport, protocol.Message{Data: raw})
 
-	msg := waitForCapturedAgentMessage(t, messages, agentmgr.MsgFileWritten, 2*time.Second)
-	var written agentmgr.FileWrittenData
+	msg := waitForCapturedAgentMessage(t, messages, protocol.MsgFileWritten, 2*time.Second)
+	var written protocol.FileWrittenData
 	if err := json.Unmarshal(msg.Data, &written); err != nil {
 		t.Fatalf("decode file written payload: %v", err)
 	}
@@ -483,7 +483,7 @@ func TestFileManagerWriteFinalizesOnEmptyDoneMarker(t *testing.T) {
 	}
 
 	firstChunk := strings.Repeat("w", files.FileChunkSize)
-	firstRaw, err := json.Marshal(agentmgr.FileWriteData{
+	firstRaw, err := json.Marshal(protocol.FileWriteData{
 		RequestID: "req-write-boundary",
 		Path:      "boundary/output.txt",
 		Data:      base64.StdEncoding.EncodeToString([]byte(firstChunk)),
@@ -493,7 +493,7 @@ func TestFileManagerWriteFinalizesOnEmptyDoneMarker(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal first file write request: %v", err)
 	}
-	fm.HandleFileWrite(transport, agentmgr.Message{Data: firstRaw})
+	fm.HandleFileWrite(transport, protocol.Message{Data: firstRaw})
 
 	select {
 	case msg := <-messages:
@@ -501,7 +501,7 @@ func TestFileManagerWriteFinalizesOnEmptyDoneMarker(t *testing.T) {
 	default:
 	}
 
-	finalRaw, err := json.Marshal(agentmgr.FileWriteData{
+	finalRaw, err := json.Marshal(protocol.FileWriteData{
 		RequestID: "req-write-boundary",
 		Path:      "boundary/output.txt",
 		Data:      "",
@@ -511,10 +511,10 @@ func TestFileManagerWriteFinalizesOnEmptyDoneMarker(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal terminal file write request: %v", err)
 	}
-	fm.HandleFileWrite(transport, agentmgr.Message{Data: finalRaw})
+	fm.HandleFileWrite(transport, protocol.Message{Data: finalRaw})
 
-	msg := waitForCapturedAgentMessage(t, messages, agentmgr.MsgFileWritten, 2*time.Second)
-	var written agentmgr.FileWrittenData
+	msg := waitForCapturedAgentMessage(t, messages, protocol.MsgFileWritten, 2*time.Second)
+	var written protocol.FileWrittenData
 	if err := json.Unmarshal(msg.Data, &written); err != nil {
 		t.Fatalf("decode file written payload: %v", err)
 	}
@@ -559,17 +559,17 @@ func TestFileManagerLifecycleCoversListMkdirRenameAndCopy(t *testing.T) {
 		t.Fatalf("write source file: %v", err)
 	}
 
-	mkdirRaw, err := json.Marshal(agentmgr.FileMkdirData{
+	mkdirRaw, err := json.Marshal(protocol.FileMkdirData{
 		RequestID: "req-mkdir",
 		Path:      "nested",
 	})
 	if err != nil {
 		t.Fatalf("marshal file mkdir request: %v", err)
 	}
-	fm.HandleFileMkdir(transport, agentmgr.Message{Data: mkdirRaw})
+	fm.HandleFileMkdir(transport, protocol.Message{Data: mkdirRaw})
 
-	mkdirMsg := waitForCapturedAgentMessage(t, messages, agentmgr.MsgFileResult, 2*time.Second)
-	var mkdirResult agentmgr.FileResultData
+	mkdirMsg := waitForCapturedAgentMessage(t, messages, protocol.MsgFileResult, 2*time.Second)
+	var mkdirResult protocol.FileResultData
 	if err := json.Unmarshal(mkdirMsg.Data, &mkdirResult); err != nil {
 		t.Fatalf("decode mkdir result payload: %v", err)
 	}
@@ -580,7 +580,7 @@ func TestFileManagerLifecycleCoversListMkdirRenameAndCopy(t *testing.T) {
 		t.Fatalf("expected created directory: %v", err)
 	}
 
-	renameRaw, err := json.Marshal(agentmgr.FileRenameData{
+	renameRaw, err := json.Marshal(protocol.FileRenameData{
 		RequestID: "req-rename",
 		OldPath:   "source.txt",
 		NewPath:   "nested/renamed.txt",
@@ -588,10 +588,10 @@ func TestFileManagerLifecycleCoversListMkdirRenameAndCopy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal file rename request: %v", err)
 	}
-	fm.HandleFileRename(transport, agentmgr.Message{Data: renameRaw})
+	fm.HandleFileRename(transport, protocol.Message{Data: renameRaw})
 
-	renameMsg := waitForCapturedAgentMessage(t, messages, agentmgr.MsgFileResult, 2*time.Second)
-	var renameResult agentmgr.FileResultData
+	renameMsg := waitForCapturedAgentMessage(t, messages, protocol.MsgFileResult, 2*time.Second)
+	var renameResult protocol.FileResultData
 	if err := json.Unmarshal(renameMsg.Data, &renameResult); err != nil {
 		t.Fatalf("decode rename result payload: %v", err)
 	}
@@ -606,7 +606,7 @@ func TestFileManagerLifecycleCoversListMkdirRenameAndCopy(t *testing.T) {
 		t.Fatalf("write hidden file: %v", err)
 	}
 
-	copyRaw, err := json.Marshal(agentmgr.FileCopyData{
+	copyRaw, err := json.Marshal(protocol.FileCopyData{
 		RequestID: "req-copy",
 		SrcPath:   "nested/renamed.txt",
 		DstPath:   "nested/copied.txt",
@@ -614,10 +614,10 @@ func TestFileManagerLifecycleCoversListMkdirRenameAndCopy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal file copy request: %v", err)
 	}
-	fm.HandleFileCopy(transport, agentmgr.Message{Data: copyRaw})
+	fm.HandleFileCopy(transport, protocol.Message{Data: copyRaw})
 
-	copyMsg := waitForCapturedAgentMessage(t, messages, agentmgr.MsgFileResult, 2*time.Second)
-	var copyResult agentmgr.FileResultData
+	copyMsg := waitForCapturedAgentMessage(t, messages, protocol.MsgFileResult, 2*time.Second)
+	var copyResult protocol.FileResultData
 	if err := json.Unmarshal(copyMsg.Data, &copyResult); err != nil {
 		t.Fatalf("decode copy result payload: %v", err)
 	}
@@ -637,17 +637,17 @@ func TestFileManagerLifecycleCoversListMkdirRenameAndCopy(t *testing.T) {
 		t.Fatalf("unexpected copied contents renamed=%q copied=%q", string(renamedBytes), string(copiedBytes))
 	}
 
-	listRaw, err := json.Marshal(agentmgr.FileListData{
+	listRaw, err := json.Marshal(protocol.FileListData{
 		RequestID: "req-list",
 		Path:      "nested",
 	})
 	if err != nil {
 		t.Fatalf("marshal file list request: %v", err)
 	}
-	fm.HandleFileList(transport, agentmgr.Message{Data: listRaw})
+	fm.HandleFileList(transport, protocol.Message{Data: listRaw})
 
-	listMsg := waitForCapturedAgentMessage(t, messages, agentmgr.MsgFileListed, 2*time.Second)
-	var listed agentmgr.FileListedData
+	listMsg := waitForCapturedAgentMessage(t, messages, protocol.MsgFileListed, 2*time.Second)
+	var listed protocol.FileListedData
 	if err := json.Unmarshal(listMsg.Data, &listed); err != nil {
 		t.Fatalf("decode file listed payload: %v", err)
 	}
@@ -671,7 +671,7 @@ func TestFileManagerLifecycleCoversListMkdirRenameAndCopy(t *testing.T) {
 		t.Fatalf("unexpected visible entries: %+v", listed.Entries)
 	}
 
-	showHiddenRaw, err := json.Marshal(agentmgr.FileListData{
+	showHiddenRaw, err := json.Marshal(protocol.FileListData{
 		RequestID:  "req-list-hidden",
 		Path:       "nested",
 		ShowHidden: true,
@@ -679,10 +679,10 @@ func TestFileManagerLifecycleCoversListMkdirRenameAndCopy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal file list hidden request: %v", err)
 	}
-	fm.HandleFileList(transport, agentmgr.Message{Data: showHiddenRaw})
+	fm.HandleFileList(transport, protocol.Message{Data: showHiddenRaw})
 
-	hiddenMsg := waitForCapturedAgentMessage(t, messages, agentmgr.MsgFileListed, 2*time.Second)
-	var listedHidden agentmgr.FileListedData
+	hiddenMsg := waitForCapturedAgentMessage(t, messages, protocol.MsgFileListed, 2*time.Second)
+	var listedHidden protocol.FileListedData
 	if err := json.Unmarshal(hiddenMsg.Data, &listedHidden); err != nil {
 		t.Fatalf("decode hidden file listed payload: %v", err)
 	}
@@ -710,17 +710,17 @@ func TestFileManagerDeleteRejectsBaseDirectory(t *testing.T) {
 		BaseDir: root,
 	}
 
-	raw, err := json.Marshal(agentmgr.FileDeleteData{
+	raw, err := json.Marshal(protocol.FileDeleteData{
 		RequestID: "req-delete",
 		Path:      "",
 	})
 	if err != nil {
 		t.Fatalf("marshal file delete request: %v", err)
 	}
-	fm.HandleFileDelete(transport, agentmgr.Message{Data: raw})
+	fm.HandleFileDelete(transport, protocol.Message{Data: raw})
 
-	msg := waitForCapturedAgentMessage(t, messages, agentmgr.MsgFileResult, 2*time.Second)
-	var result agentmgr.FileResultData
+	msg := waitForCapturedAgentMessage(t, messages, protocol.MsgFileResult, 2*time.Second)
+	var result protocol.FileResultData
 	if err := json.Unmarshal(msg.Data, &result); err != nil {
 		t.Fatalf("decode file result payload: %v", err)
 	}
@@ -747,7 +747,7 @@ func TestFileManagerSearchTruncatesAtMaxResults(t *testing.T) {
 		BaseDir: root,
 	}
 
-	raw, err := json.Marshal(agentmgr.FileSearchData{
+	raw, err := json.Marshal(protocol.FileSearchData{
 		RequestID:  "req-search",
 		Path:       "",
 		Pattern:    "*.txt",
@@ -756,10 +756,10 @@ func TestFileManagerSearchTruncatesAtMaxResults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal file search request: %v", err)
 	}
-	fm.HandleFileSearch(transport, agentmgr.Message{Data: raw})
+	fm.HandleFileSearch(transport, protocol.Message{Data: raw})
 
-	msg := waitForCapturedAgentMessage(t, messages, agentmgr.MsgFileSearchResult, 2*time.Second)
-	var result agentmgr.FileSearchResultData
+	msg := waitForCapturedAgentMessage(t, messages, protocol.MsgFileSearchResult, 2*time.Second)
+	var result protocol.FileSearchResultData
 	if err := json.Unmarshal(msg.Data, &result); err != nil {
 		t.Fatalf("decode file search payload: %v", err)
 	}
@@ -797,17 +797,17 @@ func TestFileManagerReadLargeFileEmitsChunkSequenceAndDoneMarker(t *testing.T) {
 		BaseDir: root,
 	}
 
-	raw, err := json.Marshal(agentmgr.FileReadData{
+	raw, err := json.Marshal(protocol.FileReadData{
 		RequestID: "req-large-read",
 		Path:      "large.bin",
 	})
 	if err != nil {
 		t.Fatalf("marshal file read request: %v", err)
 	}
-	fm.HandleFileRead(transport, agentmgr.Message{Data: raw})
+	fm.HandleFileRead(transport, protocol.Message{Data: raw})
 
 	var (
-		payloads []agentmgr.FileDataPayload
+		payloads []protocol.FileDataPayload
 		data     strings.Builder
 	)
 	deadline := time.After(2 * time.Second)
@@ -818,10 +818,10 @@ readLoop:
 			if !ok {
 				t.Fatal("transport closed before large file read completed")
 			}
-			if msg.Type != agentmgr.MsgFileData {
+			if msg.Type != protocol.MsgFileData {
 				continue
 			}
-			var payload agentmgr.FileDataPayload
+			var payload protocol.FileDataPayload
 			if err := json.Unmarshal(msg.Data, &payload); err != nil {
 				t.Fatalf("decode file data payload: %v", err)
 			}
@@ -856,7 +856,7 @@ readLoop:
 	}
 }
 
-func newAgentcoreCapturedTransport(t *testing.T) (*wsTransport, <-chan agentmgr.Message, func()) {
+func newAgentcoreCapturedTransport(t *testing.T) (*wsTransport, <-chan protocol.Message, func()) {
 	t.Helper()
 
 	serverConnCh := make(chan *websocket.Conn, 1)
@@ -886,11 +886,11 @@ func newAgentcoreCapturedTransport(t *testing.T) (*wsTransport, <-chan agentmgr.
 		t.Fatal("timed out waiting for websocket capture connection")
 	}
 
-	messageCh := make(chan agentmgr.Message, 64)
+	messageCh := make(chan protocol.Message, 64)
 	go func() {
 		defer close(messageCh)
 		for {
-			var msg agentmgr.Message
+			var msg protocol.Message
 			if err := serverConn.ReadJSON(&msg); err != nil {
 				return
 			}
@@ -906,7 +906,7 @@ func newAgentcoreCapturedTransport(t *testing.T) (*wsTransport, <-chan agentmgr.
 	return &wsTransport{conn: clientConn}, messageCh, cleanup
 }
 
-func waitForCapturedAgentMessage(t *testing.T, messages <-chan agentmgr.Message, wantType string, timeout time.Duration) agentmgr.Message {
+func waitForCapturedAgentMessage(t *testing.T, messages <-chan protocol.Message, wantType string, timeout time.Duration) protocol.Message {
 	t.Helper()
 
 	deadline := time.After(timeout)

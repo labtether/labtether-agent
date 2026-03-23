@@ -7,7 +7,7 @@ import (
 	"log"
 	"sync"
 
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/protocol"
 )
 
 const maxLogStreams = 5
@@ -32,8 +32,8 @@ func NewDockerLogManager(client *dockerClient) *DockerLogManager {
 	}
 }
 
-func (lm *DockerLogManager) HandleLogsStart(ctx context.Context, transport Transport, msg agentmgr.Message) {
-	var req agentmgr.DockerLogsStartData
+func (lm *DockerLogManager) HandleLogsStart(ctx context.Context, transport Transport, msg protocol.Message) {
+	var req protocol.DockerLogsStartData
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		log.Printf("docker-logs: invalid start request: %v", err)
 		return
@@ -113,14 +113,14 @@ func (lm *DockerLogManager) HandleLogsStart(ctx context.Context, transport Trans
 				}
 			}
 
-			logData := agentmgr.DockerLogsStreamData{
+			logData := protocol.DockerLogsStreamData{
 				SessionID: req.SessionID,
 				Stream:    streamName,
 				Data:      content,
 			}
 			data, _ := json.Marshal(logData)
-			_ = transport.Send(agentmgr.Message{
-				Type: agentmgr.MsgDockerLogsStream,
+			_ = transport.Send(protocol.Message{
+				Type: protocol.MsgDockerLogsStream,
 				ID:   req.SessionID,
 				Data: data,
 			})
@@ -128,8 +128,8 @@ func (lm *DockerLogManager) HandleLogsStart(ctx context.Context, transport Trans
 	}()
 }
 
-func (lm *DockerLogManager) HandleLogsStop(msg agentmgr.Message) {
-	var req agentmgr.DockerLogsStopData
+func (lm *DockerLogManager) HandleLogsStop(msg protocol.Message) {
+	var req protocol.DockerLogsStopData
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		return
 	}

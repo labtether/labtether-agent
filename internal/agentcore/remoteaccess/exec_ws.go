@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/labtether/labtether/internal/agentmgr"
-	"github.com/labtether/labtether/internal/securityruntime"
+	"github.com/labtether/labtether-agent/internal/securityruntime"
+	"github.com/labtether/protocol"
 )
 
 var updatePackageNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9+._:-]{0,127}$`)
@@ -32,8 +32,8 @@ var SelfUpdateExitFn func(code int)
 const SelfUpdateExitCode = 10
 
 // HandleCommandRequest executes a command locally and sends the result back.
-func HandleCommandRequest(transport MessageSender, msg agentmgr.Message, cfg ExecConfig) {
-	var req agentmgr.CommandRequestData
+func HandleCommandRequest(transport MessageSender, msg protocol.Message, cfg ExecConfig) {
+	var req protocol.CommandRequestData
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		log.Printf("agentws: invalid command request: %v", err)
 		return
@@ -96,30 +96,30 @@ func HandleCommandRequest(transport MessageSender, msg agentmgr.Message, cfg Exe
 }
 
 // HandleUpdateRequest executes a system update and reports progress/results.
-func HandleUpdateRequest(transport MessageSender, msg agentmgr.Message, cfg ExecConfig) {
-	var req agentmgr.UpdateRequestData
+func HandleUpdateRequest(transport MessageSender, msg protocol.Message, cfg ExecConfig) {
+	var req protocol.UpdateRequestData
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		log.Printf("agentws: invalid update request: %v", err)
 		return
 	}
 
 	sendProgress := func(stage, message string) {
-		data, _ := json.Marshal(agentmgr.UpdateProgressData{
+		data, _ := json.Marshal(protocol.UpdateProgressData{
 			JobID:   req.JobID,
 			Stage:   stage,
 			Message: message,
 		})
-		_ = transport.Send(agentmgr.Message{Type: agentmgr.MsgUpdateProgress, ID: req.JobID, Data: data})
+		_ = transport.Send(protocol.Message{Type: protocol.MsgUpdateProgress, ID: req.JobID, Data: data})
 	}
 
 	sendResult := func(status, output, errMsg string) {
-		data, _ := json.Marshal(agentmgr.UpdateResultData{
+		data, _ := json.Marshal(protocol.UpdateResultData{
 			JobID:  req.JobID,
 			Status: status,
 			Output: output,
 			Error:  errMsg,
 		})
-		_ = transport.Send(agentmgr.Message{Type: agentmgr.MsgUpdateResult, ID: req.JobID, Data: data})
+		_ = transport.Send(protocol.Message{Type: protocol.MsgUpdateResult, ID: req.JobID, Data: data})
 	}
 	if strings.TrimSpace(cfg.APIToken) == "" {
 		sendResult("failed", "", "remote updates require an authenticated agent token")
@@ -226,8 +226,8 @@ func HandleUpdateRequest(transport MessageSender, msg agentmgr.Message, cfg Exec
 	sendResult("succeeded", outputStr, "")
 }
 
-func sendCommandResult(transport MessageSender, req agentmgr.CommandRequestData, status, output string) {
-	result := agentmgr.CommandResultData{
+func sendCommandResult(transport MessageSender, req protocol.CommandRequestData, status, output string) {
+	result := protocol.CommandResultData{
 		JobID:     req.JobID,
 		SessionID: req.SessionID,
 		CommandID: req.CommandID,
@@ -239,8 +239,8 @@ func sendCommandResult(transport MessageSender, req agentmgr.CommandRequestData,
 		log.Printf("agentws: failed to marshal command result: %v", marshalErr)
 		return
 	}
-	if sendErr := transport.Send(agentmgr.Message{
-		Type: agentmgr.MsgCommandResult,
+	if sendErr := transport.Send(protocol.Message{
+		Type: protocol.MsgCommandResult,
 		ID:   req.JobID,
 		Data: data,
 	}); sendErr != nil {

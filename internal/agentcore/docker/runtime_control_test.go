@@ -14,14 +14,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/protocol"
 )
 
 func TestHandleDockerActionRejectsInvalidContainerID(t *testing.T) {
 	transport := newRecordingCollectorTransport(true)
 	dc := NewDockerCollector("/tmp/docker.sock", transport, "asset-1", 30*time.Second)
 
-	raw, err := json.Marshal(agentmgr.DockerActionData{
+	raw, err := json.Marshal(protocol.DockerActionData{
 		RequestID:   "req-invalid",
 		Action:      "container.stop",
 		ContainerID: "../bad",
@@ -30,14 +30,14 @@ func TestHandleDockerActionRejectsInvalidContainerID(t *testing.T) {
 		t.Fatalf("marshal docker action: %v", err)
 	}
 
-	dc.HandleDockerAction(transport, agentmgr.Message{Type: agentmgr.MsgDockerAction, Data: raw})
+	dc.HandleDockerAction(transport, protocol.Message{Type: protocol.MsgDockerAction, Data: raw})
 
 	msg := waitForCollectorMessage(t, transport, time.Second)
-	if msg.Type != agentmgr.MsgDockerActionResult {
-		t.Fatalf("message type=%q, want %q", msg.Type, agentmgr.MsgDockerActionResult)
+	if msg.Type != protocol.MsgDockerActionResult {
+		t.Fatalf("message type=%q, want %q", msg.Type, protocol.MsgDockerActionResult)
 	}
 
-	var result agentmgr.DockerActionResultData
+	var result protocol.DockerActionResultData
 	if err := json.Unmarshal(msg.Data, &result); err != nil {
 		t.Fatalf("decode docker action result: %v", err)
 	}
@@ -98,7 +98,7 @@ func TestHandleDockerActionContainerCreateStartsContainerAndQueuesRefresh(t *tes
 	dc := NewDockerCollector("/tmp/docker.sock", transport, "asset-1", 30*time.Second)
 	dc.client = client
 
-	raw, err := json.Marshal(agentmgr.DockerActionData{
+	raw, err := json.Marshal(protocol.DockerActionData{
 		RequestID: "req-create",
 		Action:    "container.create",
 		Params: map[string]string{
@@ -113,14 +113,14 @@ func TestHandleDockerActionContainerCreateStartsContainerAndQueuesRefresh(t *tes
 		t.Fatalf("marshal docker create action: %v", err)
 	}
 
-	dc.HandleDockerAction(transport, agentmgr.Message{Type: agentmgr.MsgDockerAction, Data: raw})
+	dc.HandleDockerAction(transport, protocol.Message{Type: protocol.MsgDockerAction, Data: raw})
 
 	msg := waitForCollectorMessage(t, transport, time.Second)
-	if msg.Type != agentmgr.MsgDockerActionResult {
-		t.Fatalf("message type=%q, want %q", msg.Type, agentmgr.MsgDockerActionResult)
+	if msg.Type != protocol.MsgDockerActionResult {
+		t.Fatalf("message type=%q, want %q", msg.Type, protocol.MsgDockerActionResult)
 	}
 
-	var result agentmgr.DockerActionResultData
+	var result protocol.DockerActionResultData
 	if err := json.Unmarshal(msg.Data, &result); err != nil {
 		t.Fatalf("decode docker action result: %v", err)
 	}
@@ -164,7 +164,7 @@ func TestHandleDockerActionContainerLogsReturnsDecodedLogsWithoutRefresh(t *test
 	dc := NewDockerCollector("/tmp/docker.sock", transport, "asset-1", 30*time.Second)
 	dc.client = client
 
-	raw, err := json.Marshal(agentmgr.DockerActionData{
+	raw, err := json.Marshal(protocol.DockerActionData{
 		RequestID:   "req-logs",
 		Action:      "container.logs",
 		ContainerID: "abc123",
@@ -177,14 +177,14 @@ func TestHandleDockerActionContainerLogsReturnsDecodedLogsWithoutRefresh(t *test
 		t.Fatalf("marshal docker logs action: %v", err)
 	}
 
-	dc.HandleDockerAction(transport, agentmgr.Message{Type: agentmgr.MsgDockerAction, Data: raw})
+	dc.HandleDockerAction(transport, protocol.Message{Type: protocol.MsgDockerAction, Data: raw})
 
 	msg := waitForCollectorMessage(t, transport, time.Second)
-	if msg.Type != agentmgr.MsgDockerActionResult {
-		t.Fatalf("message type=%q, want %q", msg.Type, agentmgr.MsgDockerActionResult)
+	if msg.Type != protocol.MsgDockerActionResult {
+		t.Fatalf("message type=%q, want %q", msg.Type, protocol.MsgDockerActionResult)
 	}
 
-	var result agentmgr.DockerActionResultData
+	var result protocol.DockerActionResultData
 	if err := json.Unmarshal(msg.Data, &result); err != nil {
 		t.Fatalf("decode docker action result: %v", err)
 	}
@@ -212,7 +212,7 @@ func TestDockerLogManagerHandleLogsStartStreamsAndCleansUp(t *testing.T) {
 	defer srv.Close()
 
 	lm := NewDockerLogManager(client)
-	raw, err := json.Marshal(agentmgr.DockerLogsStartData{
+	raw, err := json.Marshal(protocol.DockerLogsStartData{
 		SessionID:   "logs-1",
 		ContainerID: "ct-1",
 		Tail:        50,
@@ -222,17 +222,17 @@ func TestDockerLogManagerHandleLogsStartStreamsAndCleansUp(t *testing.T) {
 		t.Fatalf("marshal docker logs start: %v", err)
 	}
 
-	lm.HandleLogsStart(context.Background(), transport, agentmgr.Message{Type: agentmgr.MsgDockerLogsStart, Data: raw})
+	lm.HandleLogsStart(context.Background(), transport, protocol.Message{Type: protocol.MsgDockerLogsStart, Data: raw})
 
 	first := waitForCollectorMessage(t, transport, time.Second)
 	second := waitForCollectorMessage(t, transport, time.Second)
-	if first.Type != agentmgr.MsgDockerLogsStream || second.Type != agentmgr.MsgDockerLogsStream {
+	if first.Type != protocol.MsgDockerLogsStream || second.Type != protocol.MsgDockerLogsStream {
 		t.Fatalf("unexpected message types %q and %q", first.Type, second.Type)
 	}
 
-	streams := make([]agentmgr.DockerLogsStreamData, 0, 2)
-	for _, msg := range []agentmgr.Message{first, second} {
-		var payload agentmgr.DockerLogsStreamData
+	streams := make([]protocol.DockerLogsStreamData, 0, 2)
+	for _, msg := range []protocol.Message{first, second} {
+		var payload protocol.DockerLogsStreamData
 		if err := json.Unmarshal(msg.Data, &payload); err != nil {
 			t.Fatalf("decode docker logs stream: %v", err)
 		}
@@ -280,7 +280,7 @@ func TestDockerExecManagerHandleExecStartStreamsOutputAndCleansUp(t *testing.T) 
 	}))
 
 	em := NewDockerExecManager(client)
-	raw, err := json.Marshal(agentmgr.DockerExecStartData{
+	raw, err := json.Marshal(protocol.DockerExecStartData{
 		SessionID:   "exec-1",
 		ContainerID: "ct-1",
 		Command:     []string{"sh"},
@@ -290,23 +290,23 @@ func TestDockerExecManagerHandleExecStartStreamsOutputAndCleansUp(t *testing.T) 
 		t.Fatalf("marshal docker exec start: %v", err)
 	}
 
-	em.HandleExecStart(transport, agentmgr.Message{Type: agentmgr.MsgDockerExecStart, Data: raw})
+	em.HandleExecStart(transport, protocol.Message{Type: protocol.MsgDockerExecStart, Data: raw})
 
 	started := waitForCollectorMessage(t, transport, 10*time.Second)
 	output := waitForCollectorMessage(t, transport, 10*time.Second)
 	closed := waitForCollectorMessage(t, transport, 10*time.Second)
 
-	if started.Type != agentmgr.MsgDockerExecStarted {
-		t.Fatalf("started message type=%q, want %q", started.Type, agentmgr.MsgDockerExecStarted)
+	if started.Type != protocol.MsgDockerExecStarted {
+		t.Fatalf("started message type=%q, want %q", started.Type, protocol.MsgDockerExecStarted)
 	}
-	if output.Type != agentmgr.MsgDockerExecData {
-		t.Fatalf("output message type=%q, want %q", output.Type, agentmgr.MsgDockerExecData)
+	if output.Type != protocol.MsgDockerExecData {
+		t.Fatalf("output message type=%q, want %q", output.Type, protocol.MsgDockerExecData)
 	}
-	if closed.Type != agentmgr.MsgDockerExecClosed {
-		t.Fatalf("closed message type=%q, want %q", closed.Type, agentmgr.MsgDockerExecClosed)
+	if closed.Type != protocol.MsgDockerExecClosed {
+		t.Fatalf("closed message type=%q, want %q", closed.Type, protocol.MsgDockerExecClosed)
 	}
 
-	var outputPayload agentmgr.DockerExecDataPayload
+	var outputPayload protocol.DockerExecDataPayload
 	if err := json.Unmarshal(output.Data, &outputPayload); err != nil {
 		t.Fatalf("decode docker exec data payload: %v", err)
 	}
@@ -318,7 +318,7 @@ func TestDockerExecManagerHandleExecStartStreamsOutputAndCleansUp(t *testing.T) 
 		t.Fatalf("exec output=%q, want %q", string(decoded), "hello from exec\n")
 	}
 
-	var closedPayload agentmgr.DockerExecCloseData
+	var closedPayload protocol.DockerExecCloseData
 	if err := json.Unmarshal(closed.Data, &closedPayload); err != nil {
 		t.Fatalf("decode docker exec close payload: %v", err)
 	}
@@ -358,7 +358,7 @@ func TestHandleComposeActionDeployWritesComposeFileAndQueuesRefresh(t *testing.T
 	dc.client = NewDockerClient("http://localhost:1")
 
 	configDir := t.TempDir()
-	raw, err := json.Marshal(agentmgr.DockerComposeActionData{
+	raw, err := json.Marshal(protocol.DockerComposeActionData{
 		RequestID:   "compose-1",
 		StackName:   "My Stack",
 		Action:      "deploy",
@@ -369,14 +369,14 @@ func TestHandleComposeActionDeployWritesComposeFileAndQueuesRefresh(t *testing.T
 		t.Fatalf("marshal docker compose action: %v", err)
 	}
 
-	dc.HandleComposeAction(transport, agentmgr.Message{Type: agentmgr.MsgDockerComposeAction, Data: raw})
+	dc.HandleComposeAction(transport, protocol.Message{Type: protocol.MsgDockerComposeAction, Data: raw})
 
 	msg := waitForCollectorMessage(t, transport, time.Second)
-	if msg.Type != agentmgr.MsgDockerComposeResult {
-		t.Fatalf("message type=%q, want %q", msg.Type, agentmgr.MsgDockerComposeResult)
+	if msg.Type != protocol.MsgDockerComposeResult {
+		t.Fatalf("message type=%q, want %q", msg.Type, protocol.MsgDockerComposeResult)
 	}
 
-	var result agentmgr.DockerComposeResultData
+	var result protocol.DockerComposeResultData
 	if err := json.Unmarshal(msg.Data, &result); err != nil {
 		t.Fatalf("decode docker compose result: %v", err)
 	}
@@ -416,7 +416,7 @@ func dockerMuxFrame(stream byte, payload string) []byte {
 }
 
 func decodeBase64String(raw string) ([]byte, error) {
-	payload := agentmgr.DockerExecDataPayload{Data: raw}
+	payload := protocol.DockerExecDataPayload{Data: raw}
 	decoded, err := io.ReadAll(base64Reader(payload.Data))
 	if err != nil {
 		return nil, err

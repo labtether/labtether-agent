@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	dockerpkg "github.com/labtether/labtether/internal/agentcore/docker"
-	"github.com/labtether/labtether/internal/agentmgr"
+	dockerpkg "github.com/labtether/labtether-agent/internal/agentcore/docker"
+	"github.com/labtether/protocol"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -29,7 +29,7 @@ type mockCollectorTransport struct {
 	sends     int
 }
 
-func (m *mockCollectorTransport) Send(agentmgr.Message) error {
+func (m *mockCollectorTransport) Send(protocol.Message) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.sends++
@@ -38,8 +38,8 @@ func (m *mockCollectorTransport) Send(agentmgr.Message) error {
 
 func (m *mockCollectorTransport) Connect(context.Context) error { return nil }
 
-func (m *mockCollectorTransport) Receive() (agentmgr.Message, error) {
-	return agentmgr.Message{}, nil
+func (m *mockCollectorTransport) Receive() (protocol.Message, error) {
+	return protocol.Message{}, nil
 }
 
 func (m *mockCollectorTransport) Connected() bool {
@@ -207,7 +207,7 @@ func TestParsePortList(t *testing.T) {
 }
 
 func TestCountDiscoveredServicesBySource(t *testing.T) {
-	services := []agentmgr.DiscoveredWebService{
+	services := []protocol.DiscoveredWebService{
 		{Source: "docker"},
 		{Source: "Docker"},
 		{Source: "proxy"},
@@ -358,7 +358,7 @@ func TestDiscoverPortScannedServices(t *testing.T) {
 		t.Fatalf("public_port metadata = %q, want %d", services[0].Metadata["public_port"], port)
 	}
 
-	alreadyKnown := []agentmgr.DiscoveredWebService{
+	alreadyKnown := []protocol.DiscoveredWebService{
 		{
 			URL: buildServiceURL("127.0.0.1", port),
 		},
@@ -393,7 +393,7 @@ func TestDiscoverPortScannedServicesSkipsPortsFromServiceMetadata(t *testing.T) 
 		hostIP:  "127.0.0.1",
 	}
 
-	alreadyKnown := []agentmgr.DiscoveredWebService{
+	alreadyKnown := []protocol.DiscoveredWebService{
 		{
 			URL: "https://plex.home.lab",
 			Metadata: map[string]string{
@@ -449,7 +449,7 @@ func TestDiscoverLANScannedServices(t *testing.T) {
 		t.Fatalf("scan_target_host metadata = %q, want 127.0.0.1", services[0].Metadata["scan_target_host"])
 	}
 
-	alreadyKnown := []agentmgr.DiscoveredWebService{
+	alreadyKnown := []protocol.DiscoveredWebService{
 		{
 			URL: buildServiceURL("127.0.0.1", port),
 		},
@@ -505,7 +505,7 @@ func TestApplyFingerprintMetadataLabTetherBackend(t *testing.T) {
 		client:         server.Client(),
 		insecureClient: server.Client(),
 	}
-	svc := agentmgr.DiscoveredWebService{
+	svc := protocol.DiscoveredWebService{
 		Name:     "Port 8443",
 		Category: CatOther,
 		URL:      server.URL,
@@ -547,7 +547,7 @@ func TestApplyFingerprintMetadataLabTetherFrontend(t *testing.T) {
 		client:         server.Client(),
 		insecureClient: server.Client(),
 	}
-	svc := agentmgr.DiscoveredWebService{
+	svc := protocol.DiscoveredWebService{
 		Name:     "Port 3000",
 		Category: CatOther,
 		URL:      server.URL,
@@ -589,7 +589,7 @@ func TestApplyFingerprintMetadataLabTetherFrontendWithProtectedHealthRoute(t *te
 		client:         server.Client(),
 		insecureClient: server.Client(),
 	}
-	svc := agentmgr.DiscoveredWebService{
+	svc := protocol.DiscoveredWebService{
 		Name:     "Port 3000",
 		Category: CatOther,
 		URL:      server.URL,
@@ -628,7 +628,7 @@ func TestApplyFingerprintMetadataDoesNotMisclassifyGrafanaLikeHealth(t *testing.
 		client:         server.Client(),
 		insecureClient: server.Client(),
 	}
-	svc := agentmgr.DiscoveredWebService{
+	svc := protocol.DiscoveredWebService{
 		Name:     "Port 3000",
 		Category: CatOther,
 		URL:      server.URL,
@@ -647,7 +647,7 @@ func TestApplyFingerprintMetadataDoesNotMisclassifyGrafanaLikeHealth(t *testing.
 
 func TestApplyFingerprintMetadataAppliesCompatibilityFromServiceKey(t *testing.T) {
 	wsc := &WebServiceCollector{}
-	svc := agentmgr.DiscoveredWebService{
+	svc := protocol.DiscoveredWebService{
 		Name:       "Portainer",
 		Category:   CatManagement,
 		URL:        "https://10.0.0.5:9443",
@@ -687,7 +687,7 @@ func TestApplyFingerprintMetadataDetectsHomeAssistantCompatibility(t *testing.T)
 		client:         server.Client(),
 		insecureClient: server.Client(),
 	}
-	svc := agentmgr.DiscoveredWebService{
+	svc := protocol.DiscoveredWebService{
 		Name:     "Port 8123",
 		Category: CatOther,
 		URL:      server.URL,
@@ -714,7 +714,7 @@ func TestApplyFingerprintMetadataDetectsHomeAssistantCompatibility(t *testing.T)
 }
 
 func TestNormalizeLabTetherServicesHidesAPIWhenConsoleExists(t *testing.T) {
-	services := []agentmgr.DiscoveredWebService{
+	services := []protocol.DiscoveredWebService{
 		{
 			ID:          "svc-console",
 			ServiceKey:  "labtether",
@@ -765,7 +765,7 @@ func TestNormalizeLabTetherServicesHidesAPIWhenConsoleExists(t *testing.T) {
 }
 
 func TestNormalizeLabTetherServicesShowsAPIWithoutConsole(t *testing.T) {
-	services := []agentmgr.DiscoveredWebService{
+	services := []protocol.DiscoveredWebService{
 		{
 			ID:          "svc-api",
 			ServiceKey:  "labtether",
@@ -1003,7 +1003,7 @@ func TestHealthCheckSwitchesToHTTPS(t *testing.T) {
 		t.Fatalf("parse tls server url: %v", err)
 	}
 
-	svc := agentmgr.DiscoveredWebService{
+	svc := protocol.DiscoveredWebService{
 		URL: "http://" + parsed.Host,
 	}
 	wsc := &WebServiceCollector{
@@ -1037,7 +1037,7 @@ func TestHealthCheckSwitchesToHTTP(t *testing.T) {
 		t.Fatalf("parse http server url: %v", err)
 	}
 
-	svc := agentmgr.DiscoveredWebService{
+	svc := protocol.DiscoveredWebService{
 		URL: "https://" + parsed.Host,
 	}
 	wsc := &WebServiceCollector{
@@ -1076,7 +1076,7 @@ func TestApplyHealthCheckWithCacheReusesRecentProbe(t *testing.T) {
 		insecureClient: server.Client(),
 		healthCache:    make(map[string]healthCacheEntry),
 	}
-	svc := agentmgr.DiscoveredWebService{
+	svc := protocol.DiscoveredWebService{
 		ID:  "svc-1",
 		URL: server.URL,
 	}
@@ -1117,7 +1117,7 @@ func TestApplyHealthCheckWithCacheReprobesAfterTTL(t *testing.T) {
 		insecureClient: server.Client(),
 		healthCache:    make(map[string]healthCacheEntry),
 	}
-	svc := agentmgr.DiscoveredWebService{
+	svc := protocol.DiscoveredWebService{
 		ID:  "svc-ttl",
 		URL: server.URL,
 	}
@@ -1402,7 +1402,7 @@ func TestFingerprintByHTTPTrueNAS(t *testing.T) {
 		client:         server.Client(),
 		insecureClient: server.Client(),
 	}
-	svc := agentmgr.DiscoveredWebService{
+	svc := protocol.DiscoveredWebService{
 		Name: "Port 80", Category: CatOther, URL: server.URL, Source: "scan",
 	}
 	wsc.applyFingerprintMetadata(&svc)
@@ -1437,7 +1437,7 @@ func TestFingerprintByHTTPTrueNASRedirect(t *testing.T) {
 		},
 		insecureClient: server.Client(),
 	}
-	svc := agentmgr.DiscoveredWebService{
+	svc := protocol.DiscoveredWebService{
 		Name: "Port 80", Category: CatOther, URL: server.URL, Source: "scan",
 	}
 	wsc.applyFingerprintMetadata(&svc)
@@ -1467,7 +1467,7 @@ func TestFingerprintByAPITrueNAS(t *testing.T) {
 		client:         server.Client(),
 		insecureClient: server.Client(),
 	}
-	svc := agentmgr.DiscoveredWebService{
+	svc := protocol.DiscoveredWebService{
 		Name: "Port 80", Category: CatOther, URL: server.URL, Source: "scan",
 	}
 	wsc.applyFingerprintMetadata(&svc)
@@ -1496,7 +1496,7 @@ func TestFingerprintByAPISynology(t *testing.T) {
 		client:         server.Client(),
 		insecureClient: server.Client(),
 	}
-	svc := agentmgr.DiscoveredWebService{
+	svc := protocol.DiscoveredWebService{
 		Name: "Port 5000", Category: CatOther, URL: server.URL, Source: "scan",
 	}
 	wsc.applyFingerprintMetadata(&svc)
@@ -1525,7 +1525,7 @@ func TestFingerprintByAPIQNAP(t *testing.T) {
 		client:         server.Client(),
 		insecureClient: server.Client(),
 	}
-	svc := agentmgr.DiscoveredWebService{
+	svc := protocol.DiscoveredWebService{
 		Name: "Port 8080", Category: CatOther, URL: server.URL, Source: "scan",
 	}
 	wsc.applyFingerprintMetadata(&svc)
@@ -1552,7 +1552,7 @@ func TestFingerprintNoMatchOnGenericService(t *testing.T) {
 		client:         server.Client(),
 		insecureClient: server.Client(),
 	}
-	svc := agentmgr.DiscoveredWebService{
+	svc := protocol.DiscoveredWebService{
 		Name: "Port 9000", Category: CatOther, URL: server.URL, Source: "scan",
 	}
 	wsc.applyFingerprintMetadata(&svc)
@@ -1574,7 +1574,7 @@ func TestFingerprintSkipsAlreadyClassified(t *testing.T) {
 		client:         server.Client(),
 		insecureClient: server.Client(),
 	}
-	svc := agentmgr.DiscoveredWebService{
+	svc := protocol.DiscoveredWebService{
 		ServiceKey: "myapp",
 		Name:       "My App",
 		Category:   CatOther,

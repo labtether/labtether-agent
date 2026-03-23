@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	dockerpkg "github.com/labtether/labtether/internal/agentcore/docker"
+	dockerpkg "github.com/labtether/labtether-agent/internal/agentcore/docker"
 )
 
 var (

@@ -6,7 +6,7 @@ import (
 	"log"
 	"strings"
 
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/protocol"
 )
 
 // ServiceManager handles service list and management requests from the hub.
@@ -26,8 +26,8 @@ func NewServiceManager() *ServiceManager {
 func (sm *ServiceManager) CloseAll() {}
 
 // HandleServiceList collects service inventory and sends it to the hub.
-func (sm *ServiceManager) HandleServiceList(transport MessageSender, msg agentmgr.Message) {
-	var req agentmgr.ServiceListData
+func (sm *ServiceManager) HandleServiceList(transport MessageSender, msg protocol.Message) {
+	var req protocol.ServiceListData
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		log.Printf("service: invalid service.list request: %v", err)
 		return
@@ -41,7 +41,7 @@ func (sm *ServiceManager) HandleServiceList(transport MessageSender, msg agentmg
 		log.Printf("service: failed to collect services: %v", err)
 	}
 
-	data, marshalErr := json.Marshal(agentmgr.ServiceListedData{
+	data, marshalErr := json.Marshal(protocol.ServiceListedData{
 		RequestID: req.RequestID,
 		Services:  services,
 		Error:     errMsg,
@@ -51,8 +51,8 @@ func (sm *ServiceManager) HandleServiceList(transport MessageSender, msg agentmg
 		return
 	}
 
-	if sendErr := transport.Send(agentmgr.Message{
-		Type: agentmgr.MsgServiceListed,
+	if sendErr := transport.Send(protocol.Message{
+		Type: protocol.MsgServiceListed,
 		ID:   req.RequestID,
 		Data: data,
 	}); sendErr != nil {
@@ -61,8 +61,8 @@ func (sm *ServiceManager) HandleServiceList(transport MessageSender, msg agentmg
 }
 
 // HandleServiceAction performs a service action on a named service.
-func (sm *ServiceManager) HandleServiceAction(transport MessageSender, msg agentmgr.Message) {
-	var req agentmgr.ServiceActionData
+func (sm *ServiceManager) HandleServiceAction(transport MessageSender, msg protocol.Message) {
+	var req protocol.ServiceActionData
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		log.Printf("service: invalid service.action request: %v", err)
 		return
@@ -101,7 +101,7 @@ func ValidServiceAction(action string) bool {
 
 // sendResult marshals and sends a ServiceResultData message to the hub.
 func (sm *ServiceManager) sendResult(transport MessageSender, requestID string, ok bool, output, errMsg string) {
-	data, marshalErr := json.Marshal(agentmgr.ServiceResultData{
+	data, marshalErr := json.Marshal(protocol.ServiceResultData{
 		RequestID: requestID,
 		OK:        ok,
 		Output:    output,
@@ -112,8 +112,8 @@ func (sm *ServiceManager) sendResult(transport MessageSender, requestID string, 
 		return
 	}
 
-	if sendErr := transport.Send(agentmgr.Message{
-		Type: agentmgr.MsgServiceResult,
+	if sendErr := transport.Send(protocol.Message{
+		Type: protocol.MsgServiceResult,
 		ID:   requestID,
 		Data: data,
 	}); sendErr != nil {

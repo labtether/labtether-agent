@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/labtether/labtether/internal/agentcore"
-	"github.com/labtether/labtether/internal/agentplatform/temperature"
+	"github.com/labtether/labtether-agent/internal/agentcore"
+	"github.com/labtether/labtether-agent/internal/agentplatform/temperature"
 )
 
 var hostnameFunc = os.Hostname

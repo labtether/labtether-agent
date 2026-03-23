@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/labtether/labtether/internal/agentcore/sysconfig"
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/labtether-agent/internal/agentcore/sysconfig"
+	"github.com/labtether/protocol"
 )
 
 func TestNetworkManagerHandleNetworkListUsesCollectorAndReportsErrors(t *testing.T) {
@@ -18,8 +18,8 @@ func TestNetworkManagerHandleNetworkListUsesCollectorAndReportsErrors(t *testing
 	})
 
 	t.Run("success", func(t *testing.T) {
-		sysconfig.CollectNetworkInterfaces = func() ([]agentmgr.NetInterface, error) {
-			return []agentmgr.NetInterface{{
+		sysconfig.CollectNetworkInterfaces = func() ([]protocol.NetInterface, error) {
+			return []protocol.NetInterface{{
 				Name:  "eth0",
 				State: "up",
 				IPs:   []string{"192.168.1.10/24"},
@@ -30,16 +30,16 @@ func TestNetworkManagerHandleNetworkListUsesCollectorAndReportsErrors(t *testing
 		defer cleanup()
 
 		manager := &networkManager{Backend: linuxNetworkBackend{}}
-		manager.HandleNetworkList(transport, agentmgr.Message{
-			Type: agentmgr.MsgNetworkList,
-			Data: mustMarshalDesktopRuntime(t, agentmgr.NetworkListData{RequestID: "req-list"}),
+		manager.HandleNetworkList(transport, protocol.Message{
+			Type: protocol.MsgNetworkList,
+			Data: mustMarshalDesktopRuntime(t, protocol.NetworkListData{RequestID: "req-list"}),
 		})
 
 		msg := readDesktopRuntimeMessage(t, messages)
-		if msg.Type != agentmgr.MsgNetworkListed {
-			t.Fatalf("message type=%q, want %q", msg.Type, agentmgr.MsgNetworkListed)
+		if msg.Type != protocol.MsgNetworkListed {
+			t.Fatalf("message type=%q, want %q", msg.Type, protocol.MsgNetworkListed)
 		}
-		var listed agentmgr.NetworkListedData
+		var listed protocol.NetworkListedData
 		if err := json.Unmarshal(msg.Data, &listed); err != nil {
 			t.Fatalf("decode network listed payload: %v", err)
 		}
@@ -55,7 +55,7 @@ func TestNetworkManagerHandleNetworkListUsesCollectorAndReportsErrors(t *testing
 	})
 
 	t.Run("error", func(t *testing.T) {
-		sysconfig.CollectNetworkInterfaces = func() ([]agentmgr.NetInterface, error) {
+		sysconfig.CollectNetworkInterfaces = func() ([]protocol.NetInterface, error) {
 			return nil, errors.New("enumeration failed")
 		}
 
@@ -63,13 +63,13 @@ func TestNetworkManagerHandleNetworkListUsesCollectorAndReportsErrors(t *testing
 		defer cleanup()
 
 		manager := &networkManager{Backend: linuxNetworkBackend{}}
-		manager.HandleNetworkList(transport, agentmgr.Message{
-			Type: agentmgr.MsgNetworkList,
-			Data: mustMarshalDesktopRuntime(t, agentmgr.NetworkListData{RequestID: "req-error"}),
+		manager.HandleNetworkList(transport, protocol.Message{
+			Type: protocol.MsgNetworkList,
+			Data: mustMarshalDesktopRuntime(t, protocol.NetworkListData{RequestID: "req-error"}),
 		})
 
 		msg := readDesktopRuntimeMessage(t, messages)
-		var listed agentmgr.NetworkListedData
+		var listed protocol.NetworkListedData
 		if err := json.Unmarshal(msg.Data, &listed); err != nil {
 			t.Fatalf("decode network listed payload: %v", err)
 		}
@@ -93,7 +93,7 @@ func TestApplyActionNetplanSuccessStoresRollbackState(t *testing.T) {
 	sysconfig.VerifyNetworkConnectivity = func(string) error { return nil }
 
 	nm := &networkManager{Backend: linuxNetworkBackend{}}
-	result := nm.ApplyActionLinux(agentmgr.NetworkActionData{
+	result := nm.ApplyActionLinux(protocol.NetworkActionData{
 		RequestID:    "req-netplan",
 		Action:       "apply",
 		Method:       "netplan",
@@ -139,7 +139,7 @@ func TestApplyActionNetplanConnectivityFailureTriggersRollback(t *testing.T) {
 	sysconfig.VerifyNetworkConnectivity = func(string) error { return errors.New("ping failed") }
 
 	nm := &networkManager{Backend: linuxNetworkBackend{}}
-	result := nm.ApplyActionLinux(agentmgr.NetworkActionData{
+	result := nm.ApplyActionLinux(protocol.NetworkActionData{
 		RequestID:    "req-netplan-rollback",
 		Action:       "apply",
 		Method:       "netplan",
@@ -182,7 +182,7 @@ func TestApplyActionNMCLIUsesConnectionAndSnapshotsRollback(t *testing.T) {
 	sysconfig.VerifyNetworkConnectivity = func(string) error { return nil }
 
 	nm := &networkManager{Backend: linuxNetworkBackend{}}
-	result := nm.ApplyActionLinux(agentmgr.NetworkActionData{
+	result := nm.ApplyActionLinux(protocol.NetworkActionData{
 		RequestID:  "req-nmcli",
 		Action:     "apply",
 		Method:     "nmcli",
@@ -211,7 +211,7 @@ func TestRollbackActionUsesSnapshotsAndReportsMissingState(t *testing.T) {
 
 	t.Run("missing snapshot", func(t *testing.T) {
 		nm := &networkManager{Backend: linuxNetworkBackend{}}
-		result := nm.RollbackActionLinux(agentmgr.NetworkActionData{
+		result := nm.RollbackActionLinux(protocol.NetworkActionData{
 			RequestID: "req-missing",
 			Action:    "rollback",
 			Method:    "auto",
@@ -236,7 +236,7 @@ func TestRollbackActionUsesSnapshotsAndReportsMissingState(t *testing.T) {
 			LastMethod:        "netplan",
 			LastNetplanBackup: "/tmp/netplan-backup",
 		}
-		result := nm.RollbackActionLinux(agentmgr.NetworkActionData{
+		result := nm.RollbackActionLinux(protocol.NetworkActionData{
 			RequestID: "req-rollback-netplan",
 			Action:    "rollback",
 			Method:    "auto",
@@ -265,7 +265,7 @@ func TestRollbackActionUsesSnapshotsAndReportsMissingState(t *testing.T) {
 			LastMethod:        "nmcli",
 			LastNMConnections: []string{"Home LAN", "VPN"},
 		}
-		result := nm.RollbackActionLinux(agentmgr.NetworkActionData{
+		result := nm.RollbackActionLinux(protocol.NetworkActionData{
 			RequestID: "req-rollback-nmcli",
 			Action:    "rollback",
 			Method:    "nmcli",

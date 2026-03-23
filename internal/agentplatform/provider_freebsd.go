@@ -3,9 +3,9 @@
 package agentplatform
 
 import (
-	"github.com/labtether/labtether/internal/agentcore"
-	"github.com/labtether/labtether/internal/agentplatform/freebsd"
-	"github.com/labtether/labtether/internal/platforms"
+	"github.com/labtether/labtether-agent/internal/agentcore"
+	"github.com/labtether/labtether-agent/internal/agentplatform/freebsd"
+	"github.com/labtether/labtether-agent/internal/platforms"
 )
 
 func init() {

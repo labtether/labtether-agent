@@ -13,7 +13,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/labtether/labtether/internal/agentplatform/tailscale"
+	"github.com/labtether/labtether-agent/internal/agentplatform/tailscale"
 )
 
 var (

@@ -5,7 +5,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/protocol"
 )
 
 func sendAgentSettingsState(transport *wsTransport, runtime *Runtime, revision string) {
@@ -18,7 +18,7 @@ func sendAgentSettingsState(transport *wsTransport, runtime *Runtime, revision s
 		fingerprint = runtime.deviceIdentity.Fingerprint
 	}
 
-	payload := agentmgr.AgentSettingsStateData{
+	payload := protocol.AgentSettingsStateData{
 		Revision:             revision,
 		Values:               runtime.ReportedAgentSettings(),
 		Fingerprint:          fingerprint,
@@ -30,8 +30,8 @@ func sendAgentSettingsState(transport *wsTransport, runtime *Runtime, revision s
 		log.Printf("agentws: failed to marshal agent.settings.state: %v", err)
 		return
 	}
-	if err := transport.Send(agentmgr.Message{
-		Type: agentmgr.MsgAgentSettingsState,
+	if err := transport.Send(protocol.Message{
+		Type: protocol.MsgAgentSettingsState,
 		Data: data,
 	}); err != nil {
 		log.Printf("agentws: failed to send agent.settings.state: %v", err)

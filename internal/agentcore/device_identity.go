@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/labtether/labtether/internal/agentidentity"
+	"github.com/labtether/labtether-agent/internal/agentidentity"
 )
 
 type deviceIdentity struct {

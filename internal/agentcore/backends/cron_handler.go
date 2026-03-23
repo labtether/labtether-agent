@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/protocol"
 )
 
 // CronManager handles cron/timer visibility requests from the hub.
@@ -31,8 +31,8 @@ func NewCronManager() *CronManager {
 func (cm *CronManager) CloseAll() {}
 
 // HandleCronList collects cron jobs and systemd timers and sends them to the hub.
-func (cm *CronManager) HandleCronList(transport MessageSender, msg agentmgr.Message) {
-	var req agentmgr.CronListData
+func (cm *CronManager) HandleCronList(transport MessageSender, msg protocol.Message) {
+	var req protocol.CronListData
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		log.Printf("cron: invalid cron.list request: %v", err)
 		return
@@ -48,7 +48,7 @@ func (cm *CronManager) HandleCronList(transport MessageSender, msg agentmgr.Mess
 		errMsg = collectErr.Error()
 	}
 
-	data, marshalErr := json.Marshal(agentmgr.CronListedData{
+	data, marshalErr := json.Marshal(protocol.CronListedData{
 		RequestID: req.RequestID,
 		Entries:   entries,
 		Error:     errMsg,
@@ -58,8 +58,8 @@ func (cm *CronManager) HandleCronList(transport MessageSender, msg agentmgr.Mess
 		return
 	}
 
-	if sendErr := transport.Send(agentmgr.Message{
-		Type: agentmgr.MsgCronListed,
+	if sendErr := transport.Send(protocol.Message{
+		Type: protocol.MsgCronListed,
 		ID:   req.RequestID,
 		Data: data,
 	}); sendErr != nil {
@@ -69,7 +69,7 @@ func (cm *CronManager) HandleCronList(transport MessageSender, msg agentmgr.Mess
 
 // CollectSystemdTimers runs `systemctl list-timers --all --no-pager --plain`
 // and parses the output to extract timer entries.
-func CollectSystemdTimers() ([]agentmgr.CronEntry, error) {
+func CollectSystemdTimers() ([]protocol.CronEntry, error) {
 	if _, err := exec.LookPath("systemctl"); err != nil {
 		return nil, nil // systemd not available, skip silently
 	}
@@ -79,7 +79,7 @@ func CollectSystemdTimers() ([]agentmgr.CronEntry, error) {
 		return nil, err
 	}
 
-	var entries []agentmgr.CronEntry
+	var entries []protocol.CronEntry
 	scanner := bufio.NewScanner(bytes.NewReader(out))
 	headerSkipped := false
 	for scanner.Scan() {
@@ -121,7 +121,7 @@ func CollectSystemdTimers() ([]agentmgr.CronEntry, error) {
 			}
 		}
 
-		entries = append(entries, agentmgr.CronEntry{
+		entries = append(entries, protocol.CronEntry{
 			Source:   "systemd-timer",
 			Schedule: unit,
 			Command:  activates,
@@ -156,7 +156,7 @@ type CronError struct{ Msg string }
 func (e *CronError) Error() string { return e.Msg }
 
 // CollectCrontabs reads user crontab files and /etc/cron.d/* entries.
-func CollectCrontabs() ([]agentmgr.CronEntry, error) {
+func CollectCrontabs() ([]protocol.CronEntry, error) {
 	return CollectCrontabsFromPaths(
 		[]string{"/var/spool/cron/crontabs", "/var/spool/cron"},
 		"/etc/cron.d",
@@ -165,8 +165,8 @@ func CollectCrontabs() ([]agentmgr.CronEntry, error) {
 }
 
 // CollectCrontabsFromPaths reads crontab files from the given paths.
-func CollectCrontabsFromPaths(userDirs []string, cronDDir, systemCrontabPath string) ([]agentmgr.CronEntry, error) {
-	var entries []agentmgr.CronEntry
+func CollectCrontabsFromPaths(userDirs []string, cronDDir, systemCrontabPath string) ([]protocol.CronEntry, error) {
+	var entries []protocol.CronEntry
 
 	// User crontabs from /var/spool/cron/crontabs/ (Debian/Ubuntu)
 	// or /var/spool/cron/ (RHEL/CentOS).
@@ -207,13 +207,13 @@ func CollectCrontabsFromPaths(userDirs []string, cronDDir, systemCrontabPath str
 
 // ParseCrontabFile reads a crontab file and extracts cron entries.
 // If systemStyle is true, the 6th field is the user (as in /etc/cron.d/* files).
-func ParseCrontabFile(path, defaultUser string, systemStyle bool) []agentmgr.CronEntry {
+func ParseCrontabFile(path, defaultUser string, systemStyle bool) []protocol.CronEntry {
 	data, err := os.ReadFile(path) // #nosec G304 -- Path comes from enumerated cron directories under controlled system locations.
 	if err != nil {
 		return nil // permission denied — skip
 	}
 
-	var entries []agentmgr.CronEntry
+	var entries []protocol.CronEntry
 	scanner := bufio.NewScanner(bytes.NewReader(data))
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -244,7 +244,7 @@ func ParseCrontabFile(path, defaultUser string, systemStyle bool) []agentmgr.Cro
 				cmdStart = 2
 			}
 			rest := strings.Join(fields[cmdStart:], " ")
-			entries = append(entries, agentmgr.CronEntry{
+			entries = append(entries, protocol.CronEntry{
 				Source:   "crontab",
 				Schedule: schedule,
 				Command:  rest,
@@ -272,7 +272,7 @@ func ParseCrontabFile(path, defaultUser string, systemStyle bool) []agentmgr.Cro
 		}
 		command := strings.Join(fields[cmdStart:], " ")
 
-		entries = append(entries, agentmgr.CronEntry{
+		entries = append(entries, protocol.CronEntry{
 			Source:   "crontab",
 			Schedule: schedule,
 			Command:  command,

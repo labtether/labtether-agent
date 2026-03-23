@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/labtether/labtether/internal/agentcore/system"
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/labtether-agent/internal/agentcore/system"
+	"github.com/labtether/protocol"
 )
 
 func TestVideoEncoderPriority(t *testing.T) {
@@ -27,7 +27,7 @@ func TestVideoEncoderPriority(t *testing.T) {
 }
 
 func TestBestVideoEncoderPrefersX264OverVP8WhenNoHardwareEncoderExists(t *testing.T) {
-	name, gstElement := BestVideoEncoder(agentmgr.WebRTCCapabilitiesData{
+	name, gstElement := BestVideoEncoder(protocol.WebRTCCapabilitiesData{
 		VideoEncoders: []string{"vp8", "x264"},
 	})
 	if name != "x264" || gstElement != "x264enc" {
@@ -276,13 +276,13 @@ func TestDetectWebRTCCapabilitiesWaylandWithPipeWireNode(t *testing.T) {
 }
 
 func TestBestAudioSourcePrefersPipewireThenPulse(t *testing.T) {
-	if got := BestAudioSource(agentmgr.WebRTCCapabilitiesData{AudioSources: []string{"pulseaudio", "pipewire"}}); got != "pipewiresrc" {
+	if got := BestAudioSource(protocol.WebRTCCapabilitiesData{AudioSources: []string{"pulseaudio", "pipewire"}}); got != "pipewiresrc" {
 		t.Fatalf("audio source=%q, want pipewiresrc", got)
 	}
-	if got := BestAudioSource(agentmgr.WebRTCCapabilitiesData{AudioSources: []string{"pulseaudio"}}); got != "pulsesrc" {
+	if got := BestAudioSource(protocol.WebRTCCapabilitiesData{AudioSources: []string{"pulseaudio"}}); got != "pulsesrc" {
 		t.Fatalf("audio source=%q, want pulsesrc", got)
 	}
-	if got := BestAudioSource(agentmgr.WebRTCCapabilitiesData{}); got != "" {
+	if got := BestAudioSource(protocol.WebRTCCapabilitiesData{}); got != "" {
 		t.Fatalf("audio source=%q, want empty fallback", got)
 	}
 }
@@ -383,7 +383,7 @@ func TestDetectWebRTCCapabilitiesCollectsEncodersAudioAndDisplays(t *testing.T) 
 	DetectDesktopSessionFn = func() DesktopSessionInfo {
 		return DesktopSessionInfo{Type: DesktopSessionTypeHeadless, Backend: DesktopBackendHeadless}
 	}
-	system.CollectUserSessionsFn = func() ([]agentmgr.UserSession, error) { return nil, nil }
+	system.CollectUserSessionsFn = func() ([]protocol.UserSession, error) { return nil, nil }
 
 	t.Setenv("LABTETHER_WEBRTC_X11_DISPLAY", " :7 ")
 	t.Setenv("DISPLAY", ":1")

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/protocol"
 )
 
 func TestInferComposeStacks(t *testing.T) {
@@ -125,11 +125,11 @@ func BenchmarkInferComposeStacksLarge(b *testing.B) {
 }
 
 func TestDiffContainerInfoMap(t *testing.T) {
-	previous := map[string]agentmgr.DockerContainerInfo{
+	previous := map[string]protocol.DockerContainerInfo{
 		"ct-1": {ID: "ct-1", Name: "alpha", State: "running"},
 		"ct-2": {ID: "ct-2", Name: "beta", State: "running"},
 	}
-	next := map[string]agentmgr.DockerContainerInfo{
+	next := map[string]protocol.DockerContainerInfo{
 		"ct-1": {ID: "ct-1", Name: "alpha", State: "exited"},  // changed
 		"ct-3": {ID: "ct-3", Name: "gamma", State: "running"}, // added
 	}
@@ -172,13 +172,13 @@ func TestShouldFallbackToFull(t *testing.T) {
 func TestNextStatsInterval(t *testing.T) {
 	collector := NewDockerCollector("/tmp/docker.sock", nil, "asset-1", 30*time.Second)
 
-	if got := collector.nextStatsInterval(30*time.Second, agentmgr.DockerContainerStats{CPUPercent: 55}, false); got != 15*time.Second {
+	if got := collector.nextStatsInterval(30*time.Second, protocol.DockerContainerStats{CPUPercent: 55}, false); got != 15*time.Second {
 		t.Fatalf("hot interval = %v, want 15s", got)
 	}
-	if got := collector.nextStatsInterval(30*time.Second, agentmgr.DockerContainerStats{CPUPercent: 1, MemoryPercent: 5, PIDs: 2}, false); got != 45*time.Second {
+	if got := collector.nextStatsInterval(30*time.Second, protocol.DockerContainerStats{CPUPercent: 1, MemoryPercent: 5, PIDs: 2}, false); got != 45*time.Second {
 		t.Fatalf("cool interval = %v, want 45s", got)
 	}
-	if got := collector.nextStatsInterval(30*time.Second, agentmgr.DockerContainerStats{}, true); got != time.Minute {
+	if got := collector.nextStatsInterval(30*time.Second, protocol.DockerContainerStats{}, true); got != time.Minute {
 		t.Fatalf("error interval = %v, want 1m", got)
 	}
 }

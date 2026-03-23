@@ -16,8 +16,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/labtether/labtether/internal/agentmgr"
-	"github.com/labtether/labtether/internal/securityruntime"
+	"github.com/labtether/labtether-agent/internal/securityruntime"
+	"github.com/labtether/protocol"
 )
 
 const maxExecSessions = 10
@@ -48,8 +48,8 @@ func NewDockerExecManager(client *dockerClient) *DockerExecManager {
 	}
 }
 
-func (em *DockerExecManager) HandleExecStart(transport Transport, msg agentmgr.Message) {
-	var req agentmgr.DockerExecStartData
+func (em *DockerExecManager) HandleExecStart(transport Transport, msg protocol.Message) {
+	var req protocol.DockerExecStartData
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		log.Printf("docker-exec: invalid start request: %v", err)
 		return
@@ -297,8 +297,8 @@ func (hc *hijackedConn) Read(p []byte) (int, error) {
 	return hc.reader.Read(p)
 }
 
-func (em *DockerExecManager) HandleExecInput(msg agentmgr.Message) {
-	var payload agentmgr.DockerExecInputData
+func (em *DockerExecManager) HandleExecInput(msg protocol.Message) {
+	var payload protocol.DockerExecInputData
 	if err := json.Unmarshal(msg.Data, &payload); err != nil {
 		return
 	}
@@ -326,8 +326,8 @@ func (em *DockerExecManager) HandleExecInput(msg agentmgr.Message) {
 	}
 }
 
-func (em *DockerExecManager) HandleExecResize(msg agentmgr.Message) {
-	var req agentmgr.DockerExecResizeData
+func (em *DockerExecManager) HandleExecResize(msg protocol.Message) {
+	var req protocol.DockerExecResizeData
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		return
 	}
@@ -351,8 +351,8 @@ func (em *DockerExecManager) HandleExecResize(msg agentmgr.Message) {
 	}
 }
 
-func (em *DockerExecManager) HandleExecClose(msg agentmgr.Message) {
-	var req agentmgr.DockerExecCloseData
+func (em *DockerExecManager) HandleExecClose(msg protocol.Message) {
+	var req protocol.DockerExecCloseData
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		return
 	}
@@ -377,12 +377,12 @@ func (em *DockerExecManager) streamExecOutput(transport Transport, sess *dockerE
 		n, err := sess.conn.Read(buf)
 		if n > 0 {
 			encoded := base64.StdEncoding.EncodeToString(buf[:n])
-			data, _ := json.Marshal(agentmgr.DockerExecDataPayload{
+			data, _ := json.Marshal(protocol.DockerExecDataPayload{
 				SessionID: sess.sessionID,
 				Data:      encoded,
 			})
-			_ = transport.Send(agentmgr.Message{
-				Type: agentmgr.MsgDockerExecData,
+			_ = transport.Send(protocol.Message{
+				Type: protocol.MsgDockerExecData,
 				ID:   sess.sessionID,
 				Data: data,
 			})
@@ -439,18 +439,18 @@ func (em *DockerExecManager) CloseAll() {
 }
 
 func sendExecStarted(transport Transport, sessionID string) {
-	data, _ := json.Marshal(agentmgr.DockerExecStartedData{SessionID: sessionID})
-	_ = transport.Send(agentmgr.Message{
-		Type: agentmgr.MsgDockerExecStarted,
+	data, _ := json.Marshal(protocol.DockerExecStartedData{SessionID: sessionID})
+	_ = transport.Send(protocol.Message{
+		Type: protocol.MsgDockerExecStarted,
 		ID:   sessionID,
 		Data: data,
 	})
 }
 
 func sendExecClosed(transport Transport, sessionID, reason string) {
-	data, _ := json.Marshal(agentmgr.DockerExecCloseData{SessionID: sessionID, Reason: reason})
-	_ = transport.Send(agentmgr.Message{
-		Type: agentmgr.MsgDockerExecClosed,
+	data, _ := json.Marshal(protocol.DockerExecCloseData{SessionID: sessionID, Reason: reason})
+	_ = transport.Send(protocol.Message{
+		Type: protocol.MsgDockerExecClosed,
 		ID:   sessionID,
 		Data: data,
 	})

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/labtether/labtether/internal/agentcore/system"
+	"github.com/labtether/labtether-agent/internal/agentcore/system"
 )
 
 // ManagedDisplay tracks a shared Xvfb display with reference counting.

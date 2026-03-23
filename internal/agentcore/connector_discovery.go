@@ -7,14 +7,14 @@ import (
 	"sync"
 	"time"
 
-	dockerpkg "github.com/labtether/labtether/internal/agentcore/docker"
-	"github.com/labtether/labtether/internal/agentmgr"
+	dockerpkg "github.com/labtether/labtether-agent/internal/agentcore/docker"
+	"github.com/labtether/protocol"
 )
 
 // connectorCache caches discovery results to avoid TCP probes on every heartbeat.
 var connectorCache struct {
 	mu      sync.Mutex
-	results []agentmgr.ConnectorInfo
+	results []protocol.ConnectorInfo
 	at      time.Time
 	key     string
 }
@@ -61,7 +61,7 @@ func currentConnectorDiscoveryDockerConfig() (mode, endpoint string) {
 
 // discoverConnectors returns locally available connector endpoints.
 // Results are cached for 60s to avoid adding TCP probe latency to every heartbeat.
-func discoverConnectors() []agentmgr.ConnectorInfo {
+func discoverConnectors() []protocol.ConnectorInfo {
 	dockerMode, dockerEndpoint := currentConnectorDiscoveryDockerConfig()
 	cacheKey := dockerMode + "|" + dockerEndpoint
 
@@ -72,7 +72,7 @@ func discoverConnectors() []agentmgr.ConnectorInfo {
 		return connectorCache.results
 	}
 
-	var connectors []agentmgr.ConnectorInfo
+	var connectors []protocol.ConnectorInfo
 
 	// Docker endpoint
 	if dockerMode != "false" {
@@ -82,7 +82,7 @@ func discoverConnectors() []agentmgr.ConnectorInfo {
 		}
 		reachable := dockerEndpointReachable(endpoint)
 		if reachable || dockerMode == "true" {
-			connectors = append(connectors, agentmgr.ConnectorInfo{
+			connectors = append(connectors, protocol.ConnectorInfo{
 				Type:      "docker",
 				Endpoint:  connectorDockerEndpointForMetadata(endpoint),
 				Reachable: reachable,
@@ -103,7 +103,7 @@ func discoverConnectors() []agentmgr.ConnectorInfo {
 
 	for _, p := range probes {
 		if isPortOpen("127.0.0.1", p.port) {
-			connectors = append(connectors, agentmgr.ConnectorInfo{
+			connectors = append(connectors, protocol.ConnectorInfo{
 				Type:      p.connType,
 				Endpoint:  "https://127.0.0.1:" + p.port,
 				Reachable: true,

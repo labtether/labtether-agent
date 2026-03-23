@@ -4,7 +4,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/protocol"
 )
 
 const (
@@ -28,7 +28,7 @@ func TruncateCommandOutput(payload []byte, maxBytes int) string {
 
 // EntryMatchesQuery checks if a log entry matches a journal query's filters.
 // Used by both the darwin unified-log backend and the Windows Event Log backend.
-func EntryMatchesQuery(entry agentmgr.LogStreamData, req agentmgr.JournalQueryData) bool {
+func EntryMatchesQuery(entry protocol.LogStreamData, req protocol.JournalQueryData) bool {
 	if !levelMatchesPriority(entry.Level, req.Priority) {
 		return false
 	}

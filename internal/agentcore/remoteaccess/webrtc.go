@@ -14,13 +14,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/labtether/labtether/internal/agentcore/files"
-	"github.com/labtether/labtether/internal/agentcore/sysconfig"
+	"github.com/labtether/labtether-agent/internal/agentcore/files"
+	"github.com/labtether/labtether-agent/internal/agentcore/sysconfig"
 	"github.com/pion/interceptor"
 	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v4"
 
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/protocol"
 )
 
 type WebRTCInputEvent struct {
@@ -75,7 +75,7 @@ type WebRTCSession struct {
 	inputBackend   string
 }
 
-func ResolveWebRTCDisplay(requested string, caps agentmgr.WebRTCCapabilitiesData) string {
+func ResolveWebRTCDisplay(requested string, caps protocol.WebRTCCapabilitiesData) string {
 	if strings.EqualFold(strings.TrimSpace(caps.DesktopSessionType), DesktopSessionTypeWayland) {
 		return ""
 	}
@@ -145,13 +145,13 @@ func (s *WebRTCSession) close(reason string) {
 type WebRTCManager struct {
 	Mu       sync.Mutex
 	Sessions map[string]*WebRTCSession
-	caps     agentmgr.WebRTCCapabilitiesData
+	caps     protocol.WebRTCCapabilitiesData
 	settings SettingsProvider
 	fileMgr  *files.Manager
 	dispMgr  *DisplayManager
 }
 
-func NewWebRTCManager(caps agentmgr.WebRTCCapabilitiesData, settings SettingsProvider, fileMgr *files.Manager, dispMgr *DisplayManager) *WebRTCManager {
+func NewWebRTCManager(caps protocol.WebRTCCapabilitiesData, settings SettingsProvider, fileMgr *files.Manager, dispMgr *DisplayManager) *WebRTCManager {
 	return &WebRTCManager{
 		Sessions: make(map[string]*WebRTCSession),
 		caps:     caps,
@@ -161,8 +161,8 @@ func NewWebRTCManager(caps agentmgr.WebRTCCapabilitiesData, settings SettingsPro
 	}
 }
 
-func (wm *WebRTCManager) HandleWebRTCStart(transport MessageSender, msg agentmgr.Message) {
-	var req agentmgr.WebRTCSessionData
+func (wm *WebRTCManager) HandleWebRTCStart(transport MessageSender, msg protocol.Message) {
+	var req protocol.WebRTCSessionData
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		log.Printf("webrtc: invalid start request: %v", err)
 		return
@@ -352,7 +352,7 @@ func (wm *WebRTCManager) HandleWebRTCStart(transport MessageSender, msg agentmgr
 			return
 		}
 		candidate := c.ToJSON()
-		data := agentmgr.WebRTCICEData{
+		data := protocol.WebRTCICEData{
 			SessionID: req.SessionID,
 			Candidate: candidate.Candidate,
 		}
@@ -365,7 +365,7 @@ func (wm *WebRTCManager) HandleWebRTCStart(transport MessageSender, msg agentmgr
 		}
 		raw, _ := json.Marshal(data)
 		sendCandidate := func() {
-			_ = transport.Send(agentmgr.Message{Type: agentmgr.MsgWebRTCICE, ID: req.SessionID, Data: raw})
+			_ = transport.Send(protocol.Message{Type: protocol.MsgWebRTCICE, ID: req.SessionID, Data: raw})
 		}
 		if delay := ICECandidateSendDelay(candidate.Candidate); delay > 0 {
 			go func() {
@@ -494,18 +494,18 @@ func (wm *WebRTCManager) HandleWebRTCStart(transport MessageSender, msg agentmgr
 	}
 	go InjectInputEvents(ctx, sess.inputCh, display, xauthPath, sess)
 
-	startedData, _ := json.Marshal(agentmgr.WebRTCStartedData{
+	startedData, _ := json.Marshal(protocol.WebRTCStartedData{
 		SessionID:    req.SessionID,
 		VideoEncoder: encName,
 		AudioSource:  audioSource,
 	})
-	_ = transport.Send(agentmgr.Message{Type: agentmgr.MsgWebRTCStarted, ID: req.SessionID, Data: startedData})
+	_ = transport.Send(protocol.Message{Type: protocol.MsgWebRTCStarted, ID: req.SessionID, Data: startedData})
 
 	log.Printf("webrtc: session started id=%s encoder=%s audio=%s", req.SessionID, encName, audioSource)
 }
 
-func (wm *WebRTCManager) HandleWebRTCOffer(msg agentmgr.Message, transport MessageSender) {
-	var offer agentmgr.WebRTCSDPData
+func (wm *WebRTCManager) HandleWebRTCOffer(msg protocol.Message, transport MessageSender) {
+	var offer protocol.WebRTCSDPData
 	if err := json.Unmarshal(msg.Data, &offer); err != nil {
 		return
 	}
@@ -537,16 +537,16 @@ func (wm *WebRTCManager) HandleWebRTCOffer(msg agentmgr.Message, transport Messa
 	}
 	log.Printf("webrtc: created answer for session=%s", offer.SessionID)
 
-	answerData, _ := json.Marshal(agentmgr.WebRTCSDPData{
+	answerData, _ := json.Marshal(protocol.WebRTCSDPData{
 		SessionID: offer.SessionID,
 		Type:      "answer",
 		SDP:       answer.SDP,
 	})
-	_ = transport.Send(agentmgr.Message{Type: agentmgr.MsgWebRTCAnswer, ID: offer.SessionID, Data: answerData})
+	_ = transport.Send(protocol.Message{Type: protocol.MsgWebRTCAnswer, ID: offer.SessionID, Data: answerData})
 }
 
-func (wm *WebRTCManager) HandleWebRTCICE(msg agentmgr.Message) {
-	var data agentmgr.WebRTCICEData
+func (wm *WebRTCManager) HandleWebRTCICE(msg protocol.Message) {
+	var data protocol.WebRTCICEData
 	if err := json.Unmarshal(msg.Data, &data); err != nil {
 		return
 	}
@@ -579,8 +579,8 @@ func (wm *WebRTCManager) HandleWebRTCICE(msg agentmgr.Message) {
 	}
 }
 
-func (wm *WebRTCManager) HandleWebRTCStop(msg agentmgr.Message, transport MessageSender) {
-	var req agentmgr.WebRTCStoppedData
+func (wm *WebRTCManager) HandleWebRTCStop(msg protocol.Message, transport MessageSender) {
+	var req protocol.WebRTCStoppedData
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		return
 	}
@@ -592,8 +592,8 @@ func (wm *WebRTCManager) HandleWebRTCStop(msg agentmgr.Message, transport Messag
 	SendWebRTCStopped(transport, req.SessionID, "stopped by hub")
 }
 
-func (wm *WebRTCManager) HandleWebRTCInput(msg agentmgr.Message) {
-	var data agentmgr.WebRTCInputData
+func (wm *WebRTCManager) HandleWebRTCInput(msg protocol.Message) {
+	var data protocol.WebRTCInputData
 	if err := json.Unmarshal(msg.Data, &data); err != nil {
 		return
 	}
@@ -1116,7 +1116,7 @@ func ParsePipelineArgs(pipeline string) []string {
 
 func DecodeWebRTCInputEvent(raw []byte) (WebRTCInputEvent, error) {
 	var evt WebRTCInputEvent
-	var fallback agentmgr.WebRTCInputData
+	var fallback protocol.WebRTCInputData
 
 	directErr := json.Unmarshal(raw, &evt)
 	fallbackErr := json.Unmarshal(raw, &fallback)
@@ -1212,7 +1212,7 @@ func (wm *WebRTCManager) handleFileTransferDataChannelMessage(dc *webrtc.DataCha
 	case "start":
 		reply.Type = "ready"
 	case "chunk":
-		bytesWritten, err := wm.fileMgr.WriteChunk(agentmgr.FileWriteData{
+		bytesWritten, err := wm.fileMgr.WriteChunk(protocol.FileWriteData{
 			RequestID: payload.RequestID,
 			Path:      payload.Path,
 			Data:      payload.Data,
@@ -1237,8 +1237,8 @@ func (wm *WebRTCManager) handleFileTransferDataChannelMessage(dc *webrtc.DataCha
 }
 
 func SendWebRTCStopped(transport MessageSender, sessionID, reason string) {
-	data, _ := json.Marshal(agentmgr.WebRTCStoppedData{SessionID: sessionID, Reason: reason})
-	_ = transport.Send(agentmgr.Message{Type: agentmgr.MsgWebRTCStopped, ID: sessionID, Data: data})
+	data, _ := json.Marshal(protocol.WebRTCStoppedData{SessionID: sessionID, Reason: reason})
+	_ = transport.Send(protocol.Message{Type: protocol.MsgWebRTCStopped, ID: sessionID, Data: data})
 }
 
 func ICECandidateSendDelay(candidate string) time.Duration {

@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/protocol"
 )
 
 // NewExecManager creates a DockerExecManager using this collector's Docker client.
@@ -45,10 +45,10 @@ func NewTestCollector(endpoint string, transport Transport, assetID string) *Doc
 		discoveryTriggerCh:    make(chan dockerDiscoveryTrigger, 32),
 		statsTriggerCh:        make(chan struct{}, 4),
 		inventory: dockerInventorySnapshot{
-			Containers: make(map[string]agentmgr.DockerContainerInfo),
-			Images:     make(map[string]agentmgr.DockerImageInfo),
-			Networks:   make(map[string]agentmgr.DockerNetworkInfo),
-			Volumes:    make(map[string]agentmgr.DockerVolumeInfo),
+			Containers: make(map[string]protocol.DockerContainerInfo),
+			Images:     make(map[string]protocol.DockerImageInfo),
+			Networks:   make(map[string]protocol.DockerNetworkInfo),
+			Volumes:    make(map[string]protocol.DockerVolumeInfo),
 		},
 		runningContainerIDs: make(map[string]struct{}),
 		statsSchedule:       make(map[string]*dockerStatsSchedule),
@@ -83,7 +83,7 @@ func (dc *DockerCollector) TestInventoryState() (hasPublished bool, containerCou
 }
 
 // SetTestInventoryState sets internal state for test scenarios.
-func (dc *DockerCollector) SetTestInventoryState(published bool, containers map[string]agentmgr.DockerContainerInfo, images map[string]agentmgr.DockerImageInfo, runningIDs map[string]struct{}) {
+func (dc *DockerCollector) SetTestInventoryState(published bool, containers map[string]protocol.DockerContainerInfo, images map[string]protocol.DockerImageInfo, runningIDs map[string]struct{}) {
 	dc.inventoryMu.Lock()
 	dc.inventory.Containers = containers
 	dc.inventory.Images = images

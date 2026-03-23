@@ -10,13 +10,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/protocol"
 )
 
 // MessageSender abstracts the agent-to-hub send capability so this package
 // does not depend on the concrete wsTransport type in the parent agentcore package.
 type MessageSender interface {
-	Send(msg agentmgr.Message) error
+	Send(msg protocol.Message) error
 }
 
 // ProcessManager handles process list requests from the hub.
@@ -39,14 +39,14 @@ func NewProcessManager() *ProcessManager {
 func (pm *ProcessManager) CloseAll() {}
 
 // HandleProcessKill sends a signal to a process identified by PID.
-func (pm *ProcessManager) HandleProcessKill(transport MessageSender, msg agentmgr.Message) {
-	var req agentmgr.ProcessKillData
+func (pm *ProcessManager) HandleProcessKill(transport MessageSender, msg protocol.Message) {
+	var req protocol.ProcessKillData
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		log.Printf("process: invalid process.kill request: %v", err)
 		return
 	}
 
-	result := agentmgr.ProcessKillResultData{PID: req.PID}
+	result := protocol.ProcessKillResultData{PID: req.PID}
 
 	if req.PID <= 1 {
 		result.Error = "refusing to signal PID <= 1"
@@ -64,14 +64,14 @@ func (pm *ProcessManager) HandleProcessKill(transport MessageSender, msg agentmg
 }
 
 // sendProcessKillResult marshals and transmits a ProcessKillResultData to the hub.
-func sendProcessKillResult(transport MessageSender, requestID string, result agentmgr.ProcessKillResultData) {
+func sendProcessKillResult(transport MessageSender, requestID string, result protocol.ProcessKillResultData) {
 	data, err := json.Marshal(result)
 	if err != nil {
 		log.Printf("process: failed to marshal process.kill_result: %v", err)
 		return
 	}
-	if sendErr := transport.Send(agentmgr.Message{
-		Type: agentmgr.MsgProcessKillResult,
+	if sendErr := transport.Send(protocol.Message{
+		Type: protocol.MsgProcessKillResult,
 		ID:   requestID,
 		Data: data,
 	}); sendErr != nil {
@@ -80,8 +80,8 @@ func sendProcessKillResult(transport MessageSender, requestID string, result age
 }
 
 // HandleProcessList collects the running process list and sends it to the hub.
-func (pm *ProcessManager) HandleProcessList(transport MessageSender, msg agentmgr.Message) {
-	var req agentmgr.ProcessListData
+func (pm *ProcessManager) HandleProcessList(transport MessageSender, msg protocol.Message) {
+	var req protocol.ProcessListData
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		log.Printf("process: invalid process.list request: %v", err)
 		return
@@ -122,7 +122,7 @@ func (pm *ProcessManager) HandleProcessList(transport MessageSender, msg agentmg
 		processes = processes[:limit]
 	}
 
-	data, marshalErr := json.Marshal(agentmgr.ProcessListedData{
+	data, marshalErr := json.Marshal(protocol.ProcessListedData{
 		RequestID: req.RequestID,
 		Processes: processes,
 		Error:     errMsg,
@@ -132,8 +132,8 @@ func (pm *ProcessManager) HandleProcessList(transport MessageSender, msg agentmg
 		return
 	}
 
-	if sendErr := transport.Send(agentmgr.Message{
-		Type: agentmgr.MsgProcessListed,
+	if sendErr := transport.Send(protocol.Message{
+		Type: protocol.MsgProcessListed,
 		ID:   req.RequestID,
 		Data: data,
 	}); sendErr != nil {
@@ -148,7 +148,7 @@ func (pm *ProcessManager) HandleProcessList(transport MessageSender, msg agentmg
 //
 //	USER   PID  %CPU  %MEM    VSZ   RSS  TTY  STAT  START  TIME  COMMAND
 //	  0     1     2     3      4     5    6     7     8      9     10+
-func CollectProcesses() ([]agentmgr.ProcessInfo, error) {
+func CollectProcesses() ([]protocol.ProcessInfo, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
@@ -166,7 +166,7 @@ func CollectProcesses() ([]agentmgr.ProcessInfo, error) {
 		}
 	}
 
-	var processes []agentmgr.ProcessInfo
+	var processes []protocol.ProcessInfo
 	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
@@ -199,7 +199,7 @@ func CollectProcesses() ([]agentmgr.ProcessInfo, error) {
 			name = exe
 		}
 
-		processes = append(processes, agentmgr.ProcessInfo{
+		processes = append(processes, protocol.ProcessInfo{
 			PID:     pid,
 			Name:    name,
 			User:    user,

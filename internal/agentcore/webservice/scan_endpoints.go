@@ -5,10 +5,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/protocol"
 )
 
-func knownServiceEndpointMap(services []agentmgr.DiscoveredWebService) map[string]struct{} {
+func knownServiceEndpointMap(services []protocol.DiscoveredWebService) map[string]struct{} {
 	known := make(map[string]struct{}, len(services)*2)
 	for _, svc := range services {
 		addKnownServiceEndpointFromURL(known, svc.URL)
@@ -65,7 +65,7 @@ func hostPortKey(host string, port int) string {
 	return strings.ToLower(strings.TrimSpace(host)) + ":" + strconv.Itoa(port)
 }
 
-func addKnownServicePorts(known map[int]struct{}, svc agentmgr.DiscoveredWebService) {
+func addKnownServicePorts(known map[int]struct{}, svc protocol.DiscoveredWebService) {
 	addKnownPort(known, portFromURL(svc.URL))
 	if svc.Metadata == nil {
 		return

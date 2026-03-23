@@ -10,7 +10,7 @@ import (
 
 	"golang.org/x/sys/windows/svc"
 
-	"github.com/labtether/labtether/internal/agentcore"
+	"github.com/labtether/labtether-agent/internal/agentcore"
 )
 
 const serviceName = "LabTetherAgent"

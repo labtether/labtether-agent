@@ -7,15 +7,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/protocol"
 )
 
-func decodeConfigApplied(t *testing.T, msg agentmgr.Message) agentmgr.ConfigAppliedData {
+func decodeConfigApplied(t *testing.T, msg protocol.Message) protocol.ConfigAppliedData {
 	t.Helper()
-	if msg.Type != agentmgr.MsgConfigApplied {
-		t.Fatalf("message type=%q, want %q", msg.Type, agentmgr.MsgConfigApplied)
+	if msg.Type != protocol.MsgConfigApplied {
+		t.Fatalf("message type=%q, want %q", msg.Type, protocol.MsgConfigApplied)
 	}
-	var payload agentmgr.ConfigAppliedData
+	var payload protocol.ConfigAppliedData
 	if err := json.Unmarshal(msg.Data, &payload); err != nil {
 		t.Fatalf("decode config.applied payload: %v", err)
 	}
@@ -32,7 +32,7 @@ func TestHandleConfigUpdateAcknowledgesEffectiveIntervalsOnInvalidUpdate(t *test
 
 	collect := 1
 	heartbeat := 4
-	data, err := json.Marshal(agentmgr.ConfigUpdateData{
+	data, err := json.Marshal(protocol.ConfigUpdateData{
 		CollectIntervalSec:   &collect,
 		HeartbeatIntervalSec: &heartbeat,
 	})
@@ -40,7 +40,7 @@ func TestHandleConfigUpdateAcknowledgesEffectiveIntervalsOnInvalidUpdate(t *test
 		t.Fatalf("marshal config update: %v", err)
 	}
 
-	handleConfigUpdate(transport, agentmgr.Message{Type: agentmgr.MsgConfigUpdate, Data: data}, runtime)
+	handleConfigUpdate(transport, protocol.Message{Type: protocol.MsgConfigUpdate, Data: data}, runtime)
 
 	ack := decodeConfigApplied(t, readSettingsLifecycleMessage(t, messages))
 	if ack.CollectIntervalSec != 15 {
@@ -64,7 +64,7 @@ func TestHandleConfigUpdateAppliesValidIntervalsAndPersists(t *testing.T) {
 
 	collect := 30
 	heartbeat := 60
-	data, err := json.Marshal(agentmgr.ConfigUpdateData{
+	data, err := json.Marshal(protocol.ConfigUpdateData{
 		CollectIntervalSec:   &collect,
 		HeartbeatIntervalSec: &heartbeat,
 	})
@@ -72,7 +72,7 @@ func TestHandleConfigUpdateAppliesValidIntervalsAndPersists(t *testing.T) {
 		t.Fatalf("marshal config update: %v", err)
 	}
 
-	handleConfigUpdate(transport, agentmgr.Message{Type: agentmgr.MsgConfigUpdate, Data: data}, runtime)
+	handleConfigUpdate(transport, protocol.Message{Type: protocol.MsgConfigUpdate, Data: data}, runtime)
 
 	ack := decodeConfigApplied(t, readSettingsLifecycleMessage(t, messages))
 	if ack.CollectIntervalSec != 30 {
@@ -127,7 +127,7 @@ func TestHandleConfigUpdateClearsLegacyOverridesBackToBaseline(t *testing.T) {
 
 	clearCollect := 0
 	clearHeartbeat := 0
-	data, err := json.Marshal(agentmgr.ConfigUpdateData{
+	data, err := json.Marshal(protocol.ConfigUpdateData{
 		CollectIntervalSec:   &clearCollect,
 		HeartbeatIntervalSec: &clearHeartbeat,
 	})
@@ -135,7 +135,7 @@ func TestHandleConfigUpdateClearsLegacyOverridesBackToBaseline(t *testing.T) {
 		t.Fatalf("marshal config clear: %v", err)
 	}
 
-	handleConfigUpdate(transport, agentmgr.Message{Type: agentmgr.MsgConfigUpdate, Data: data}, runtime)
+	handleConfigUpdate(transport, protocol.Message{Type: protocol.MsgConfigUpdate, Data: data}, runtime)
 
 	ack := decodeConfigApplied(t, readSettingsLifecycleMessage(t, messages))
 	if ack.CollectIntervalSec != 10 {

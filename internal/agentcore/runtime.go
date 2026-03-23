@@ -12,7 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/labtether/labtether/internal/servicehttp"
+	"github.com/labtether/labtether-agent/internal/servicehttp"
 )
 
 type Runtime struct {

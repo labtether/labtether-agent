@@ -16,8 +16,8 @@ import (
 
 	"github.com/creack/pty"
 
-	"github.com/labtether/labtether/internal/agentmgr"
-	"github.com/labtether/labtether/internal/securityruntime"
+	"github.com/labtether/labtether-agent/internal/securityruntime"
+	"github.com/labtether/protocol"
 )
 
 // TerminalSession tracks an active PTY shell session on the agent.
@@ -46,20 +46,20 @@ func NewTerminalManager() *TerminalManager {
 func (tm *TerminalManager) HandleTerminalProbe(transport MessageSender) {
 	tmuxPath, err := exec.LookPath("tmux")
 	hasTmux := err == nil && tmuxPath != ""
-	resp := agentmgr.TerminalProbeResponse{
+	resp := protocol.TerminalProbeResponse{
 		HasTmux:  hasTmux,
 		TmuxPath: tmuxPath,
 	}
 	payload, _ := json.Marshal(resp)
-	_ = transport.Send(agentmgr.Message{
-		Type: agentmgr.MsgTerminalProbed,
+	_ = transport.Send(protocol.Message{
+		Type: protocol.MsgTerminalProbed,
 		Data: payload,
 	})
 }
 
 // HandleTerminalStart spawns a new PTY shell and starts streaming output.
-func (tm *TerminalManager) HandleTerminalStart(transport MessageSender, msg agentmgr.Message) {
-	var req agentmgr.TerminalStartData
+func (tm *TerminalManager) HandleTerminalStart(transport MessageSender, msg protocol.Message) {
+	var req protocol.TerminalStartData
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		log.Printf("terminal: invalid start request: %v", err)
 		return
@@ -170,8 +170,8 @@ func (tm *TerminalManager) HandleTerminalStart(transport MessageSender, msg agen
 }
 
 // HandleTerminalData writes incoming data to the PTY stdin.
-func (tm *TerminalManager) HandleTerminalData(msg agentmgr.Message) {
-	var payload agentmgr.TerminalDataPayload
+func (tm *TerminalManager) HandleTerminalData(msg protocol.Message) {
+	var payload protocol.TerminalDataPayload
 	if err := json.Unmarshal(msg.Data, &payload); err != nil {
 		return
 	}
@@ -192,8 +192,8 @@ func (tm *TerminalManager) HandleTerminalData(msg agentmgr.Message) {
 }
 
 // HandleTerminalResize changes the PTY window size.
-func (tm *TerminalManager) HandleTerminalResize(msg agentmgr.Message) {
-	var req agentmgr.TerminalResizeData
+func (tm *TerminalManager) HandleTerminalResize(msg protocol.Message) {
+	var req protocol.TerminalResizeData
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		return
 	}
@@ -224,8 +224,8 @@ func ClampUint16(value int) uint16 {
 }
 
 // HandleTerminalClose terminates a terminal session.
-func (tm *TerminalManager) HandleTerminalClose(msg agentmgr.Message) {
-	var req agentmgr.TerminalCloseData
+func (tm *TerminalManager) HandleTerminalClose(msg protocol.Message) {
+	var req protocol.TerminalCloseData
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		return
 	}
@@ -244,15 +244,15 @@ func (tm *TerminalManager) HandleTerminalClose(msg agentmgr.Message) {
 	}
 }
 
-func (tm *TerminalManager) HandleTerminalTmuxKill(transport MessageSender, msg agentmgr.Message) {
-	var req agentmgr.TerminalTmuxKillData
+func (tm *TerminalManager) HandleTerminalTmuxKill(transport MessageSender, msg protocol.Message) {
+	var req protocol.TerminalTmuxKillData
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		log.Printf("terminal: invalid tmux kill request: %v", err)
 		return
 	}
 
 	sendResult := func(status, output string) {
-		payload, marshalErr := json.Marshal(agentmgr.CommandResultData{
+		payload, marshalErr := json.Marshal(protocol.CommandResultData{
 			JobID:     req.JobID,
 			SessionID: req.SessionID,
 			CommandID: req.CommandID,
@@ -263,8 +263,8 @@ func (tm *TerminalManager) HandleTerminalTmuxKill(transport MessageSender, msg a
 			log.Printf("terminal: failed to marshal tmux kill result for %s: %v", req.JobID, marshalErr)
 			return
 		}
-		if sendErr := transport.Send(agentmgr.Message{
-			Type: agentmgr.MsgCommandResult,
+		if sendErr := transport.Send(protocol.Message{
+			Type: protocol.MsgCommandResult,
 			ID:   req.JobID,
 			Data: payload,
 		}); sendErr != nil {
@@ -362,12 +362,12 @@ func (tm *TerminalManager) streamOutput(transport MessageSender, sess *TerminalS
 		n, err := sess.Ptmx.Read(buf)
 		if n > 0 {
 			encoded := base64.StdEncoding.EncodeToString(buf[:n])
-			data, _ := json.Marshal(agentmgr.TerminalDataPayload{
+			data, _ := json.Marshal(protocol.TerminalDataPayload{
 				SessionID: sess.sessionID,
 				Data:      encoded,
 			})
-			_ = transport.Send(agentmgr.Message{
-				Type: agentmgr.MsgTerminalData,
+			_ = transport.Send(protocol.Message{
+				Type: protocol.MsgTerminalData,
 				ID:   sess.sessionID,
 				Data: data,
 			})
@@ -391,21 +391,21 @@ func (tm *TerminalManager) cleanup(sessionID string) {
 }
 
 func sendTerminalStartedWithTmux(transport MessageSender, sessionID string, tmuxAttached bool) {
-	data, _ := json.Marshal(agentmgr.TerminalStartedData{
+	data, _ := json.Marshal(protocol.TerminalStartedData{
 		SessionID:    sessionID,
 		TmuxAttached: tmuxAttached,
 	})
-	_ = transport.Send(agentmgr.Message{
-		Type: agentmgr.MsgTerminalStarted,
+	_ = transport.Send(protocol.Message{
+		Type: protocol.MsgTerminalStarted,
 		ID:   sessionID,
 		Data: data,
 	})
 }
 
 func SendTerminalClosed(transport MessageSender, sessionID, reason string) {
-	data, _ := json.Marshal(agentmgr.TerminalCloseData{SessionID: sessionID, Reason: reason})
-	_ = transport.Send(agentmgr.Message{
-		Type: agentmgr.MsgTerminalClosed,
+	data, _ := json.Marshal(protocol.TerminalCloseData{SessionID: sessionID, Reason: reason})
+	_ = transport.Send(protocol.Message{
+		Type: protocol.MsgTerminalClosed,
 		ID:   sessionID,
 		Data: data,
 	})

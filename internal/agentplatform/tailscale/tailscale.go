@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/labtether/labtether/internal/securityruntime"
+	"github.com/labtether/labtether-agent/internal/securityruntime"
 )
 
 // CommandRunner is a function type for executing commands and returning combined output.

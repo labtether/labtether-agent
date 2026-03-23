@@ -6,12 +6,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/protocol"
 )
 
 // handleConfigUpdate applies runtime configuration changes from the hub.
-func handleConfigUpdate(transport *wsTransport, msg agentmgr.Message, runtime *Runtime) {
-	var data agentmgr.ConfigUpdateData
+func handleConfigUpdate(transport *wsTransport, msg protocol.Message, runtime *Runtime) {
+	var data protocol.ConfigUpdateData
 	if err := json.Unmarshal(msg.Data, &data); err != nil {
 		log.Printf("agentws: invalid config update: %v", err)
 		return
@@ -70,24 +70,24 @@ func handleConfigUpdate(transport *wsTransport, msg agentmgr.Message, runtime *R
 	}
 
 	// Send acknowledgment back to hub.
-	ackData, _ := json.Marshal(agentmgr.ConfigAppliedData{
+	ackData, _ := json.Marshal(protocol.ConfigAppliedData{
 		CollectIntervalSec:   runtime.effectiveCollectIntervalSec(),
 		HeartbeatIntervalSec: runtime.effectiveHeartbeatIntervalSec(),
 	})
-	_ = transport.Send(agentmgr.Message{
-		Type: agentmgr.MsgConfigApplied,
+	_ = transport.Send(protocol.Message{
+		Type: protocol.MsgConfigApplied,
 		Data: ackData,
 	})
 }
 
-func handleAgentSettingsApply(transport *wsTransport, msg agentmgr.Message, runtime *Runtime) {
-	var req agentmgr.AgentSettingsApplyData
+func handleAgentSettingsApply(transport *wsTransport, msg protocol.Message, runtime *Runtime) {
+	var req protocol.AgentSettingsApplyData
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		log.Printf("agentws: invalid agent.settings.apply: %v", err)
 		return
 	}
 
-	response := agentmgr.AgentSettingsAppliedData{
+	response := protocol.AgentSettingsAppliedData{
 		RequestID: req.RequestID,
 		Revision:  req.Revision,
 		Applied:   false,
@@ -130,7 +130,7 @@ func handleAgentSettingsApply(transport *wsTransport, msg agentmgr.Message, runt
 	sendAgentSettingsState(transport, runtime, req.Revision)
 }
 
-func sendAgentSettingsApplied(transport *wsTransport, runtime *Runtime, response agentmgr.AgentSettingsAppliedData) {
+func sendAgentSettingsApplied(transport *wsTransport, runtime *Runtime, response protocol.AgentSettingsAppliedData) {
 	if runtime != nil && runtime.deviceIdentity != nil {
 		response.Fingerprint = runtime.deviceIdentity.Fingerprint
 	}
@@ -139,8 +139,8 @@ func sendAgentSettingsApplied(transport *wsTransport, runtime *Runtime, response
 		log.Printf("agentws: failed to marshal agent.settings.applied: %v", err)
 		return
 	}
-	_ = transport.Send(agentmgr.Message{
-		Type: agentmgr.MsgAgentSettingsApplied,
+	_ = transport.Send(protocol.Message{
+		Type: protocol.MsgAgentSettingsApplied,
 		Data: data,
 	})
 }

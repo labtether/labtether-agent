@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/protocol"
 )
 
 // ---------------------------------------------------------------------------
@@ -383,13 +383,13 @@ func TestWindowsNetworkBackend_ApplyDHCP(t *testing.T) {
 	}
 	errs := make([]error, len(outputs))
 
-	req := agentmgr.NetworkActionData{
+	req := protocol.NetworkActionData{
 		RequestID:  "req-1",
 		Action:     "apply",
 		Connection: "Ethernet:dhcp",
 	}
 
-	var result agentmgr.NetworkResultData
+	var result protocol.NetworkResultData
 	calls := stubWindowsRun(outputs, errs, func() {
 		result = backend.ApplyAction(nm, req)
 	})
@@ -431,7 +431,7 @@ func TestWindowsNetworkBackend_RollbackNoSnapshot(t *testing.T) {
 	nm := &NetworkManager{}
 	backend := WindowsNetworkBackend{}
 
-	req := agentmgr.NetworkActionData{
+	req := protocol.NetworkActionData{
 		RequestID: "req-2",
 		Action:    "rollback",
 	}
@@ -449,7 +449,7 @@ func TestWindowsNetworkBackend_InvalidMethod(t *testing.T) {
 	nm := &NetworkManager{}
 	backend := WindowsNetworkBackend{}
 
-	req := agentmgr.NetworkActionData{
+	req := protocol.NetworkActionData{
 		RequestID:  "req-3",
 		Action:     "apply",
 		Method:     "nmcli",
@@ -481,13 +481,13 @@ func TestWindowsNetworkBackend_StaticSubAction(t *testing.T) {
 	}
 	errs := make([]error, len(outputs))
 
-	req := agentmgr.NetworkActionData{
+	req := protocol.NetworkActionData{
 		RequestID:  "req-4",
 		Action:     "apply",
 		Connection: "Ethernet:static:192.168.1.50:255.255.255.0:192.168.1.1",
 	}
 
-	var result agentmgr.NetworkResultData
+	var result protocol.NetworkResultData
 	calls := stubWindowsRun(outputs, errs, func() {
 		result = backend.ApplyAction(nm, req)
 	})
@@ -526,12 +526,12 @@ func TestWindowsNetworkBackend_RollbackWithSnapshot(t *testing.T) {
 	}
 	errs := make([]error, len(outputs))
 
-	req := agentmgr.NetworkActionData{
+	req := protocol.NetworkActionData{
 		RequestID: "req-5",
 		Action:    "rollback",
 	}
 
-	var result agentmgr.NetworkResultData
+	var result protocol.NetworkResultData
 	calls := stubWindowsRun(outputs, errs, func() {
 		result = backend.RollbackAction(nm, req)
 	})
@@ -571,13 +571,13 @@ func TestWindowsNetworkBackend_DNSSubAction(t *testing.T) {
 	}
 	errs := make([]error, len(outputs))
 
-	req := agentmgr.NetworkActionData{
+	req := protocol.NetworkActionData{
 		RequestID:  "req-6",
 		Action:     "apply",
 		Connection: "Ethernet:dns:8.8.8.8:1.1.1.1",
 	}
 
-	var result agentmgr.NetworkResultData
+	var result protocol.NetworkResultData
 	calls := stubWindowsRun(outputs, errs, func() {
 		result = backend.ApplyAction(nm, req)
 	})

@@ -5,7 +5,7 @@ package windows
 import (
 	"fmt"
 
-	"github.com/labtether/labtether/internal/agentcore"
+	"github.com/labtether/labtether-agent/internal/agentcore"
 )
 
 // IsWindowsService always returns false on non-Windows platforms.

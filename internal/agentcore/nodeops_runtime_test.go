@@ -10,13 +10,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/labtether/labtether/internal/agentcore/backends"
-	"github.com/labtether/labtether/internal/agentcore/system"
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/labtether-agent/internal/agentcore/backends"
+	"github.com/labtether/labtether-agent/internal/agentcore/system"
+	"github.com/labtether/protocol"
 )
 
 type stubPackageBackend struct {
-	listPackages []agentmgr.PackageInfo
+	listPackages []protocol.PackageInfo
 	listErr      error
 	actionResult backends.PackageActionResult
 	actionErr    error
@@ -28,7 +28,7 @@ type stubBackendsPackageActionCall struct {
 	packages []string
 }
 
-func (s *stubPackageBackend) ListPackages() ([]agentmgr.PackageInfo, error) {
+func (s *stubPackageBackend) ListPackages() ([]protocol.PackageInfo, error) {
 	return s.listPackages, s.listErr
 }
 
@@ -41,7 +41,7 @@ func (s *stubPackageBackend) PerformAction(action string, packages []string) (ba
 }
 
 type stubServiceBackend struct {
-	listServices []agentmgr.ServiceInfo
+	listServices []protocol.ServiceInfo
 	listErr      error
 	actionOutput string
 	actionErr    error
@@ -53,7 +53,7 @@ type stubServiceActionCall struct {
 	service string
 }
 
-func (s *stubServiceBackend) ListServices() ([]agentmgr.ServiceInfo, error) {
+func (s *stubServiceBackend) ListServices() ([]protocol.ServiceInfo, error) {
 	return s.listServices, s.listErr
 }
 
@@ -66,17 +66,17 @@ func (s *stubServiceBackend) PerformAction(action, service string) (string, erro
 }
 
 type stubLogBackend struct {
-	entries []agentmgr.LogStreamData
+	entries []protocol.LogStreamData
 	err     error
-	reqs    []agentmgr.JournalQueryData
+	reqs    []protocol.JournalQueryData
 }
 
-func (s *stubLogBackend) QueryEntries(req agentmgr.JournalQueryData) ([]agentmgr.LogStreamData, error) {
+func (s *stubLogBackend) QueryEntries(req protocol.JournalQueryData) ([]protocol.LogStreamData, error) {
 	s.reqs = append(s.reqs, req)
 	return s.entries, s.err
 }
 
-func (s *stubLogBackend) StreamEntries(_ context.Context, _ func(agentmgr.LogStreamData)) error {
+func (s *stubLogBackend) StreamEntries(_ context.Context, _ func(protocol.LogStreamData)) error {
 	return nil
 }
 
@@ -87,8 +87,8 @@ func TestProcessManagerHandleProcessListSortsLimitsAndReportsErrors(t *testing.T
 	})
 
 	t.Run("success", func(t *testing.T) {
-		system.CollectProcessesFn = func() ([]agentmgr.ProcessInfo, error) {
-			return []agentmgr.ProcessInfo{
+		system.CollectProcessesFn = func() ([]protocol.ProcessInfo, error) {
+			return []protocol.ProcessInfo{
 				{PID: 101, Name: "alpha", CPUPct: 10, MemPct: 25},
 				{PID: 102, Name: "beta", CPUPct: 40, MemPct: 5},
 				{PID: 103, Name: "gamma", CPUPct: 1, MemPct: 90},
@@ -99,9 +99,9 @@ func TestProcessManagerHandleProcessListSortsLimitsAndReportsErrors(t *testing.T
 		defer cleanup()
 
 		manager := system.NewProcessManager()
-		manager.HandleProcessList(transport, agentmgr.Message{
-			Type: agentmgr.MsgProcessList,
-			Data: mustMarshalDesktopRuntime(t, agentmgr.ProcessListData{
+		manager.HandleProcessList(transport, protocol.Message{
+			Type: protocol.MsgProcessList,
+			Data: mustMarshalDesktopRuntime(t, protocol.ProcessListData{
 				RequestID: "req-process-list",
 				SortBy:    "memory",
 				Limit:     2,
@@ -109,11 +109,11 @@ func TestProcessManagerHandleProcessListSortsLimitsAndReportsErrors(t *testing.T
 		})
 
 		msg := readDesktopRuntimeMessage(t, messages)
-		if msg.Type != agentmgr.MsgProcessListed {
-			t.Fatalf("message type=%q, want %q", msg.Type, agentmgr.MsgProcessListed)
+		if msg.Type != protocol.MsgProcessListed {
+			t.Fatalf("message type=%q, want %q", msg.Type, protocol.MsgProcessListed)
 		}
 
-		var listed agentmgr.ProcessListedData
+		var listed protocol.ProcessListedData
 		if err := json.Unmarshal(msg.Data, &listed); err != nil {
 			t.Fatalf("decode process listed payload: %v", err)
 		}
@@ -132,7 +132,7 @@ func TestProcessManagerHandleProcessListSortsLimitsAndReportsErrors(t *testing.T
 	})
 
 	t.Run("error", func(t *testing.T) {
-		system.CollectProcessesFn = func() ([]agentmgr.ProcessInfo, error) {
+		system.CollectProcessesFn = func() ([]protocol.ProcessInfo, error) {
 			return nil, errors.New("ps failed")
 		}
 
@@ -140,13 +140,13 @@ func TestProcessManagerHandleProcessListSortsLimitsAndReportsErrors(t *testing.T
 		defer cleanup()
 
 		manager := system.NewProcessManager()
-		manager.HandleProcessList(transport, agentmgr.Message{
-			Type: agentmgr.MsgProcessList,
-			Data: mustMarshalDesktopRuntime(t, agentmgr.ProcessListData{RequestID: "req-process-error"}),
+		manager.HandleProcessList(transport, protocol.Message{
+			Type: protocol.MsgProcessList,
+			Data: mustMarshalDesktopRuntime(t, protocol.ProcessListData{RequestID: "req-process-error"}),
 		})
 
 		msg := readDesktopRuntimeMessage(t, messages)
-		var listed agentmgr.ProcessListedData
+		var listed protocol.ProcessListedData
 		if err := json.Unmarshal(msg.Data, &listed); err != nil {
 			t.Fatalf("decode process listed payload: %v", err)
 		}
@@ -176,21 +176,21 @@ func TestProcessManagerHandleProcessKillGuardsAndReportsResults(t *testing.T) {
 		defer cleanup()
 
 		manager := system.NewProcessManager()
-		manager.HandleProcessKill(transport, agentmgr.Message{
-			Type: agentmgr.MsgProcessKill,
+		manager.HandleProcessKill(transport, protocol.Message{
+			Type: protocol.MsgProcessKill,
 			ID:   "req-process-kill-guard",
-			Data: mustMarshalDesktopRuntime(t, agentmgr.ProcessKillData{PID: 1}),
+			Data: mustMarshalDesktopRuntime(t, protocol.ProcessKillData{PID: 1}),
 		})
 
 		msg := readDesktopRuntimeMessage(t, messages)
-		if msg.Type != agentmgr.MsgProcessKillResult {
-			t.Fatalf("message type=%q, want %q", msg.Type, agentmgr.MsgProcessKillResult)
+		if msg.Type != protocol.MsgProcessKillResult {
+			t.Fatalf("message type=%q, want %q", msg.Type, protocol.MsgProcessKillResult)
 		}
 		if msg.ID != "req-process-kill-guard" {
 			t.Fatalf("message id=%q, want req-process-kill-guard", msg.ID)
 		}
 
-		var result agentmgr.ProcessKillResultData
+		var result protocol.ProcessKillResultData
 		if err := json.Unmarshal(msg.Data, &result); err != nil {
 			t.Fatalf("decode process kill result: %v", err)
 		}
@@ -215,17 +215,17 @@ func TestProcessManagerHandleProcessKillGuardsAndReportsResults(t *testing.T) {
 		defer cleanup()
 
 		manager := system.NewProcessManager()
-		manager.HandleProcessKill(transport, agentmgr.Message{
-			Type: agentmgr.MsgProcessKill,
+		manager.HandleProcessKill(transport, protocol.Message{
+			Type: protocol.MsgProcessKill,
 			ID:   "req-process-kill-success",
-			Data: mustMarshalDesktopRuntime(t, agentmgr.ProcessKillData{PID: 42, Signal: "SIGKILL"}),
+			Data: mustMarshalDesktopRuntime(t, protocol.ProcessKillData{PID: 42, Signal: "SIGKILL"}),
 		})
 
 		msg := readDesktopRuntimeMessage(t, messages)
 		if msg.ID != "req-process-kill-success" {
 			t.Fatalf("message id=%q, want req-process-kill-success", msg.ID)
 		}
-		var result agentmgr.ProcessKillResultData
+		var result protocol.ProcessKillResultData
 		if err := json.Unmarshal(msg.Data, &result); err != nil {
 			t.Fatalf("decode process kill result: %v", err)
 		}
@@ -246,17 +246,17 @@ func TestProcessManagerHandleProcessKillGuardsAndReportsResults(t *testing.T) {
 		defer cleanup()
 
 		manager := system.NewProcessManager()
-		manager.HandleProcessKill(transport, agentmgr.Message{
-			Type: agentmgr.MsgProcessKill,
+		manager.HandleProcessKill(transport, protocol.Message{
+			Type: protocol.MsgProcessKill,
 			ID:   "req-process-kill-error",
-			Data: mustMarshalDesktopRuntime(t, agentmgr.ProcessKillData{PID: 77, Signal: "SIGTERM"}),
+			Data: mustMarshalDesktopRuntime(t, protocol.ProcessKillData{PID: 77, Signal: "SIGTERM"}),
 		})
 
 		msg := readDesktopRuntimeMessage(t, messages)
 		if msg.ID != "req-process-kill-error" {
 			t.Fatalf("message id=%q, want req-process-kill-error", msg.ID)
 		}
-		var result agentmgr.ProcessKillResultData
+		var result protocol.ProcessKillResultData
 		if err := json.Unmarshal(msg.Data, &result); err != nil {
 			t.Fatalf("decode process kill result: %v", err)
 		}
@@ -272,19 +272,19 @@ func TestPackageManagerHandlePackageListAndAction(t *testing.T) {
 		defer cleanup()
 
 		successBackend := &stubPackageBackend{
-			listPackages: []agentmgr.PackageInfo{{Name: "jq", Version: "1.7", Status: "installed"}},
+			listPackages: []protocol.PackageInfo{{Name: "jq", Version: "1.7", Status: "installed"}},
 		}
 		manager := &backends.PackageManager{Backend: successBackend}
-		manager.HandlePackageList(transport, agentmgr.Message{
-			Type: agentmgr.MsgPackageList,
-			Data: mustMarshalDesktopRuntime(t, agentmgr.PackageListData{RequestID: "req-package-list"}),
+		manager.HandlePackageList(transport, protocol.Message{
+			Type: protocol.MsgPackageList,
+			Data: mustMarshalDesktopRuntime(t, protocol.PackageListData{RequestID: "req-package-list"}),
 		})
 
 		msg := readDesktopRuntimeMessage(t, messages)
-		if msg.Type != agentmgr.MsgPackageListed {
-			t.Fatalf("message type=%q, want %q", msg.Type, agentmgr.MsgPackageListed)
+		if msg.Type != protocol.MsgPackageListed {
+			t.Fatalf("message type=%q, want %q", msg.Type, protocol.MsgPackageListed)
 		}
-		var listed agentmgr.PackageListedData
+		var listed protocol.PackageListedData
 		if err := json.Unmarshal(msg.Data, &listed); err != nil {
 			t.Fatalf("decode package listed payload: %v", err)
 		}
@@ -294,9 +294,9 @@ func TestPackageManagerHandlePackageListAndAction(t *testing.T) {
 
 		errorBackend := &stubPackageBackend{listErr: errors.New("rpm failed")}
 		manager = &backends.PackageManager{Backend: errorBackend}
-		manager.HandlePackageList(transport, agentmgr.Message{
-			Type: agentmgr.MsgPackageList,
-			Data: mustMarshalDesktopRuntime(t, agentmgr.PackageListData{RequestID: "req-package-error"}),
+		manager.HandlePackageList(transport, protocol.Message{
+			Type: protocol.MsgPackageList,
+			Data: mustMarshalDesktopRuntime(t, protocol.PackageListData{RequestID: "req-package-error"}),
 		})
 
 		msg = readDesktopRuntimeMessage(t, messages)
@@ -319,9 +319,9 @@ func TestPackageManagerHandlePackageListAndAction(t *testing.T) {
 			},
 		}
 		manager := &backends.PackageManager{Backend: backend}
-		manager.HandlePackageAction(transport, agentmgr.Message{
-			Type: agentmgr.MsgPackageAction,
-			Data: mustMarshalDesktopRuntime(t, agentmgr.PackageActionData{
+		manager.HandlePackageAction(transport, protocol.Message{
+			Type: protocol.MsgPackageAction,
+			Data: mustMarshalDesktopRuntime(t, protocol.PackageActionData{
 				RequestID: "req-package-action",
 				Action:    "install",
 				Packages:  []string{" jq ", "jq", "", "curl"},
@@ -329,10 +329,10 @@ func TestPackageManagerHandlePackageListAndAction(t *testing.T) {
 		})
 
 		msg := readDesktopRuntimeMessage(t, messages)
-		if msg.Type != agentmgr.MsgPackageResult {
-			t.Fatalf("message type=%q, want %q", msg.Type, agentmgr.MsgPackageResult)
+		if msg.Type != protocol.MsgPackageResult {
+			t.Fatalf("message type=%q, want %q", msg.Type, protocol.MsgPackageResult)
 		}
-		var result agentmgr.PackageResultData
+		var result protocol.PackageResultData
 		if err := json.Unmarshal(msg.Data, &result); err != nil {
 			t.Fatalf("decode package result payload: %v", err)
 		}
@@ -353,16 +353,16 @@ func TestPackageManagerHandlePackageListAndAction(t *testing.T) {
 
 		backend := &stubPackageBackend{}
 		manager := &backends.PackageManager{Backend: backend}
-		manager.HandlePackageAction(transport, agentmgr.Message{
-			Type: agentmgr.MsgPackageAction,
-			Data: mustMarshalDesktopRuntime(t, agentmgr.PackageActionData{
+		manager.HandlePackageAction(transport, protocol.Message{
+			Type: protocol.MsgPackageAction,
+			Data: mustMarshalDesktopRuntime(t, protocol.PackageActionData{
 				RequestID: "req-package-invalid",
 				Action:    "repair",
 			}),
 		})
 
 		msg := readDesktopRuntimeMessage(t, messages)
-		var result agentmgr.PackageResultData
+		var result protocol.PackageResultData
 		if err := json.Unmarshal(msg.Data, &result); err != nil {
 			t.Fatalf("decode package result payload: %v", err)
 		}
@@ -418,10 +418,10 @@ func TestLinuxPackageBackendListPackagesSelectsAvailableInventorySource(t *testi
 				return "", exec.ErrNotFound
 			}
 		}
-		backends.LinuxPackageDpkgLister = func() ([]agentmgr.PackageInfo, error) {
-			return []agentmgr.PackageInfo{{Name: "jq"}}, nil
+		backends.LinuxPackageDpkgLister = func() ([]protocol.PackageInfo, error) {
+			return []protocol.PackageInfo{{Name: "jq"}}, nil
 		}
-		backends.LinuxPackageRPMLister = func() ([]agentmgr.PackageInfo, error) {
+		backends.LinuxPackageRPMLister = func() ([]protocol.PackageInfo, error) {
 			t.Fatal("expected rpm lister not to be called")
 			return nil, nil
 		}
@@ -444,12 +444,12 @@ func TestLinuxPackageBackendListPackagesSelectsAvailableInventorySource(t *testi
 				return "", exec.ErrNotFound
 			}
 		}
-		backends.LinuxPackageDpkgLister = func() ([]agentmgr.PackageInfo, error) {
+		backends.LinuxPackageDpkgLister = func() ([]protocol.PackageInfo, error) {
 			t.Fatal("expected dpkg lister not to be called")
 			return nil, nil
 		}
-		backends.LinuxPackageRPMLister = func() ([]agentmgr.PackageInfo, error) {
-			return []agentmgr.PackageInfo{{Name: "podman"}}, nil
+		backends.LinuxPackageRPMLister = func() ([]protocol.PackageInfo, error) {
+			return []protocol.PackageInfo{{Name: "podman"}}, nil
 		}
 
 		packages, err := backends.LinuxPackageBackend{}.ListPackages()
@@ -557,7 +557,7 @@ func TestServiceManagerHandleServiceListAndAction(t *testing.T) {
 		defer cleanup()
 
 		successBackend := &stubServiceBackend{
-			listServices: []agentmgr.ServiceInfo{{
+			listServices: []protocol.ServiceInfo{{
 				Name:        "sshd",
 				Description: "OpenSSH Daemon",
 				ActiveState: "active",
@@ -567,16 +567,16 @@ func TestServiceManagerHandleServiceListAndAction(t *testing.T) {
 			}},
 		}
 		manager := &backends.ServiceManager{Backend: successBackend}
-		manager.HandleServiceList(transport, agentmgr.Message{
-			Type: agentmgr.MsgServiceList,
-			Data: mustMarshalDesktopRuntime(t, agentmgr.ServiceListData{RequestID: "req-service-list"}),
+		manager.HandleServiceList(transport, protocol.Message{
+			Type: protocol.MsgServiceList,
+			Data: mustMarshalDesktopRuntime(t, protocol.ServiceListData{RequestID: "req-service-list"}),
 		})
 
 		msg := readDesktopRuntimeMessage(t, messages)
-		if msg.Type != agentmgr.MsgServiceListed {
-			t.Fatalf("message type=%q, want %q", msg.Type, agentmgr.MsgServiceListed)
+		if msg.Type != protocol.MsgServiceListed {
+			t.Fatalf("message type=%q, want %q", msg.Type, protocol.MsgServiceListed)
 		}
-		var listed agentmgr.ServiceListedData
+		var listed protocol.ServiceListedData
 		if err := json.Unmarshal(msg.Data, &listed); err != nil {
 			t.Fatalf("decode service listed payload: %v", err)
 		}
@@ -586,9 +586,9 @@ func TestServiceManagerHandleServiceListAndAction(t *testing.T) {
 
 		errorBackend := &stubServiceBackend{listErr: errors.New("systemctl failed")}
 		manager = &backends.ServiceManager{Backend: errorBackend}
-		manager.HandleServiceList(transport, agentmgr.Message{
-			Type: agentmgr.MsgServiceList,
-			Data: mustMarshalDesktopRuntime(t, agentmgr.ServiceListData{RequestID: "req-service-error"}),
+		manager.HandleServiceList(transport, protocol.Message{
+			Type: protocol.MsgServiceList,
+			Data: mustMarshalDesktopRuntime(t, protocol.ServiceListData{RequestID: "req-service-error"}),
 		})
 
 		msg = readDesktopRuntimeMessage(t, messages)
@@ -606,9 +606,9 @@ func TestServiceManagerHandleServiceListAndAction(t *testing.T) {
 
 		backend := &stubServiceBackend{actionOutput: "restarted"}
 		manager := &backends.ServiceManager{Backend: backend}
-		manager.HandleServiceAction(transport, agentmgr.Message{
-			Type: agentmgr.MsgServiceAction,
-			Data: mustMarshalDesktopRuntime(t, agentmgr.ServiceActionData{
+		manager.HandleServiceAction(transport, protocol.Message{
+			Type: protocol.MsgServiceAction,
+			Data: mustMarshalDesktopRuntime(t, protocol.ServiceActionData{
 				RequestID: "req-service-action",
 				Service:   "sshd",
 				Action:    "restart",
@@ -616,10 +616,10 @@ func TestServiceManagerHandleServiceListAndAction(t *testing.T) {
 		})
 
 		msg := readDesktopRuntimeMessage(t, messages)
-		if msg.Type != agentmgr.MsgServiceResult {
-			t.Fatalf("message type=%q, want %q", msg.Type, agentmgr.MsgServiceResult)
+		if msg.Type != protocol.MsgServiceResult {
+			t.Fatalf("message type=%q, want %q", msg.Type, protocol.MsgServiceResult)
 		}
-		var result agentmgr.ServiceResultData
+		var result protocol.ServiceResultData
 		if err := json.Unmarshal(msg.Data, &result); err != nil {
 			t.Fatalf("decode service result payload: %v", err)
 		}
@@ -630,9 +630,9 @@ func TestServiceManagerHandleServiceListAndAction(t *testing.T) {
 			t.Fatalf("backend calls=%#v, want %#v", got, want)
 		}
 
-		manager.HandleServiceAction(transport, agentmgr.Message{
-			Type: agentmgr.MsgServiceAction,
-			Data: mustMarshalDesktopRuntime(t, agentmgr.ServiceActionData{
+		manager.HandleServiceAction(transport, protocol.Message{
+			Type: protocol.MsgServiceAction,
+			Data: mustMarshalDesktopRuntime(t, protocol.ServiceActionData{
 				RequestID: "req-service-invalid",
 				Service:   "sshd",
 				Action:    "reload",
@@ -739,7 +739,7 @@ func TestJournalManagerHandleJournalQueryReturnsEntriesAndErrors(t *testing.T) {
 		defer cleanup()
 
 		backend := &stubLogBackend{
-			entries: []agentmgr.LogStreamData{{
+			entries: []protocol.LogStreamData{{
 				Timestamp: "2026-03-08T12:00:00Z",
 				Level:     "error",
 				Message:   "denied",
@@ -747,9 +747,9 @@ func TestJournalManagerHandleJournalQueryReturnsEntriesAndErrors(t *testing.T) {
 			}},
 		}
 		manager := &backends.JournalManager{Backend: backend}
-		manager.HandleJournalQuery(transport, agentmgr.Message{
-			Type: agentmgr.MsgJournalQuery,
-			Data: mustMarshalDesktopRuntime(t, agentmgr.JournalQueryData{
+		manager.HandleJournalQuery(transport, protocol.Message{
+			Type: protocol.MsgJournalQuery,
+			Data: mustMarshalDesktopRuntime(t, protocol.JournalQueryData{
 				RequestID: "req-journal",
 				Unit:      "sshd.service",
 				Limit:     50,
@@ -757,10 +757,10 @@ func TestJournalManagerHandleJournalQueryReturnsEntriesAndErrors(t *testing.T) {
 		})
 
 		msg := readDesktopRuntimeMessage(t, messages)
-		if msg.Type != agentmgr.MsgJournalEntries {
-			t.Fatalf("message type=%q, want %q", msg.Type, agentmgr.MsgJournalEntries)
+		if msg.Type != protocol.MsgJournalEntries {
+			t.Fatalf("message type=%q, want %q", msg.Type, protocol.MsgJournalEntries)
 		}
-		var listed agentmgr.JournalEntriesData
+		var listed protocol.JournalEntriesData
 		if err := json.Unmarshal(msg.Data, &listed); err != nil {
 			t.Fatalf("decode journal entries payload: %v", err)
 		}
@@ -778,13 +778,13 @@ func TestJournalManagerHandleJournalQueryReturnsEntriesAndErrors(t *testing.T) {
 
 		backend := &stubLogBackend{err: errors.New("journalctl unavailable")}
 		manager := &backends.JournalManager{Backend: backend}
-		manager.HandleJournalQuery(transport, agentmgr.Message{
-			Type: agentmgr.MsgJournalQuery,
-			Data: mustMarshalDesktopRuntime(t, agentmgr.JournalQueryData{RequestID: "req-journal-error"}),
+		manager.HandleJournalQuery(transport, protocol.Message{
+			Type: protocol.MsgJournalQuery,
+			Data: mustMarshalDesktopRuntime(t, protocol.JournalQueryData{RequestID: "req-journal-error"}),
 		})
 
 		msg := readDesktopRuntimeMessage(t, messages)
-		var listed agentmgr.JournalEntriesData
+		var listed protocol.JournalEntriesData
 		if err := json.Unmarshal(msg.Data, &listed); err != nil {
 			t.Fatalf("decode journal entries payload: %v", err)
 		}
@@ -826,7 +826,7 @@ func TestLinuxLogBackendQueryEntriesUsesFiltersAndParsesResults(t *testing.T) {
 	}
 	backends.JournalQueryTimeout = 2 * time.Second
 
-	entries, err := backends.LinuxLogBackend{}.QueryEntries(agentmgr.JournalQueryData{
+	entries, err := backends.LinuxLogBackend{}.QueryEntries(protocol.JournalQueryData{
 		RequestID: "req-journal-query",
 		Since:     "1h ago",
 		Until:     "now",
@@ -886,7 +886,7 @@ func TestLinuxLogBackendQueryEntriesTimesOut(t *testing.T) {
 	}
 	backends.JournalQueryTimeout = 20 * time.Millisecond
 
-	_, err = backends.LinuxLogBackend{}.QueryEntries(agentmgr.JournalQueryData{Limit: 10})
+	_, err = backends.LinuxLogBackend{}.QueryEntries(protocol.JournalQueryData{Limit: 10})
 	if err == nil || err.Error() != "journalctl query timed out" {
 		t.Fatalf("error=%v, want journalctl query timed out", err)
 	}

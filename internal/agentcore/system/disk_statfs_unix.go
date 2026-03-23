@@ -5,14 +5,14 @@ package system
 import (
 	"syscall"
 
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/protocol"
 )
 
 // StatfsMountPoint uses syscall.Statfs to collect disk space info for a mount point.
-func StatfsMountPoint(device, mountPoint, fsType string) (agentmgr.MountInfo, error) {
+func StatfsMountPoint(device, mountPoint, fsType string) (protocol.MountInfo, error) {
 	var stat syscall.Statfs_t
 	if err := syscall.Statfs(mountPoint, &stat); err != nil {
-		return agentmgr.MountInfo{}, err
+		return protocol.MountInfo{}, err
 	}
 
 	blockSize := uint64(stat.Bsize)
@@ -25,7 +25,7 @@ func StatfsMountPoint(device, mountPoint, fsType string) (agentmgr.MountInfo, er
 		usePct = float64(used) / float64(total) * 100
 	}
 
-	return agentmgr.MountInfo{
+	return protocol.MountInfo{
 		Device:     device,
 		MountPoint: mountPoint,
 		FSType:     fsType,

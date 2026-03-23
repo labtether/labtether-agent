@@ -10,10 +10,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/labtether/labtether/internal/assets"
-	"github.com/labtether/labtether/internal/metricschema"
-	"github.com/labtether/labtether/internal/platforms"
-	"github.com/labtether/labtether/internal/securityruntime"
+	"github.com/labtether/labtether-agent/internal/assets"
+	"github.com/labtether/labtether-agent/internal/metricschema"
+	"github.com/labtether/labtether-agent/internal/platforms"
+	"github.com/labtether/labtether-agent/internal/securityruntime"
 )
 
 func NewHeartbeatPublisher(cfg RuntimeConfig, staticMetadata map[string]string) HeartbeatPublisher {

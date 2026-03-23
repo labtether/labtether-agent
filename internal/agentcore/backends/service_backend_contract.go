@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"runtime"
 
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/protocol"
 )
 
 // ServiceBackend is the platform abstraction for querying and managing services.
 type ServiceBackend interface {
-	ListServices() ([]agentmgr.ServiceInfo, error)
+	ListServices() ([]protocol.ServiceInfo, error)
 	PerformAction(action, service string) (string, error)
 }
 
@@ -38,7 +38,7 @@ type UnsupportedServiceBackend struct {
 }
 
 // ListServices returns an error indicating the platform is unsupported.
-func (b UnsupportedServiceBackend) ListServices() ([]agentmgr.ServiceInfo, error) {
+func (b UnsupportedServiceBackend) ListServices() ([]protocol.ServiceInfo, error) {
 	return nil, fmt.Errorf("service listing is not supported on %s", b.OS)
 }
 

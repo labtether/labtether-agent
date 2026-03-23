@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"log"
 
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/protocol"
 )
 
 var ClipboardRead = PlatformClipboardRead
@@ -23,8 +23,8 @@ func NewClipboardManager() *ClipboardManager { return &ClipboardManager{} }
 func (cm *ClipboardManager) CloseAll() {}
 
 // HandleClipboardGet reads the OS clipboard and sends the contents back to the hub.
-func (cm *ClipboardManager) HandleClipboardGet(transport MessageSender, msg agentmgr.Message) {
-	var req agentmgr.ClipboardGetData
+func (cm *ClipboardManager) HandleClipboardGet(transport MessageSender, msg protocol.Message) {
+	var req protocol.ClipboardGetData
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		log.Printf("clipboard: invalid get request: %v", err)
 		return
@@ -37,7 +37,7 @@ func (cm *ClipboardManager) HandleClipboardGet(transport MessageSender, msg agen
 
 	text, imgBase64, err := ClipboardRead(format)
 
-	resp := agentmgr.ClipboardDataPayload{
+	resp := protocol.ClipboardDataPayload{
 		RequestID: req.RequestID,
 	}
 	if err != nil {
@@ -55,15 +55,15 @@ func (cm *ClipboardManager) HandleClipboardGet(transport MessageSender, msg agen
 		log.Printf("clipboard: failed to marshal response: %v", err)
 		return
 	}
-	_ = transport.Send(agentmgr.Message{
-		Type: agentmgr.MsgClipboardData,
+	_ = transport.Send(protocol.Message{
+		Type: protocol.MsgClipboardData,
 		Data: data,
 	})
 }
 
 // HandleClipboardSet writes content to the OS clipboard and sends an ack back.
-func (cm *ClipboardManager) HandleClipboardSet(transport MessageSender, msg agentmgr.Message) {
-	var req agentmgr.ClipboardSetData
+func (cm *ClipboardManager) HandleClipboardSet(transport MessageSender, msg protocol.Message) {
+	var req protocol.ClipboardSetData
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		log.Printf("clipboard: invalid set request: %v", err)
 		return
@@ -84,7 +84,7 @@ func (cm *ClipboardManager) HandleClipboardSet(transport MessageSender, msg agen
 		writeErr = ClipboardWriteText(req.Text)
 	}
 
-	ack := agentmgr.ClipboardSetAckData{
+	ack := protocol.ClipboardSetAckData{
 		RequestID: req.RequestID,
 		OK:        writeErr == nil,
 	}
@@ -97,8 +97,8 @@ func (cm *ClipboardManager) HandleClipboardSet(transport MessageSender, msg agen
 		log.Printf("clipboard: failed to marshal ack: %v", err)
 		return
 	}
-	_ = transport.Send(agentmgr.Message{
-		Type: agentmgr.MsgClipboardSetAck,
+	_ = transport.Send(protocol.Message{
+		Type: protocol.MsgClipboardSetAck,
 		Data: data,
 	})
 }

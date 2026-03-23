@@ -3,9 +3,9 @@ package windows
 import (
 	"time"
 
-	"github.com/labtether/labtether/internal/agentcore"
-	"github.com/labtether/labtether/internal/agentplatform/generic"
-	"github.com/labtether/labtether/internal/agentplatform/tailscale"
+	"github.com/labtether/labtether-agent/internal/agentcore"
+	"github.com/labtether/labtether-agent/internal/agentplatform/generic"
+	"github.com/labtether/labtether-agent/internal/agentplatform/tailscale"
 )
 
 type Provider struct {

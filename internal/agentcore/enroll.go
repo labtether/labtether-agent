@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/labtether/labtether/internal/securityruntime"
+	"github.com/labtether/labtether-agent/internal/securityruntime"
 )
 
 // ResolveToken sets cfg.APIToken using the first available source:

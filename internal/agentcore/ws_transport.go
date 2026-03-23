@@ -18,7 +18,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/protocol"
 )
 
 // Error classification for WebSocket connect failures.
@@ -293,7 +293,7 @@ func (t *wsTransport) pingLoop(conn *websocket.Conn, done chan struct{}) {
 	}
 }
 
-func (t *wsTransport) Send(msg agentmgr.Message) error {
+func (t *wsTransport) Send(msg protocol.Message) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.conn == nil {
@@ -311,15 +311,15 @@ func (t *wsTransport) Send(msg agentmgr.Message) error {
 	return err
 }
 
-func (t *wsTransport) Receive() (agentmgr.Message, error) {
+func (t *wsTransport) Receive() (protocol.Message, error) {
 	t.mu.Lock()
 	conn := t.conn
 	t.mu.Unlock()
 	if conn == nil {
-		return agentmgr.Message{}, errNotConnected
+		return protocol.Message{}, errNotConnected
 	}
 
-	var msg agentmgr.Message
+	var msg protocol.Message
 	err := conn.ReadJSON(&msg)
 	if err == nil {
 		atomic.AddInt64(&t.messagesReceived, 1)

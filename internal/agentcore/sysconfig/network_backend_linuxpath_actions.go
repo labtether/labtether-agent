@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/protocol"
 )
 
 var ResolveNetworkMethodFn = ResolveNetworkMethod
@@ -15,8 +15,8 @@ var VerifyNetworkConnectivity = VerifyConnectivity
 var CollectActiveNMConnectionsFn = CollectActiveNMConnections
 var ActivateNMConnectionsFn = ActivateNMConnections
 
-func (nm *NetworkManager) ApplyActionLinux(req agentmgr.NetworkActionData) agentmgr.NetworkResultData {
-	result := agentmgr.NetworkResultData{RequestID: req.RequestID}
+func (nm *NetworkManager) ApplyActionLinux(req protocol.NetworkActionData) protocol.NetworkResultData {
+	result := protocol.NetworkResultData{RequestID: req.RequestID}
 
 	method, err := ResolveNetworkMethodFn(req.Method)
 	if err != nil {
@@ -106,8 +106,8 @@ func (nm *NetworkManager) ApplyActionLinux(req agentmgr.NetworkActionData) agent
 	}
 }
 
-func (nm *NetworkManager) RollbackActionLinux(req agentmgr.NetworkActionData) agentmgr.NetworkResultData {
-	result := agentmgr.NetworkResultData{RequestID: req.RequestID}
+func (nm *NetworkManager) RollbackActionLinux(req protocol.NetworkActionData) protocol.NetworkResultData {
+	result := protocol.NetworkResultData{RequestID: req.RequestID}
 
 	method := strings.ToLower(strings.TrimSpace(req.Method))
 	if method == "" || method == "auto" {

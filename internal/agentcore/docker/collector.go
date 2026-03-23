@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/protocol"
 )
 
 const (
@@ -37,18 +37,18 @@ type dockerDiscoveryTrigger struct {
 }
 
 type dockerInventorySnapshot struct {
-	Engine        agentmgr.DockerEngineInfo
-	Containers    map[string]agentmgr.DockerContainerInfo
-	Images        map[string]agentmgr.DockerImageInfo
-	Networks      map[string]agentmgr.DockerNetworkInfo
-	Volumes       map[string]agentmgr.DockerVolumeInfo
-	ComposeStacks []agentmgr.DockerComposeStack
+	Engine        protocol.DockerEngineInfo
+	Containers    map[string]protocol.DockerContainerInfo
+	Images        map[string]protocol.DockerImageInfo
+	Networks      map[string]protocol.DockerNetworkInfo
+	Volumes       map[string]protocol.DockerVolumeInfo
+	ComposeStacks []protocol.DockerComposeStack
 }
 
 type dockerStatsSchedule struct {
 	interval   time.Duration
 	nextSample time.Time
-	lastStats  agentmgr.DockerContainerStats
+	lastStats  protocol.DockerContainerStats
 	hasSample  bool
 }
 
@@ -91,10 +91,10 @@ func NewDockerCollector(socketPath string, transport Transport, assetID string, 
 		discoveryTriggerCh:    make(chan dockerDiscoveryTrigger, 32),
 		statsTriggerCh:        make(chan struct{}, 4),
 		inventory: dockerInventorySnapshot{
-			Containers: make(map[string]agentmgr.DockerContainerInfo),
-			Images:     make(map[string]agentmgr.DockerImageInfo),
-			Networks:   make(map[string]agentmgr.DockerNetworkInfo),
-			Volumes:    make(map[string]agentmgr.DockerVolumeInfo),
+			Containers: make(map[string]protocol.DockerContainerInfo),
+			Images:     make(map[string]protocol.DockerImageInfo),
+			Networks:   make(map[string]protocol.DockerNetworkInfo),
+			Volumes:    make(map[string]protocol.DockerVolumeInfo),
 		},
 		runningContainerIDs: make(map[string]struct{}),
 		statsSchedule:       make(map[string]*dockerStatsSchedule),
@@ -301,7 +301,7 @@ func (dc *DockerCollector) refreshAndPublishFull(ctx context.Context, forcePubli
 		return false, nil
 	}
 
-	if err := dc.sendDockerMessage(agentmgr.MsgDockerDiscovery, discovery); err != nil {
+	if err := dc.sendDockerMessage(protocol.MsgDockerDiscovery, discovery); err != nil {
 		dc.updateRunningContainerIDs(runningIDs)
 		return false, err
 	}
@@ -348,7 +348,7 @@ func (dc *DockerCollector) refreshAndPublishContainerDelta(ctx context.Context) 
 		return dc.refreshAndPublishFull(ctx, false)
 	}
 
-	delta := agentmgr.DockerDiscoveryDeltaData{
+	delta := protocol.DockerDiscoveryDeltaData{
 		HostID:             dc.assetID,
 		UpsertContainers:   upserts,
 		RemoveContainerIDs: removals,
@@ -358,7 +358,7 @@ func (dc *DockerCollector) refreshAndPublishContainerDelta(ctx context.Context) 
 		delta.ComposeStacks = cloneComposeStacks(nextCompose)
 	}
 
-	if err := dc.sendDockerMessage(agentmgr.MsgDockerDiscoveryDelta, delta); err != nil {
+	if err := dc.sendDockerMessage(protocol.MsgDockerDiscoveryDelta, delta); err != nil {
 		dc.updateRunningContainerIDs(runningIDs)
 		return false, err
 	}
@@ -396,7 +396,7 @@ func (dc *DockerCollector) sendDockerMessage(messageType string, payload any) er
 	if err != nil {
 		return err
 	}
-	if err := dc.transport.Send(agentmgr.Message{Type: messageType, Data: raw}); err != nil {
+	if err := dc.transport.Send(protocol.Message{Type: messageType, Data: raw}); err != nil {
 		return err
 	}
 	return nil
@@ -426,20 +426,20 @@ func (dc *DockerCollector) currentRunningContainerIDs() []string {
 	return ids
 }
 
-func (dc *DockerCollector) collectFullDiscovery(ctx context.Context) (agentmgr.DockerDiscoveryData, dockerInventorySnapshot, map[string]struct{}, error) {
-	result := agentmgr.DockerDiscoveryData{HostID: dc.assetID}
+func (dc *DockerCollector) collectFullDiscovery(ctx context.Context) (protocol.DockerDiscoveryData, dockerInventorySnapshot, map[string]struct{}, error) {
+	result := protocol.DockerDiscoveryData{HostID: dc.assetID}
 	snapshot := dockerInventorySnapshot{
-		Containers: make(map[string]agentmgr.DockerContainerInfo),
-		Images:     make(map[string]agentmgr.DockerImageInfo),
-		Networks:   make(map[string]agentmgr.DockerNetworkInfo),
-		Volumes:    make(map[string]agentmgr.DockerVolumeInfo),
+		Containers: make(map[string]protocol.DockerContainerInfo),
+		Images:     make(map[string]protocol.DockerImageInfo),
+		Networks:   make(map[string]protocol.DockerNetworkInfo),
+		Volumes:    make(map[string]protocol.DockerVolumeInfo),
 	}
 
 	ver, err := dc.client.version(ctx)
 	if err != nil {
 		return result, snapshot, nil, fmt.Errorf("version: %w", err)
 	}
-	result.Engine = agentmgr.DockerEngineInfo{
+	result.Engine = protocol.DockerEngineInfo{
 		Version:    ver.Version,
 		APIVersion: ver.APIVersion,
 		OS:         ver.Os,
@@ -544,7 +544,7 @@ func (dc *DockerCollector) collectAndSendStats(ctx context.Context) {
 			continue
 		}
 		if err != nil {
-			schedule.interval = dc.nextStatsInterval(schedule.interval, agentmgr.DockerContainerStats{}, true)
+			schedule.interval = dc.nextStatsInterval(schedule.interval, protocol.DockerContainerStats{}, true)
 			schedule.nextSample = now.Add(schedule.interval)
 			dc.statsMu.Unlock()
 			continue
@@ -559,7 +559,7 @@ func (dc *DockerCollector) collectAndSendStats(ctx context.Context) {
 	}
 
 	dc.statsMu.Lock()
-	payloadStats := make([]agentmgr.DockerContainerStats, 0, len(runningIDs))
+	payloadStats := make([]protocol.DockerContainerStats, 0, len(runningIDs))
 	for _, containerID := range runningIDs {
 		schedule := dc.statsSchedule[containerID]
 		if schedule != nil && schedule.hasSample {
@@ -576,8 +576,8 @@ func (dc *DockerCollector) collectAndSendStats(ctx context.Context) {
 		return
 	}
 
-	payload := agentmgr.DockerStatsData{HostID: dc.assetID, Containers: payloadStats}
-	if err := dc.sendDockerMessage(agentmgr.MsgDockerStats, payload); err != nil {
+	payload := protocol.DockerStatsData{HostID: dc.assetID, Containers: payloadStats}
+	if err := dc.sendDockerMessage(protocol.MsgDockerStats, payload); err != nil {
 		log.Printf("docker: failed to send stats: %v", err)
 		return
 	}
@@ -624,7 +624,7 @@ func (dc *DockerCollector) maxStatsInterval() time.Duration {
 	return interval
 }
 
-func (dc *DockerCollector) nextStatsInterval(current time.Duration, stats agentmgr.DockerContainerStats, hadError bool) time.Duration {
+func (dc *DockerCollector) nextStatsInterval(current time.Duration, stats protocol.DockerContainerStats, hadError bool) time.Duration {
 	if current <= 0 {
 		current = dc.defaultStatsInterval()
 	}
@@ -653,7 +653,7 @@ func (dc *DockerCollector) nextStatsInterval(current time.Duration, stats agentm
 }
 
 // calculateStats converts raw Docker stats into our ContainerStats format.
-func calculateStats(containerID string, raw DockerStatsResponse) agentmgr.DockerContainerStats {
+func calculateStats(containerID string, raw DockerStatsResponse) protocol.DockerContainerStats {
 	// CPU percent: (delta_container / delta_system) * num_cpus * 100
 	cpuPercent := 0.0
 	cpuDelta := float64(raw.CPUStats.CPUUsage.TotalUsage - raw.PreCPUStats.CPUUsage.TotalUsage)
@@ -690,7 +690,7 @@ func calculateStats(containerID string, raw DockerStatsResponse) agentmgr.Docker
 		}
 	}
 
-	return agentmgr.DockerContainerStats{
+	return protocol.DockerContainerStats{
 		ID:              containerID,
 		CPUPercent:      cpuPercent,
 		MemoryBytes:     raw.MemoryStats.Usage,
@@ -704,11 +704,11 @@ func calculateStats(containerID string, raw DockerStatsResponse) agentmgr.Docker
 	}
 }
 
-func buildContainerInfoMap(rawContainers []DockerContainer) (map[string]agentmgr.DockerContainerInfo, map[string]struct{}) {
-	containers := make(map[string]agentmgr.DockerContainerInfo, len(rawContainers))
+func buildContainerInfoMap(rawContainers []DockerContainer) (map[string]protocol.DockerContainerInfo, map[string]struct{}) {
+	containers := make(map[string]protocol.DockerContainerInfo, len(rawContainers))
 	running := make(map[string]struct{})
 	for _, container := range rawContainers {
-		info := agentmgr.DockerContainerInfo{
+		info := protocol.DockerContainerInfo{
 			ID:      container.ID,
 			Name:    ContainerName(container.Names),
 			Image:   container.Image,
@@ -725,7 +725,7 @@ func buildContainerInfoMap(rawContainers []DockerContainer) (map[string]agentmgr
 			if port.PublicPort <= 0 {
 				continue
 			}
-			info.Ports = append(info.Ports, agentmgr.DockerPortMapping{
+			info.Ports = append(info.Ports, protocol.DockerPortMapping{
 				Host:      port.PublicPort,
 				Container: port.PrivatePort,
 				Protocol:  strings.ToLower(port.Type),
@@ -747,7 +747,7 @@ func buildContainerInfoMap(rawContainers []DockerContainer) (map[string]agentmgr
 		sort.Strings(info.Networks)
 
 		for _, mount := range container.Mounts {
-			info.Mounts = append(info.Mounts, agentmgr.DockerMountInfo{
+			info.Mounts = append(info.Mounts, protocol.DockerMountInfo{
 				Type:        mount.Type,
 				Source:      mount.Source,
 				Destination: mount.Destination,
@@ -768,8 +768,8 @@ func buildContainerInfoMap(rawContainers []DockerContainer) (map[string]agentmgr
 	return containers, running
 }
 
-func containerInfoMapToSlice(values map[string]agentmgr.DockerContainerInfo) []agentmgr.DockerContainerInfo {
-	result := make([]agentmgr.DockerContainerInfo, 0, len(values))
+func containerInfoMapToSlice(values map[string]protocol.DockerContainerInfo) []protocol.DockerContainerInfo {
+	result := make([]protocol.DockerContainerInfo, 0, len(values))
 	for _, value := range values {
 		result = append(result, value)
 	}
@@ -782,12 +782,12 @@ func containerInfoMapToSlice(values map[string]agentmgr.DockerContainerInfo) []a
 	return result
 }
 
-func buildImageInfoMap(values []DockerImage) map[string]agentmgr.DockerImageInfo {
-	result := make(map[string]agentmgr.DockerImageInfo, len(values))
+func buildImageInfoMap(values []DockerImage) map[string]protocol.DockerImageInfo {
+	result := make(map[string]protocol.DockerImageInfo, len(values))
 	for _, image := range values {
 		tags := append([]string(nil), image.RepoTags...)
 		sort.Strings(tags)
-		result[image.ID] = agentmgr.DockerImageInfo{
+		result[image.ID] = protocol.DockerImageInfo{
 			ID:      image.ID,
 			Tags:    tags,
 			Size:    image.Size,
@@ -797,8 +797,8 @@ func buildImageInfoMap(values []DockerImage) map[string]agentmgr.DockerImageInfo
 	return result
 }
 
-func imageInfoMapToSlice(values map[string]agentmgr.DockerImageInfo) []agentmgr.DockerImageInfo {
-	result := make([]agentmgr.DockerImageInfo, 0, len(values))
+func imageInfoMapToSlice(values map[string]protocol.DockerImageInfo) []protocol.DockerImageInfo {
+	result := make([]protocol.DockerImageInfo, 0, len(values))
 	for _, image := range values {
 		result = append(result, image)
 	}
@@ -808,10 +808,10 @@ func imageInfoMapToSlice(values map[string]agentmgr.DockerImageInfo) []agentmgr.
 	return result
 }
 
-func buildNetworkInfoMap(values []DockerNetwork) map[string]agentmgr.DockerNetworkInfo {
-	result := make(map[string]agentmgr.DockerNetworkInfo, len(values))
+func buildNetworkInfoMap(values []DockerNetwork) map[string]protocol.DockerNetworkInfo {
+	result := make(map[string]protocol.DockerNetworkInfo, len(values))
 	for _, network := range values {
-		result[network.ID] = agentmgr.DockerNetworkInfo{
+		result[network.ID] = protocol.DockerNetworkInfo{
 			ID:     network.ID,
 			Name:   network.Name,
 			Driver: network.Driver,
@@ -821,8 +821,8 @@ func buildNetworkInfoMap(values []DockerNetwork) map[string]agentmgr.DockerNetwo
 	return result
 }
 
-func networkInfoMapToSlice(values map[string]agentmgr.DockerNetworkInfo) []agentmgr.DockerNetworkInfo {
-	result := make([]agentmgr.DockerNetworkInfo, 0, len(values))
+func networkInfoMapToSlice(values map[string]protocol.DockerNetworkInfo) []protocol.DockerNetworkInfo {
+	result := make([]protocol.DockerNetworkInfo, 0, len(values))
 	for _, network := range values {
 		result = append(result, network)
 	}
@@ -835,10 +835,10 @@ func networkInfoMapToSlice(values map[string]agentmgr.DockerNetworkInfo) []agent
 	return result
 }
 
-func buildVolumeInfoMap(values []DockerVolume) map[string]agentmgr.DockerVolumeInfo {
-	result := make(map[string]agentmgr.DockerVolumeInfo, len(values))
+func buildVolumeInfoMap(values []DockerVolume) map[string]protocol.DockerVolumeInfo {
+	result := make(map[string]protocol.DockerVolumeInfo, len(values))
 	for _, volume := range values {
-		result[volume.Name] = agentmgr.DockerVolumeInfo{
+		result[volume.Name] = protocol.DockerVolumeInfo{
 			Name:       volume.Name,
 			Driver:     volume.Driver,
 			Mountpoint: volume.Mountpoint,
@@ -847,8 +847,8 @@ func buildVolumeInfoMap(values []DockerVolume) map[string]agentmgr.DockerVolumeI
 	return result
 }
 
-func volumeInfoMapToSlice(values map[string]agentmgr.DockerVolumeInfo) []agentmgr.DockerVolumeInfo {
-	result := make([]agentmgr.DockerVolumeInfo, 0, len(values))
+func volumeInfoMapToSlice(values map[string]protocol.DockerVolumeInfo) []protocol.DockerVolumeInfo {
+	result := make([]protocol.DockerVolumeInfo, 0, len(values))
 	for _, volume := range values {
 		result = append(result, volume)
 	}
@@ -877,7 +877,7 @@ func dockerInventorySnapshotsEqual(a, b dockerInventorySnapshot) bool {
 	return composeStacksEqual(a.ComposeStacks, b.ComposeStacks)
 }
 
-func DockerContainerInfoMapsEqual(a, b map[string]agentmgr.DockerContainerInfo) bool {
+func DockerContainerInfoMapsEqual(a, b map[string]protocol.DockerContainerInfo) bool {
 	if len(a) != len(b) {
 		return false
 	}
@@ -890,7 +890,7 @@ func DockerContainerInfoMapsEqual(a, b map[string]agentmgr.DockerContainerInfo) 
 	return true
 }
 
-func DockerContainerInfoEqual(a, b agentmgr.DockerContainerInfo) bool {
+func DockerContainerInfoEqual(a, b protocol.DockerContainerInfo) bool {
 	if a.ID != b.ID || a.Name != b.Name || a.Image != b.Image || a.State != b.State || a.Status != b.Status || a.Created != b.Created {
 		return false
 	}
@@ -914,7 +914,7 @@ func DockerContainerInfoEqual(a, b agentmgr.DockerContainerInfo) bool {
 	return true
 }
 
-func DockerPortMappingsEqual(a, b []agentmgr.DockerPortMapping) bool {
+func DockerPortMappingsEqual(a, b []protocol.DockerPortMapping) bool {
 	if len(a) != len(b) {
 		return false
 	}
@@ -926,8 +926,8 @@ func DockerPortMappingsEqual(a, b []agentmgr.DockerPortMapping) bool {
 	return true
 }
 
-func diffContainerInfoMap(previous, next map[string]agentmgr.DockerContainerInfo) ([]agentmgr.DockerContainerInfo, []string) {
-	upserts := make([]agentmgr.DockerContainerInfo, 0)
+func diffContainerInfoMap(previous, next map[string]protocol.DockerContainerInfo) ([]protocol.DockerContainerInfo, []string) {
+	upserts := make([]protocol.DockerContainerInfo, 0)
 	removals := make([]string, 0)
 	for id, nextContainer := range next {
 		prevContainer, ok := previous[id]
@@ -950,7 +950,7 @@ func diffContainerInfoMap(previous, next map[string]agentmgr.DockerContainerInfo
 	return upserts, removals
 }
 
-func DockerImageInfoMapsEqual(a, b map[string]agentmgr.DockerImageInfo) bool {
+func DockerImageInfoMapsEqual(a, b map[string]protocol.DockerImageInfo) bool {
 	if len(a) != len(b) {
 		return false
 	}
@@ -963,7 +963,7 @@ func DockerImageInfoMapsEqual(a, b map[string]agentmgr.DockerImageInfo) bool {
 	return true
 }
 
-func DockerNetworkInfoMapsEqual(a, b map[string]agentmgr.DockerNetworkInfo) bool {
+func DockerNetworkInfoMapsEqual(a, b map[string]protocol.DockerNetworkInfo) bool {
 	if len(a) != len(b) {
 		return false
 	}
@@ -976,7 +976,7 @@ func DockerNetworkInfoMapsEqual(a, b map[string]agentmgr.DockerNetworkInfo) bool
 	return true
 }
 
-func DockerVolumeInfoMapsEqual(a, b map[string]agentmgr.DockerVolumeInfo) bool {
+func DockerVolumeInfoMapsEqual(a, b map[string]protocol.DockerVolumeInfo) bool {
 	if len(a) != len(b) {
 		return false
 	}
@@ -989,14 +989,14 @@ func DockerVolumeInfoMapsEqual(a, b map[string]agentmgr.DockerVolumeInfo) bool {
 	return true
 }
 
-func composeStacksEqual(a, b []agentmgr.DockerComposeStack) bool {
+func composeStacksEqual(a, b []protocol.DockerComposeStack) bool {
 	if len(a) != len(b) {
 		return false
 	}
 	if len(a) == 0 {
 		return true
 	}
-	left := make(map[string]agentmgr.DockerComposeStack, len(a))
+	left := make(map[string]protocol.DockerComposeStack, len(a))
 	for _, stack := range a {
 		left[stack.Name] = stack
 	}
@@ -1036,27 +1036,27 @@ func stringMapsEqual(a, b map[string]string) bool {
 	return true
 }
 
-func cloneDockerContainerInfoMap(source map[string]agentmgr.DockerContainerInfo) map[string]agentmgr.DockerContainerInfo {
+func cloneDockerContainerInfoMap(source map[string]protocol.DockerContainerInfo) map[string]protocol.DockerContainerInfo {
 	if len(source) == 0 {
-		return make(map[string]agentmgr.DockerContainerInfo)
+		return make(map[string]protocol.DockerContainerInfo)
 	}
-	result := make(map[string]agentmgr.DockerContainerInfo, len(source))
+	result := make(map[string]protocol.DockerContainerInfo, len(source))
 	for id, container := range source {
 		copyContainer := container
 		copyContainer.Labels = cloneStringMap(container.Labels)
-		copyContainer.Ports = append([]agentmgr.DockerPortMapping(nil), container.Ports...)
+		copyContainer.Ports = append([]protocol.DockerPortMapping(nil), container.Ports...)
 		copyContainer.Networks = append([]string(nil), container.Networks...)
-		copyContainer.Mounts = append([]agentmgr.DockerMountInfo(nil), container.Mounts...)
+		copyContainer.Mounts = append([]protocol.DockerMountInfo(nil), container.Mounts...)
 		result[id] = copyContainer
 	}
 	return result
 }
 
-func cloneComposeStacks(source []agentmgr.DockerComposeStack) []agentmgr.DockerComposeStack {
+func cloneComposeStacks(source []protocol.DockerComposeStack) []protocol.DockerComposeStack {
 	if len(source) == 0 {
 		return nil
 	}
-	result := make([]agentmgr.DockerComposeStack, len(source))
+	result := make([]protocol.DockerComposeStack, len(source))
 	for i, stack := range source {
 		result[i] = stack
 		result[i].Containers = append([]string(nil), stack.Containers...)
@@ -1073,9 +1073,9 @@ func cloneStringSet(source map[string]struct{}) map[string]struct{} {
 }
 
 // inferComposeStacks groups containers by com.docker.compose.project label.
-func inferComposeStacks(containers []DockerContainer) []agentmgr.DockerComposeStack {
+func inferComposeStacks(containers []DockerContainer) []protocol.DockerComposeStack {
 	type composeAccumulator struct {
-		stack       *agentmgr.DockerComposeStack
+		stack       *protocol.DockerComposeStack
 		running     int
 		containerID map[string]struct{}
 	}
@@ -1088,7 +1088,7 @@ func inferComposeStacks(containers []DockerContainer) []agentmgr.DockerComposeSt
 		}
 		acc, exists := stacks[project]
 		if !exists {
-			stack := &agentmgr.DockerComposeStack{Name: project, Status: "running(0)"}
+			stack := &protocol.DockerComposeStack{Name: project, Status: "running(0)"}
 			if dir := c.Labels["com.docker.compose.project.working_dir"]; dir != "" {
 				stack.ConfigFile = dir + "/docker-compose.yml"
 			}
@@ -1110,7 +1110,7 @@ func inferComposeStacks(containers []DockerContainer) []agentmgr.DockerComposeSt
 		}
 	}
 
-	result := make([]agentmgr.DockerComposeStack, 0, len(stacks))
+	result := make([]protocol.DockerComposeStack, 0, len(stacks))
 	for _, acc := range stacks {
 		sort.Strings(acc.stack.Containers)
 		acc.stack.Status = fmt.Sprintf("running(%d)", acc.running)

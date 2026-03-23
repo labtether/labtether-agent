@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/protocol"
 )
 
 type DarwinNetworkBackend struct{}
@@ -19,16 +19,16 @@ type DarwinNetworkSnapshot struct {
 	HasEnabledState bool
 }
 
-func (DarwinNetworkBackend) ApplyAction(nm *NetworkManager, req agentmgr.NetworkActionData) agentmgr.NetworkResultData {
+func (DarwinNetworkBackend) ApplyAction(nm *NetworkManager, req protocol.NetworkActionData) protocol.NetworkResultData {
 	return nm.applyActionDarwin(req)
 }
 
-func (DarwinNetworkBackend) RollbackAction(nm *NetworkManager, req agentmgr.NetworkActionData) agentmgr.NetworkResultData {
+func (DarwinNetworkBackend) RollbackAction(nm *NetworkManager, req protocol.NetworkActionData) protocol.NetworkResultData {
 	return nm.rollbackActionDarwin(req)
 }
 
-func (nm *NetworkManager) applyActionDarwin(req agentmgr.NetworkActionData) agentmgr.NetworkResultData {
-	result := agentmgr.NetworkResultData{RequestID: req.RequestID}
+func (nm *NetworkManager) applyActionDarwin(req protocol.NetworkActionData) protocol.NetworkResultData {
+	result := protocol.NetworkResultData{RequestID: req.RequestID}
 
 	method, err := ResolveDarwinNetworkMethod(req.Method)
 	if err != nil {
@@ -84,8 +84,8 @@ func (nm *NetworkManager) applyActionDarwin(req agentmgr.NetworkActionData) agen
 	return result
 }
 
-func (nm *NetworkManager) rollbackActionDarwin(req agentmgr.NetworkActionData) agentmgr.NetworkResultData {
-	result := agentmgr.NetworkResultData{RequestID: req.RequestID}
+func (nm *NetworkManager) rollbackActionDarwin(req protocol.NetworkActionData) protocol.NetworkResultData {
+	result := protocol.NetworkResultData{RequestID: req.RequestID}
 
 	method := strings.ToLower(strings.TrimSpace(req.Method))
 	if method == "" || method == "auto" {

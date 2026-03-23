@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/labtether/labtether/internal/agentmgr"
-	"github.com/labtether/labtether/internal/securityruntime"
+	"github.com/labtether/labtether-agent/internal/securityruntime"
+	"github.com/labtether/protocol"
 )
 
 // RunWindowsPackageCommand is the function used to run WinGet/choco commands. Overridable for tests.
@@ -29,7 +29,7 @@ type wingetPackageRow struct {
 }
 
 // ListPackages lists installed packages via WinGet or Chocolatey.
-func (b WindowsPackageBackend) ListPackages() ([]agentmgr.PackageInfo, error) {
+func (b WindowsPackageBackend) ListPackages() ([]protocol.PackageInfo, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), PackageActionCommandTimeout)
 	defer cancel()
 
@@ -65,9 +65,9 @@ func (b WindowsPackageBackend) ListPackages() ([]agentmgr.PackageInfo, error) {
 		if parseErr != nil {
 			return nil, parseErr
 		}
-		pkgs := make([]agentmgr.PackageInfo, 0, len(rows))
+		pkgs := make([]protocol.PackageInfo, 0, len(rows))
 		for _, row := range rows {
-			pkgs = append(pkgs, agentmgr.PackageInfo{
+			pkgs = append(pkgs, protocol.PackageInfo{
 				Name:    row.name,
 				Version: row.version,
 				Status:  "installed",
@@ -279,8 +279,8 @@ func extractWinGetRow(line string, nameStart, idStart, versionStart, availableSt
 //	<name> <version>
 //	...
 //	N packages installed.
-func parseChocoListOutput(raw []byte) ([]agentmgr.PackageInfo, error) {
-	var pkgs []agentmgr.PackageInfo
+func parseChocoListOutput(raw []byte) ([]protocol.PackageInfo, error) {
+	var pkgs []protocol.PackageInfo
 	scanner := bufio.NewScanner(bytes.NewReader(raw))
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -297,7 +297,7 @@ func parseChocoListOutput(raw []byte) ([]agentmgr.PackageInfo, error) {
 		if len(fields) < 2 {
 			continue
 		}
-		pkgs = append(pkgs, agentmgr.PackageInfo{
+		pkgs = append(pkgs, protocol.PackageInfo{
 			Name:    fields[0],
 			Version: fields[1],
 			Status:  "installed",

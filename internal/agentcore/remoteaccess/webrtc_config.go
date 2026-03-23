@@ -4,7 +4,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/labtether/labtether/internal/agentcore/sysconfig"
+	"github.com/labtether/labtether-agent/internal/agentcore/sysconfig"
 
 	"github.com/pion/webrtc/v4"
 )

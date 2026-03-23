@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/protocol"
 )
 
 const (
@@ -42,7 +42,7 @@ type compatMatch struct {
 	healthPath  string
 }
 
-func (wsc *WebServiceCollector) applyCompatibilityMetadata(svc *agentmgr.DiscoveredWebService, baseURL string) {
+func (wsc *WebServiceCollector) applyCompatibilityMetadata(svc *protocol.DiscoveredWebService, baseURL string) {
 	if svc == nil {
 		return
 	}
@@ -497,7 +497,7 @@ func marshalMapToString(values map[string]any) string {
 	return string(encoded)
 }
 
-func applyCompatMatchToService(svc *agentmgr.DiscoveredWebService, match compatMatch) {
+func applyCompatMatchToService(svc *protocol.DiscoveredWebService, match compatMatch) {
 	if svc == nil || match.confidence < compatMinConfidence || strings.TrimSpace(match.connector) == "" {
 		return
 	}

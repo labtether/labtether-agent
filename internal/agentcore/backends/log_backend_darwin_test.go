@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/protocol"
 )
 
 func TestParseOSLogLine(t *testing.T) {
@@ -127,7 +127,7 @@ func TestResolveDarwinLogRange(t *testing.T) {
 }
 
 func TestBuildDarwinLogShowArgs(t *testing.T) {
-	args := BuildDarwinLogShowArgs(agentmgr.JournalQueryData{
+	args := BuildDarwinLogShowArgs(protocol.JournalQueryData{
 		Since: "1h ago",
 	})
 
@@ -156,22 +156,22 @@ func TestBuildDarwinLogStreamArgs(t *testing.T) {
 }
 
 func TestEntryMatchesQuery(t *testing.T) {
-	entry := agentmgr.LogStreamData{
+	entry := protocol.LogStreamData{
 		Level:   "warning",
 		Source:  "com.apple.network",
 		Message: "interface en0 changed state",
 	}
 
-	if !EntryMatchesQuery(entry, agentmgr.JournalQueryData{Priority: "info"}) {
+	if !EntryMatchesQuery(entry, protocol.JournalQueryData{Priority: "info"}) {
 		t.Fatal("expected warning entry to match info priority ceiling")
 	}
-	if EntryMatchesQuery(entry, agentmgr.JournalQueryData{Priority: "err"}) {
+	if EntryMatchesQuery(entry, protocol.JournalQueryData{Priority: "err"}) {
 		t.Fatal("expected warning entry to not match err priority")
 	}
-	if !EntryMatchesQuery(entry, agentmgr.JournalQueryData{Unit: "network"}) {
+	if !EntryMatchesQuery(entry, protocol.JournalQueryData{Unit: "network"}) {
 		t.Fatal("expected source filter to match")
 	}
-	if EntryMatchesQuery(entry, agentmgr.JournalQueryData{Search: "cpu"}) {
+	if EntryMatchesQuery(entry, protocol.JournalQueryData{Search: "cpu"}) {
 		t.Fatal("expected search filter miss")
 	}
 }

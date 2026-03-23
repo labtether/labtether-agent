@@ -10,17 +10,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/labtether/labtether/internal/agentcore/backends"
-	"github.com/labtether/labtether/internal/agentcore/system"
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/labtether-agent/internal/agentcore/backends"
+	"github.com/labtether/labtether-agent/internal/agentcore/system"
+	"github.com/labtether/protocol"
 )
 
 type staticCronBackend struct {
-	entries []agentmgr.CronEntry
+	entries []protocol.CronEntry
 	err     error
 }
 
-func (b staticCronBackend) ListEntries() ([]agentmgr.CronEntry, error) {
+func (b staticCronBackend) ListEntries() ([]protocol.CronEntry, error) {
 	return b.entries, b.err
 }
 
@@ -30,7 +30,7 @@ func TestCronManagerHandleCronListReturnsEntries(t *testing.T) {
 
 	manager := &backends.CronManager{
 		Backend: staticCronBackend{
-			entries: []agentmgr.CronEntry{{
+			entries: []protocol.CronEntry{{
 				Source:   "crontab",
 				Schedule: "*/5 * * * *",
 				Command:  "/usr/local/bin/backup",
@@ -39,14 +39,14 @@ func TestCronManagerHandleCronListReturnsEntries(t *testing.T) {
 		},
 	}
 
-	raw, err := json.Marshal(agentmgr.CronListData{RequestID: "req-cron"})
+	raw, err := json.Marshal(protocol.CronListData{RequestID: "req-cron"})
 	if err != nil {
 		t.Fatalf("marshal cron list request: %v", err)
 	}
-	manager.HandleCronList(transport, agentmgr.Message{Data: raw})
+	manager.HandleCronList(transport, protocol.Message{Data: raw})
 
-	msg := waitForCapturedAgentMessage(t, messages, agentmgr.MsgCronListed, 2*time.Second)
-	var listed agentmgr.CronListedData
+	msg := waitForCapturedAgentMessage(t, messages, protocol.MsgCronListed, 2*time.Second)
+	var listed protocol.CronListedData
 	if err := json.Unmarshal(msg.Data, &listed); err != nil {
 		t.Fatalf("decode cron listed payload: %v", err)
 	}
@@ -67,14 +67,14 @@ func TestCronManagerHandleCronListReportsCollectionError(t *testing.T) {
 
 	manager := &backends.CronManager{Backend: staticCronBackend{err: errors.New("collect failed")}}
 
-	raw, err := json.Marshal(agentmgr.CronListData{RequestID: "req-cron-error"})
+	raw, err := json.Marshal(protocol.CronListData{RequestID: "req-cron-error"})
 	if err != nil {
 		t.Fatalf("marshal cron list request: %v", err)
 	}
-	manager.HandleCronList(transport, agentmgr.Message{Data: raw})
+	manager.HandleCronList(transport, protocol.Message{Data: raw})
 
-	msg := waitForCapturedAgentMessage(t, messages, agentmgr.MsgCronListed, 2*time.Second)
-	var listed agentmgr.CronListedData
+	msg := waitForCapturedAgentMessage(t, messages, protocol.MsgCronListed, 2*time.Second)
+	var listed protocol.CronListedData
 	if err := json.Unmarshal(msg.Data, &listed); err != nil {
 		t.Fatalf("decode cron listed payload: %v", err)
 	}
@@ -136,8 +136,8 @@ func TestDiskManagerHandleDiskListReturnsMounts(t *testing.T) {
 	originalCollectMounts := system.CollectMountsFn
 	t.Cleanup(func() { system.CollectMountsFn = originalCollectMounts })
 
-	system.CollectMountsFn = func() ([]agentmgr.MountInfo, error) {
-		return []agentmgr.MountInfo{{
+	system.CollectMountsFn = func() ([]protocol.MountInfo, error) {
+		return []protocol.MountInfo{{
 			Device:     "/dev/sda1",
 			MountPoint: "/",
 			FSType:     "ext4",
@@ -149,14 +149,14 @@ func TestDiskManagerHandleDiskListReturnsMounts(t *testing.T) {
 	}
 
 	manager := system.NewDiskManager()
-	raw, err := json.Marshal(agentmgr.DiskListData{RequestID: "req-disk"})
+	raw, err := json.Marshal(protocol.DiskListData{RequestID: "req-disk"})
 	if err != nil {
 		t.Fatalf("marshal disk list request: %v", err)
 	}
-	manager.HandleDiskList(transport, agentmgr.Message{Data: raw})
+	manager.HandleDiskList(transport, protocol.Message{Data: raw})
 
-	msg := waitForCapturedAgentMessage(t, messages, agentmgr.MsgDiskListed, 2*time.Second)
-	var listed agentmgr.DiskListedData
+	msg := waitForCapturedAgentMessage(t, messages, protocol.MsgDiskListed, 2*time.Second)
+	var listed protocol.DiskListedData
 	if err := json.Unmarshal(msg.Data, &listed); err != nil {
 		t.Fatalf("decode disk listed payload: %v", err)
 	}
@@ -178,19 +178,19 @@ func TestDiskManagerHandleDiskListPropagatesCollectionError(t *testing.T) {
 	originalCollectMounts := system.CollectMountsFn
 	t.Cleanup(func() { system.CollectMountsFn = originalCollectMounts })
 
-	system.CollectMountsFn = func() ([]agentmgr.MountInfo, error) {
+	system.CollectMountsFn = func() ([]protocol.MountInfo, error) {
 		return nil, errors.New("mount collection failed")
 	}
 
 	manager := system.NewDiskManager()
-	raw, err := json.Marshal(agentmgr.DiskListData{RequestID: "req-disk-error"})
+	raw, err := json.Marshal(protocol.DiskListData{RequestID: "req-disk-error"})
 	if err != nil {
 		t.Fatalf("marshal disk list request: %v", err)
 	}
-	manager.HandleDiskList(transport, agentmgr.Message{Data: raw})
+	manager.HandleDiskList(transport, protocol.Message{Data: raw})
 
-	msg := waitForCapturedAgentMessage(t, messages, agentmgr.MsgDiskListed, 2*time.Second)
-	var listed agentmgr.DiskListedData
+	msg := waitForCapturedAgentMessage(t, messages, protocol.MsgDiskListed, 2*time.Second)
+	var listed protocol.DiskListedData
 	if err := json.Unmarshal(msg.Data, &listed); err != nil {
 		t.Fatalf("decode disk listed payload: %v", err)
 	}
@@ -206,8 +206,8 @@ func TestUsersManagerHandleUsersListReturnsSessions(t *testing.T) {
 	originalCollectUserSessions := system.CollectUserSessionsFn
 	t.Cleanup(func() { system.CollectUserSessionsFn = originalCollectUserSessions })
 
-	system.CollectUserSessionsFn = func() ([]agentmgr.UserSession, error) {
-		return []agentmgr.UserSession{{
+	system.CollectUserSessionsFn = func() ([]protocol.UserSession, error) {
+		return []protocol.UserSession{{
 			Username:   "alice",
 			Terminal:   "pts/0",
 			RemoteHost: "10.0.0.5",
@@ -216,14 +216,14 @@ func TestUsersManagerHandleUsersListReturnsSessions(t *testing.T) {
 	}
 
 	manager := system.NewUsersManager()
-	raw, err := json.Marshal(agentmgr.UsersListData{RequestID: "req-users"})
+	raw, err := json.Marshal(protocol.UsersListData{RequestID: "req-users"})
 	if err != nil {
 		t.Fatalf("marshal users list request: %v", err)
 	}
-	manager.HandleUsersList(transport, agentmgr.Message{Data: raw})
+	manager.HandleUsersList(transport, protocol.Message{Data: raw})
 
-	msg := waitForCapturedAgentMessage(t, messages, agentmgr.MsgUsersListed, 2*time.Second)
-	var listed agentmgr.UsersListedData
+	msg := waitForCapturedAgentMessage(t, messages, protocol.MsgUsersListed, 2*time.Second)
+	var listed protocol.UsersListedData
 	if err := json.Unmarshal(msg.Data, &listed); err != nil {
 		t.Fatalf("decode users listed payload: %v", err)
 	}
@@ -245,19 +245,19 @@ func TestUsersManagerHandleUsersListPropagatesCollectionError(t *testing.T) {
 	originalCollectUserSessions := system.CollectUserSessionsFn
 	t.Cleanup(func() { system.CollectUserSessionsFn = originalCollectUserSessions })
 
-	system.CollectUserSessionsFn = func() ([]agentmgr.UserSession, error) {
+	system.CollectUserSessionsFn = func() ([]protocol.UserSession, error) {
 		return nil, errors.New("who failed")
 	}
 
 	manager := system.NewUsersManager()
-	raw, err := json.Marshal(agentmgr.UsersListData{RequestID: "req-users-error"})
+	raw, err := json.Marshal(protocol.UsersListData{RequestID: "req-users-error"})
 	if err != nil {
 		t.Fatalf("marshal users list request: %v", err)
 	}
-	manager.HandleUsersList(transport, agentmgr.Message{Data: raw})
+	manager.HandleUsersList(transport, protocol.Message{Data: raw})
 
-	msg := waitForCapturedAgentMessage(t, messages, agentmgr.MsgUsersListed, 2*time.Second)
-	var listed agentmgr.UsersListedData
+	msg := waitForCapturedAgentMessage(t, messages, protocol.MsgUsersListed, 2*time.Second)
+	var listed protocol.UsersListedData
 	if err := json.Unmarshal(msg.Data, &listed); err != nil {
 		t.Fatalf("decode users listed payload: %v", err)
 	}
@@ -299,30 +299,30 @@ func TestHandleSSHKeyInstallAndRemoveMutatesAuthorizedKeysIdempotently(t *testin
 	publicKey := "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMockHubKey labtether-hub"
 	authorizedKeysPath := filepath.Join(homeDir, ".ssh", "authorized_keys")
 
-	mustHandleSSHKeyMessage := func(msgType string, payload any, wantType string) agentmgr.SSHKeyInstalledData {
+	mustHandleSSHKeyMessage := func(msgType string, payload any, wantType string) protocol.SSHKeyInstalledData {
 		t.Helper()
 		raw, err := json.Marshal(payload)
 		if err != nil {
 			t.Fatalf("marshal %s payload: %v", msgType, err)
 		}
 		switch msgType {
-		case agentmgr.MsgSSHKeyInstall:
-			handleSSHKeyInstall(transport, agentmgr.Message{Type: msgType, Data: raw})
-		case agentmgr.MsgSSHKeyRemove:
-			handleSSHKeyRemove(transport, agentmgr.Message{Type: msgType, Data: raw})
+		case protocol.MsgSSHKeyInstall:
+			handleSSHKeyInstall(transport, protocol.Message{Type: msgType, Data: raw})
+		case protocol.MsgSSHKeyRemove:
+			handleSSHKeyRemove(transport, protocol.Message{Type: msgType, Data: raw})
 		default:
 			t.Fatalf("unsupported message type %q", msgType)
 		}
 
 		msg := waitForCapturedAgentMessage(t, messages, wantType, 2*time.Second)
-		var response agentmgr.SSHKeyInstalledData
+		var response protocol.SSHKeyInstalledData
 		if err := json.Unmarshal(msg.Data, &response); err != nil {
 			t.Fatalf("decode %s payload: %v", wantType, err)
 		}
 		return response
 	}
 
-	installed := mustHandleSSHKeyMessage(agentmgr.MsgSSHKeyInstall, agentmgr.SSHKeyInstallData{PublicKey: publicKey}, agentmgr.MsgSSHKeyInstalled)
+	installed := mustHandleSSHKeyMessage(protocol.MsgSSHKeyInstall, protocol.SSHKeyInstallData{PublicKey: publicKey}, protocol.MsgSSHKeyInstalled)
 	if installed.HomeDir != homeDir {
 		t.Fatalf("home_dir=%q, want %q", installed.HomeDir, homeDir)
 	}
@@ -335,7 +335,7 @@ func TestHandleSSHKeyInstallAndRemoveMutatesAuthorizedKeysIdempotently(t *testin
 		t.Fatalf("expected public key once after install, got %d entries in %q", count, string(content))
 	}
 
-	_ = mustHandleSSHKeyMessage(agentmgr.MsgSSHKeyInstall, agentmgr.SSHKeyInstallData{PublicKey: publicKey}, agentmgr.MsgSSHKeyInstalled)
+	_ = mustHandleSSHKeyMessage(protocol.MsgSSHKeyInstall, protocol.SSHKeyInstallData{PublicKey: publicKey}, protocol.MsgSSHKeyInstalled)
 	content, err = os.ReadFile(authorizedKeysPath)
 	if err != nil {
 		t.Fatalf("read authorized_keys after reinstall: %v", err)
@@ -344,7 +344,7 @@ func TestHandleSSHKeyInstallAndRemoveMutatesAuthorizedKeysIdempotently(t *testin
 		t.Fatalf("expected public key once after reinstall, got %d entries in %q", count, string(content))
 	}
 
-	_ = mustHandleSSHKeyMessage(agentmgr.MsgSSHKeyRemove, agentmgr.SSHKeyRemoveData{PublicKey: publicKey}, agentmgr.MsgSSHKeyRemoved)
+	_ = mustHandleSSHKeyMessage(protocol.MsgSSHKeyRemove, protocol.SSHKeyRemoveData{PublicKey: publicKey}, protocol.MsgSSHKeyRemoved)
 	content, err = os.ReadFile(authorizedKeysPath)
 	if err != nil {
 		t.Fatalf("read authorized_keys after remove: %v", err)
@@ -353,7 +353,7 @@ func TestHandleSSHKeyInstallAndRemoveMutatesAuthorizedKeysIdempotently(t *testin
 		t.Fatalf("expected public key to be removed, got %q", string(content))
 	}
 
-	_ = mustHandleSSHKeyMessage(agentmgr.MsgSSHKeyRemove, agentmgr.SSHKeyRemoveData{PublicKey: publicKey}, agentmgr.MsgSSHKeyRemoved)
+	_ = mustHandleSSHKeyMessage(protocol.MsgSSHKeyRemove, protocol.SSHKeyRemoveData{PublicKey: publicKey}, protocol.MsgSSHKeyRemoved)
 	content, err = os.ReadFile(authorizedKeysPath)
 	if err != nil {
 		t.Fatalf("read authorized_keys after redundant remove: %v", err)
@@ -367,17 +367,17 @@ func TestHandleWoLSendRejectsInvalidMAC(t *testing.T) {
 	transport, messages, cleanup := newAgentcoreCapturedTransport(t)
 	defer cleanup()
 
-	raw, err := json.Marshal(agentmgr.WoLSendData{
+	raw, err := json.Marshal(protocol.WoLSendData{
 		RequestID: "req-wol-invalid",
 		MAC:       "not-a-mac",
 	})
 	if err != nil {
 		t.Fatalf("marshal wol request: %v", err)
 	}
-	system.HandleWoLSend(transport, agentmgr.Message{Type: agentmgr.MsgWoLSend, Data: raw})
+	system.HandleWoLSend(transport, protocol.Message{Type: protocol.MsgWoLSend, Data: raw})
 
-	msg := waitForCapturedAgentMessage(t, messages, agentmgr.MsgWoLResult, 2*time.Second)
-	var result agentmgr.WoLResultData
+	msg := waitForCapturedAgentMessage(t, messages, protocol.MsgWoLResult, 2*time.Second)
+	var result protocol.WoLResultData
 	if err := json.Unmarshal(msg.Data, &result); err != nil {
 		t.Fatalf("decode wol result: %v", err)
 	}
@@ -406,17 +406,17 @@ func TestHandleWoLSendUsesDefaultBroadcastAndReportsSuccess(t *testing.T) {
 		return nil
 	}
 
-	raw, err := json.Marshal(agentmgr.WoLSendData{
+	raw, err := json.Marshal(protocol.WoLSendData{
 		RequestID: "req-wol-success",
 		MAC:       "aa:bb:cc:dd:ee:ff",
 	})
 	if err != nil {
 		t.Fatalf("marshal wol request: %v", err)
 	}
-	system.HandleWoLSend(transport, agentmgr.Message{Type: agentmgr.MsgWoLSend, Data: raw})
+	system.HandleWoLSend(transport, protocol.Message{Type: protocol.MsgWoLSend, Data: raw})
 
-	msg := waitForCapturedAgentMessage(t, messages, agentmgr.MsgWoLResult, 2*time.Second)
-	var result agentmgr.WoLResultData
+	msg := waitForCapturedAgentMessage(t, messages, protocol.MsgWoLResult, 2*time.Second)
+	var result protocol.WoLResultData
 	if err := json.Unmarshal(msg.Data, &result); err != nil {
 		t.Fatalf("decode wol result: %v", err)
 	}

@@ -2,7 +2,7 @@
 
 package main
 
-import "github.com/labtether/labtether/internal/agentcore"
+import "github.com/labtether/labtether-agent/internal/agentcore"
 
 func handleWindowsServiceArgs(_ []string) bool                                           { return false }
 func isWindowsService() bool                                                             { return false }

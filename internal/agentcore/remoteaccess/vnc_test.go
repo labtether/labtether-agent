@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/labtether/labtether/internal/agentcore/system"
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/labtether-agent/internal/agentcore/system"
+	"github.com/labtether/protocol"
 )
 
 func TestBuildX11VNCArgsDefaults(t *testing.T) {
@@ -213,7 +213,7 @@ func TestStartLinuxVNCServerUsesExistingDisplayWhenAvailable(t *testing.T) {
 		system.CollectUserSessionsFn = originalCollectUserSessions
 		DiscoverDisplayXAuthorityFn = originalDiscover
 	})
-	system.CollectUserSessionsFn = func() ([]agentmgr.UserSession, error) { return nil, nil }
+	system.CollectUserSessionsFn = func() ([]protocol.UserSession, error) { return nil, nil }
 	DiscoverDisplayXAuthorityFn = func(display string) string {
 		if display != ":0" {
 			t.Fatalf("display=%q, want :0", display)
@@ -283,7 +283,7 @@ func TestStartLinuxVNCServerIgnoresNonX11DisplaySelection(t *testing.T) {
 		StartDesktopBootstrap = originalBootstrap
 		system.CollectUserSessionsFn = originalCollectUserSessions
 	})
-	system.CollectUserSessionsFn = func() ([]agentmgr.UserSession, error) { return nil, nil }
+	system.CollectUserSessionsFn = func() ([]protocol.UserSession, error) { return nil, nil }
 
 	lockFile := "/tmp/.X0-lock"
 	if err := os.WriteFile(lockFile, []byte("99999\n"), 0o644); err != nil {
@@ -338,7 +338,7 @@ func TestStartLinuxVNCServerFallsBackToXvfbOnDisplayError(t *testing.T) {
 		StartDesktopBootstrap = originalBootstrap
 		system.CollectUserSessionsFn = originalCollectUserSessions
 	})
-	system.CollectUserSessionsFn = func() ([]agentmgr.UserSession, error) { return nil, nil }
+	system.CollectUserSessionsFn = func() ([]protocol.UserSession, error) { return nil, nil }
 
 	// Create lock file so display :0 is considered usable (first attempt runs).
 	lockFile := "/tmp/.X0-lock"
@@ -424,7 +424,7 @@ func TestStartLinuxVNCServerSkipsToXvfbOnHeadless(t *testing.T) {
 		system.CollectUserSessionsFn = originalCollectUserSessions
 		DetectDesktopSessionFn = originalDetectSession
 	})
-	system.CollectUserSessionsFn = func() ([]agentmgr.UserSession, error) { return nil, nil }
+	system.CollectUserSessionsFn = func() ([]protocol.UserSession, error) { return nil, nil }
 	DetectDesktopSessionFn = func() DesktopSessionInfo {
 		return DesktopSessionInfo{Type: DesktopSessionTypeHeadless, Backend: DesktopBackendHeadless}
 	}
@@ -497,7 +497,7 @@ func TestStartLinuxVNCServerReturnsPrimaryErrorWhenDisplayIsHealthyButStartupFai
 		StartDesktopBootstrap = originalBootstrap
 		system.CollectUserSessionsFn = originalCollectUserSessions
 	})
-	system.CollectUserSessionsFn = func() ([]agentmgr.UserSession, error) { return nil, nil }
+	system.CollectUserSessionsFn = func() ([]protocol.UserSession, error) { return nil, nil }
 
 	// Create lock file so :0 is considered usable (triggers first attempt).
 	lockFile := "/tmp/.X0-lock"
@@ -540,7 +540,7 @@ func TestStartLinuxVNCServerBootstrapFailureStillStartsVNC(t *testing.T) {
 		StartDesktopBootstrap = originalBootstrap
 		system.CollectUserSessionsFn = originalCollectUserSessions
 	})
-	system.CollectUserSessionsFn = func() ([]agentmgr.UserSession, error) { return nil, nil }
+	system.CollectUserSessionsFn = func() ([]protocol.UserSession, error) { return nil, nil }
 
 	// Create lock file so :0 is considered usable (triggers first attempt → display error → Xvfb).
 	lockFile := "/tmp/.X0-lock"
@@ -685,7 +685,7 @@ func TestIsDisplayAvailableUsesLockFile(t *testing.T) {
 	t.Cleanup(func() {
 		system.CollectUserSessionsFn = originalCollectUserSessions
 	})
-	system.CollectUserSessionsFn = func() ([]agentmgr.UserSession, error) { return nil, nil }
+	system.CollectUserSessionsFn = func() ([]protocol.UserSession, error) { return nil, nil }
 
 	lockFile := "/tmp/.X86-lock"
 	if err := os.WriteFile(lockFile, []byte("12345\n"), 0o644); err != nil {

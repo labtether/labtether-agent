@@ -6,40 +6,40 @@ import (
 	"testing"
 	"time"
 
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/protocol"
 )
 
 // mockTransport implements MessageSender for tests.
 type mockTransport struct {
 	mu       sync.Mutex
-	messages chan agentmgr.Message
+	messages chan protocol.Message
 }
 
 func newMockTransport() *mockTransport {
 	return &mockTransport{
-		messages: make(chan agentmgr.Message, 64),
+		messages: make(chan protocol.Message, 64),
 	}
 }
 
-func (m *mockTransport) Send(msg agentmgr.Message) error {
+func (m *mockTransport) Send(msg protocol.Message) error {
 	m.messages <- msg
 	return nil
 }
 
-func newDesktopRuntimeTransport(t *testing.T) (MessageSender, <-chan agentmgr.Message, func()) {
+func newDesktopRuntimeTransport(t *testing.T) (MessageSender, <-chan protocol.Message, func()) {
 	t.Helper()
 	mt := newMockTransport()
 	return mt, mt.messages, func() {}
 }
 
-func readDesktopRuntimeMessage(t *testing.T, messages <-chan agentmgr.Message) agentmgr.Message {
+func readDesktopRuntimeMessage(t *testing.T, messages <-chan protocol.Message) protocol.Message {
 	t.Helper()
 	select {
 	case msg := <-messages:
 		return msg
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for desktop runtime message")
-		return agentmgr.Message{}
+		return protocol.Message{}
 	}
 }
 
@@ -52,15 +52,15 @@ func mustMarshalDesktopRuntime(t *testing.T, payload any) []byte {
 	return data
 }
 
-func readWebRTCStopped(t *testing.T, messages <-chan agentmgr.Message) agentmgr.WebRTCStoppedData {
+func readWebRTCStopped(t *testing.T, messages <-chan protocol.Message) protocol.WebRTCStoppedData {
 	t.Helper()
 
 	msg := readDesktopRuntimeMessage(t, messages)
-	if msg.Type != agentmgr.MsgWebRTCStopped {
-		t.Fatalf("message type=%q, want %q", msg.Type, agentmgr.MsgWebRTCStopped)
+	if msg.Type != protocol.MsgWebRTCStopped {
+		t.Fatalf("message type=%q, want %q", msg.Type, protocol.MsgWebRTCStopped)
 	}
 
-	var stopped agentmgr.WebRTCStoppedData
+	var stopped protocol.WebRTCStoppedData
 	if err := json.Unmarshal(msg.Data, &stopped); err != nil {
 		t.Fatalf("decode webrtc stopped payload: %v", err)
 	}

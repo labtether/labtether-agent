@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"runtime"
 
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/protocol"
 )
 
 // ErrLogStreamingUnsupported is returned by backends that do not support log streaming.
@@ -14,8 +14,8 @@ var ErrLogStreamingUnsupported = errors.New("log streaming is not supported on t
 
 // LogBackend is the platform abstraction for querying and streaming system logs.
 type LogBackend interface {
-	QueryEntries(req agentmgr.JournalQueryData) ([]agentmgr.LogStreamData, error)
-	StreamEntries(ctx context.Context, emit func(agentmgr.LogStreamData)) error
+	QueryEntries(req protocol.JournalQueryData) ([]protocol.LogStreamData, error)
+	StreamEntries(ctx context.Context, emit func(protocol.LogStreamData)) error
 }
 
 // NewLogBackendForOS returns the log backend appropriate for the current OS.
@@ -43,11 +43,11 @@ type UnsupportedLogBackend struct {
 }
 
 // QueryEntries returns an error indicating the platform is unsupported.
-func (b UnsupportedLogBackend) QueryEntries(_ agentmgr.JournalQueryData) ([]agentmgr.LogStreamData, error) {
+func (b UnsupportedLogBackend) QueryEntries(_ protocol.JournalQueryData) ([]protocol.LogStreamData, error) {
 	return nil, fmt.Errorf("historical log queries are not supported on %s", b.OS)
 }
 
 // StreamEntries returns ErrLogStreamingUnsupported.
-func (b UnsupportedLogBackend) StreamEntries(_ context.Context, _ func(agentmgr.LogStreamData)) error {
+func (b UnsupportedLogBackend) StreamEntries(_ context.Context, _ func(protocol.LogStreamData)) error {
 	return ErrLogStreamingUnsupported
 }

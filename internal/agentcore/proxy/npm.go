@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	dockerpkg "github.com/labtether/labtether/internal/agentcore/docker"
-	"github.com/labtether/labtether/internal/securityruntime"
+	dockerpkg "github.com/labtether/labtether-agent/internal/agentcore/docker"
+	"github.com/labtether/labtether-agent/internal/securityruntime"
 )
 
 // ---------------------------------------------------------------------------

@@ -9,9 +9,9 @@ import (
 	"strconv"
 	"strings"
 
-	dockerpkg "github.com/labtether/labtether/internal/agentcore/docker"
+	dockerpkg "github.com/labtether/labtether-agent/internal/agentcore/docker"
 
-	"github.com/labtether/labtether/internal/securityruntime"
+	"github.com/labtether/labtether-agent/internal/securityruntime"
 )
 
 type AgentSettingType string

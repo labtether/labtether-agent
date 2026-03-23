@@ -8,13 +8,13 @@ import (
 	"strconv"
 	"strings"
 
-	dockerpkg "github.com/labtether/labtether/internal/agentcore/docker"
-	"github.com/labtether/labtether/internal/agentmgr"
+	dockerpkg "github.com/labtether/labtether-agent/internal/agentcore/docker"
+	"github.com/labtether/protocol"
 )
 
 // buildServicesFromContainers builds DiscoveredWebService entries from Docker containers.
-func (wsc *WebServiceCollector) buildServicesFromContainers(containers []dockerpkg.DockerContainer) []agentmgr.DiscoveredWebService {
-	var services []agentmgr.DiscoveredWebService
+func (wsc *WebServiceCollector) buildServicesFromContainers(containers []dockerpkg.DockerContainer) []protocol.DiscoveredWebService {
+	var services []protocol.DiscoveredWebService
 	for _, c := range containers {
 		if c.State != "running" {
 			continue
@@ -67,7 +67,7 @@ func (wsc *WebServiceCollector) buildServicesFromContainers(containers []dockerp
 
 			identifier := fmt.Sprintf("%s:%d", c.ID, port)
 			id := makeServiceID(wsc.assetID, "docker", identifier)
-			svc := agentmgr.DiscoveredWebService{
+			svc := protocol.DiscoveredWebService{
 				ID: id, ServiceKey: serviceKey, Name: displayName, Category: category,
 				URL: url, Source: "docker", ContainerID: c.ID,
 				HostAssetID: wsc.assetID, IconKey: iconKey,

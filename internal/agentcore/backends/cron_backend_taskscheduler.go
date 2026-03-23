@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/labtether/labtether/internal/agentmgr"
-	"github.com/labtether/labtether/internal/securityruntime"
+	"github.com/labtether/labtether-agent/internal/securityruntime"
+	"github.com/labtether/protocol"
 )
 
 const schtasksCommandTimeout = 30 * time.Second
@@ -22,7 +22,7 @@ var RunSchtasksCommand = securityruntime.CommandContextCombinedOutput
 type WindowsCronBackend struct{}
 
 // ListEntries lists scheduled tasks via schtasks.exe, filtering out Microsoft internal tasks.
-func (WindowsCronBackend) ListEntries() ([]agentmgr.CronEntry, error) {
+func (WindowsCronBackend) ListEntries() ([]protocol.CronEntry, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), schtasksCommandTimeout)
 	defer cancel()
 
@@ -45,7 +45,7 @@ func (WindowsCronBackend) ListEntries() ([]agentmgr.CronEntry, error) {
 //
 // The output has a header row followed by one row per task. Tasks whose
 // TaskName starts with \Microsoft\ are filtered out as OS maintenance tasks.
-func parseSchtasksCSV(raw []byte) ([]agentmgr.CronEntry, error) {
+func parseSchtasksCSV(raw []byte) ([]protocol.CronEntry, error) {
 	if len(bytes.TrimSpace(raw)) == 0 {
 		return nil, nil
 	}
@@ -78,7 +78,7 @@ func parseSchtasksCSV(raw []byte) ([]agentmgr.CronEntry, error) {
 		return strings.TrimSpace(row[i])
 	}
 
-	var entries []agentmgr.CronEntry
+	var entries []protocol.CronEntry
 	for _, row := range records[1:] {
 		taskName := col(row, "TaskName")
 		if taskName == "" {
@@ -102,7 +102,7 @@ func parseSchtasksCSV(raw []byte) ([]agentmgr.CronEntry, error) {
 			user = user[idx+1:]
 		}
 
-		entries = append(entries, agentmgr.CronEntry{
+		entries = append(entries, protocol.CronEntry{
 			Source:   "task-scheduler",
 			Schedule: schedule,
 			Command:  taskName,

@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/protocol"
 )
 
 // Collector emits periodic telemetry samples.
@@ -35,8 +35,8 @@ type HeartbeatPublisher interface {
 // Transport abstracts the agent-to-hub communication channel.
 type Transport interface {
 	Connect(ctx context.Context) error
-	Send(msg agentmgr.Message) error
-	Receive() (agentmgr.Message, error)
+	Send(msg protocol.Message) error
+	Receive() (protocol.Message, error)
 	Close()
 	Connected() bool
 }

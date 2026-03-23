@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/labtether/labtether/internal/securityruntime"
+	"github.com/labtether/labtether-agent/internal/securityruntime"
 	"github.com/shirou/gopsutil/v4/sensors"
 )
 

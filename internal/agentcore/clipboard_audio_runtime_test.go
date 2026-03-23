@@ -7,13 +7,14 @@ import (
 	"errors"
 	"io"
 
-	"github.com/labtether/labtether/internal/agentcore/remoteaccess"
-	"github.com/labtether/labtether/internal/agentcore/sysconfig"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/labtether-agent/internal/agentcore/remoteaccess"
+	"github.com/labtether/labtether-agent/internal/agentcore/sysconfig"
+
+	"github.com/labtether/protocol"
 )
 
 func TestClipboardManagerHandleClipboardGetDefaultsToText(t *testing.T) {
@@ -33,16 +34,16 @@ func TestClipboardManagerHandleClipboardGetDefaultsToText(t *testing.T) {
 	defer cleanup()
 
 	manager := newClipboardManager()
-	manager.HandleClipboardGet(transport, agentmgr.Message{
-		Type: agentmgr.MsgClipboardGet,
-		Data: mustMarshalDesktopRuntime(t, agentmgr.ClipboardGetData{RequestID: "req-get"}),
+	manager.HandleClipboardGet(transport, protocol.Message{
+		Type: protocol.MsgClipboardGet,
+		Data: mustMarshalDesktopRuntime(t, protocol.ClipboardGetData{RequestID: "req-get"}),
 	})
 
 	msg := readDesktopRuntimeMessage(t, messages)
-	if msg.Type != agentmgr.MsgClipboardData {
-		t.Fatalf("message type=%q, want %q", msg.Type, agentmgr.MsgClipboardData)
+	if msg.Type != protocol.MsgClipboardData {
+		t.Fatalf("message type=%q, want %q", msg.Type, protocol.MsgClipboardData)
 	}
-	var payload agentmgr.ClipboardDataPayload
+	var payload protocol.ClipboardDataPayload
 	if err := json.Unmarshal(msg.Data, &payload); err != nil {
 		t.Fatalf("decode clipboard data payload: %v", err)
 	}
@@ -77,9 +78,9 @@ func TestClipboardManagerHandleClipboardSetUsesFormatSpecificWriters(t *testing.
 		defer cleanup()
 
 		manager := newClipboardManager()
-		manager.HandleClipboardSet(transport, agentmgr.Message{
-			Type: agentmgr.MsgClipboardSet,
-			Data: mustMarshalDesktopRuntime(t, agentmgr.ClipboardSetData{
+		manager.HandleClipboardSet(transport, protocol.Message{
+			Type: protocol.MsgClipboardSet,
+			Data: mustMarshalDesktopRuntime(t, protocol.ClipboardSetData{
 				RequestID: "req-image",
 				Format:    "image/png",
 				Data:      "png-base64",
@@ -87,10 +88,10 @@ func TestClipboardManagerHandleClipboardSetUsesFormatSpecificWriters(t *testing.
 		})
 
 		msg := readDesktopRuntimeMessage(t, messages)
-		if msg.Type != agentmgr.MsgClipboardSetAck {
-			t.Fatalf("message type=%q, want %q", msg.Type, agentmgr.MsgClipboardSetAck)
+		if msg.Type != protocol.MsgClipboardSetAck {
+			t.Fatalf("message type=%q, want %q", msg.Type, protocol.MsgClipboardSetAck)
 		}
-		var ack agentmgr.ClipboardSetAckData
+		var ack protocol.ClipboardSetAckData
 		if err := json.Unmarshal(msg.Data, &ack); err != nil {
 			t.Fatalf("decode clipboard ack payload: %v", err)
 		}
@@ -115,9 +116,9 @@ func TestClipboardManagerHandleClipboardSetUsesFormatSpecificWriters(t *testing.
 		defer cleanup()
 
 		manager := newClipboardManager()
-		manager.HandleClipboardSet(transport, agentmgr.Message{
-			Type: agentmgr.MsgClipboardSet,
-			Data: mustMarshalDesktopRuntime(t, agentmgr.ClipboardSetData{
+		manager.HandleClipboardSet(transport, protocol.Message{
+			Type: protocol.MsgClipboardSet,
+			Data: mustMarshalDesktopRuntime(t, protocol.ClipboardSetData{
 				RequestID: "req-text",
 				Format:    "text",
 				Text:      "hello",
@@ -125,7 +126,7 @@ func TestClipboardManagerHandleClipboardSetUsesFormatSpecificWriters(t *testing.
 		})
 
 		msg := readDesktopRuntimeMessage(t, messages)
-		var ack agentmgr.ClipboardSetAckData
+		var ack protocol.ClipboardSetAckData
 		if err := json.Unmarshal(msg.Data, &ack); err != nil {
 			t.Fatalf("decode clipboard ack payload: %v", err)
 		}
@@ -159,9 +160,9 @@ func TestAudioSidebandManagerHandleAudioStartStreamsDataAndStopsOnEOF(t *testing
 	defer cleanup()
 
 	manager := newAudioSidebandManager()
-	manager.HandleAudioStart(transport, agentmgr.Message{
-		Type: agentmgr.MsgDesktopAudioStart,
-		Data: mustMarshalDesktopRuntime(t, agentmgr.DesktopAudioStartData{
+	manager.HandleAudioStart(transport, protocol.Message{
+		Type: protocol.MsgDesktopAudioStart,
+		Data: mustMarshalDesktopRuntime(t, protocol.DesktopAudioStartData{
 			SessionID: "sess-audio",
 			Bitrate:   64000,
 		}),
@@ -178,10 +179,10 @@ func TestAudioSidebandManagerHandleAudioStartStreamsDataAndStopsOnEOF(t *testing
 	_ = writer.Close()
 
 	dataMsg := readDesktopRuntimeMessage(t, messages)
-	if dataMsg.Type != agentmgr.MsgDesktopAudioData {
-		t.Fatalf("message type=%q, want %q", dataMsg.Type, agentmgr.MsgDesktopAudioData)
+	if dataMsg.Type != protocol.MsgDesktopAudioData {
+		t.Fatalf("message type=%q, want %q", dataMsg.Type, protocol.MsgDesktopAudioData)
 	}
-	var data agentmgr.DesktopAudioDataPayload
+	var data protocol.DesktopAudioDataPayload
 	if err := json.Unmarshal(dataMsg.Data, &data); err != nil {
 		t.Fatalf("decode audio data payload: %v", err)
 	}
@@ -214,9 +215,9 @@ func TestAudioSidebandManagerHandleAudioStartReportsUnavailable(t *testing.T) {
 	defer cleanup()
 
 	manager := newAudioSidebandManager()
-	manager.HandleAudioStart(transport, agentmgr.Message{
-		Type: agentmgr.MsgDesktopAudioStart,
-		Data: mustMarshalDesktopRuntime(t, agentmgr.DesktopAudioStartData{SessionID: "sess-unavailable"}),
+	manager.HandleAudioStart(transport, protocol.Message{
+		Type: protocol.MsgDesktopAudioStart,
+		Data: mustMarshalDesktopRuntime(t, protocol.DesktopAudioStartData{SessionID: "sess-unavailable"}),
 	})
 
 	state := readDesktopAudioState(t, messages)
@@ -245,9 +246,9 @@ func TestAudioSidebandManagerHandleAudioStopCancelsSession(t *testing.T) {
 	defer writer.Close()
 
 	manager := newAudioSidebandManager()
-	manager.HandleAudioStart(transport, agentmgr.Message{
-		Type: agentmgr.MsgDesktopAudioStart,
-		Data: mustMarshalDesktopRuntime(t, agentmgr.DesktopAudioStartData{SessionID: "sess-stop"}),
+	manager.HandleAudioStart(transport, protocol.Message{
+		Type: protocol.MsgDesktopAudioStart,
+		Data: mustMarshalDesktopRuntime(t, protocol.DesktopAudioStartData{SessionID: "sess-stop"}),
 	})
 
 	started := readDesktopAudioState(t, messages)
@@ -255,9 +256,9 @@ func TestAudioSidebandManagerHandleAudioStopCancelsSession(t *testing.T) {
 		t.Fatalf("state=%q, want started", started.State)
 	}
 
-	manager.HandleAudioStop(agentmgr.Message{
-		Type: agentmgr.MsgDesktopAudioStop,
-		Data: mustMarshalDesktopRuntime(t, agentmgr.DesktopAudioStopData{SessionID: "sess-stop"}),
+	manager.HandleAudioStop(protocol.Message{
+		Type: protocol.MsgDesktopAudioStop,
+		Data: mustMarshalDesktopRuntime(t, protocol.DesktopAudioStopData{SessionID: "sess-stop"}),
 	})
 
 	_ = writer.Close()
@@ -269,13 +270,13 @@ func TestAudioSidebandManagerHandleAudioStopCancelsSession(t *testing.T) {
 	waitForAudioSessionRemoval(t, manager, "sess-stop")
 }
 
-func readDesktopAudioState(t *testing.T, messages <-chan agentmgr.Message) agentmgr.DesktopAudioStateData {
+func readDesktopAudioState(t *testing.T, messages <-chan protocol.Message) protocol.DesktopAudioStateData {
 	t.Helper()
 	msg := readDesktopRuntimeMessage(t, messages)
-	if msg.Type != agentmgr.MsgDesktopAudioState {
-		t.Fatalf("message type=%q, want %q", msg.Type, agentmgr.MsgDesktopAudioState)
+	if msg.Type != protocol.MsgDesktopAudioState {
+		t.Fatalf("message type=%q, want %q", msg.Type, protocol.MsgDesktopAudioState)
 	}
-	var state agentmgr.DesktopAudioStateData
+	var state protocol.DesktopAudioStateData
 	if err := json.Unmarshal(msg.Data, &state); err != nil {
 		t.Fatalf("decode audio state payload: %v", err)
 	}

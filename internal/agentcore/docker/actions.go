@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/protocol"
 )
 
 // validContainerID matches Docker container IDs and names.
@@ -27,8 +27,8 @@ func isValidContainerID(id string) bool {
 const dockerActionTimeout = 30 * time.Second
 
 // handleDockerAction dispatches a Docker lifecycle action and sends the result back.
-func (dc *DockerCollector) HandleDockerAction(transport Transport, msg agentmgr.Message) {
-	var req agentmgr.DockerActionData
+func (dc *DockerCollector) HandleDockerAction(transport Transport, msg protocol.Message) {
+	var req protocol.DockerActionData
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		log.Printf("docker: invalid action payload: %v", err)
 		return
@@ -61,7 +61,7 @@ func (dc *DockerCollector) HandleDockerAction(transport Transport, msg agentmgr.
 		dc.refreshDockerStateSoon()
 	}
 
-	result := agentmgr.DockerActionResultData{
+	result := protocol.DockerActionResultData{
 		RequestID: req.RequestID,
 		Success:   actionErr == nil,
 		Data:      actionData,
@@ -76,8 +76,8 @@ func (dc *DockerCollector) HandleDockerAction(transport Transport, msg agentmgr.
 		return
 	}
 
-	if err := transport.Send(agentmgr.Message{
-		Type: agentmgr.MsgDockerActionResult,
+	if err := transport.Send(protocol.Message{
+		Type: protocol.MsgDockerActionResult,
 		ID:   req.RequestID,
 		Data: data,
 	}); err != nil {
@@ -87,7 +87,7 @@ func (dc *DockerCollector) HandleDockerAction(transport Transport, msg agentmgr.
 
 // dispatchDockerAction executes the Docker action described by req and returns
 // any string data payload and action error.
-func (dc *DockerCollector) dispatchDockerAction(ctx context.Context, req agentmgr.DockerActionData) (string, error) {
+func (dc *DockerCollector) dispatchDockerAction(ctx context.Context, req protocol.DockerActionData) (string, error) {
 	switch req.Action {
 	case "container.create":
 		imageRef := strings.TrimSpace(req.Params["image"])

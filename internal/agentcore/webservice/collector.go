@@ -14,10 +14,10 @@ import (
 	"sync"
 	"time"
 
-	dockerpkg "github.com/labtether/labtether/internal/agentcore/docker"
-	proxypkg "github.com/labtether/labtether/internal/agentcore/proxy"
-	"github.com/labtether/labtether/internal/agentcore/sysconfig"
-	"github.com/labtether/labtether/internal/agentmgr"
+	dockerpkg "github.com/labtether/labtether-agent/internal/agentcore/docker"
+	proxypkg "github.com/labtether/labtether-agent/internal/agentcore/proxy"
+	"github.com/labtether/labtether-agent/internal/agentcore/sysconfig"
+	"github.com/labtether/protocol"
 )
 
 const (
@@ -78,7 +78,7 @@ type WebServiceCollector struct {
 	insecureClient   *http.Client               // reserved for explicit secure test injection
 	discoveryCfg     WebServiceDiscoveryConfig
 	proxyProviders   []proxypkg.Provider
-	lastServices     []agentmgr.DiscoveredWebService
+	lastServices     []protocol.DiscoveredWebService
 	compatCache      map[string]compatCacheEntry
 	fingerprintCache map[string]fingerprintCacheEntry
 	healthCache      map[string]healthCacheEntry
@@ -237,17 +237,17 @@ func (wsc *WebServiceCollector) RunCycle(ctx context.Context) {
 	cfg := wsc.discoveryCfg
 	now := wsc.now()
 
-	var services []agentmgr.DiscoveredWebService
+	var services []protocol.DiscoveredWebService
 	var containers []dockerpkg.DockerContainer
-	var previous []agentmgr.DiscoveredWebService
-	clonePrevious := func() []agentmgr.DiscoveredWebService {
+	var previous []protocol.DiscoveredWebService
+	clonePrevious := func() []protocol.DiscoveredWebService {
 		if previous == nil {
 			previous = cloneDiscoveredServices(wsc.lastServices)
 		}
 		return previous
 	}
 	var dockerListErr error
-	sourceStats := map[string]agentmgr.WebServiceDiscoverySourceStat{
+	sourceStats := map[string]protocol.WebServiceDiscoverySourceStat{
 		"docker": {
 			Enabled: cfg.DockerEnabled,
 		},
@@ -271,14 +271,14 @@ func (wsc *WebServiceCollector) RunCycle(ctx context.Context) {
 		} else {
 			dockerServices := wsc.buildServicesFromContainers(containers)
 			services = append(services, dockerServices...)
-			sourceStats["docker"] = agentmgr.WebServiceDiscoverySourceStat{
+			sourceStats["docker"] = protocol.WebServiceDiscoverySourceStat{
 				Enabled:       cfg.DockerEnabled,
 				DurationMs:    millisecondsSince(dockerStartedAt),
 				ServicesFound: len(dockerServices),
 			}
 		}
 		if dockerListErr != nil {
-			sourceStats["docker"] = agentmgr.WebServiceDiscoverySourceStat{
+			sourceStats["docker"] = protocol.WebServiceDiscoverySourceStat{
 				Enabled:       cfg.DockerEnabled,
 				DurationMs:    millisecondsSince(dockerStartedAt),
 				ServicesFound: 0,
@@ -307,7 +307,7 @@ func (wsc *WebServiceCollector) RunCycle(ctx context.Context) {
 			services = append(services, filterServicesBySource(clonePrevious(), "proxy")...)
 		}
 	}
-	sourceStats["proxy"] = agentmgr.WebServiceDiscoverySourceStat{
+	sourceStats["proxy"] = protocol.WebServiceDiscoverySourceStat{
 		Enabled:       cfg.ProxyEnabled,
 		DurationMs:    millisecondsSince(proxyStartedAt),
 		ServicesFound: proxyServicesFound,
@@ -318,7 +318,7 @@ func (wsc *WebServiceCollector) RunCycle(ctx context.Context) {
 	localScanStartedAt := time.Now()
 	localScannedServices := wsc.discoverPortScannedServicesWithConfig(ctx, services, cfg)
 	services = append(services, localScannedServices...)
-	sourceStats["local_scan"] = agentmgr.WebServiceDiscoverySourceStat{
+	sourceStats["local_scan"] = protocol.WebServiceDiscoverySourceStat{
 		Enabled:       cfg.PortScanEnabled,
 		DurationMs:    millisecondsSince(localScanStartedAt),
 		ServicesFound: len(localScannedServices),
@@ -327,7 +327,7 @@ func (wsc *WebServiceCollector) RunCycle(ctx context.Context) {
 	lanScanStartedAt := time.Now()
 	lanScannedServices := wsc.discoverLANScannedServicesWithConfig(ctx, services, cfg)
 	services = append(services, lanScannedServices...)
-	sourceStats["lan_scan"] = agentmgr.WebServiceDiscoverySourceStat{
+	sourceStats["lan_scan"] = protocol.WebServiceDiscoverySourceStat{
 		Enabled:       cfg.LANScanEnabled,
 		DurationMs:    millisecondsSince(lanScanStartedAt),
 		ServicesFound: len(lanScannedServices),
@@ -345,14 +345,14 @@ func (wsc *WebServiceCollector) RunCycle(ctx context.Context) {
 	wsc.applyHealthChecksParallel(services, now)
 
 	// Send report
-	discoveryStats := &agentmgr.WebServiceDiscoveryStats{
+	discoveryStats := &protocol.WebServiceDiscoveryStats{
 		CollectedAt:      time.Now().UTC().Format(time.RFC3339),
 		CycleDurationMs:  millisecondsSince(cycleStartedAt),
 		TotalServices:    len(services),
 		Sources:          sourceStats,
 		FinalSourceCount: countDiscoveredServicesBySource(services),
 	}
-	report := agentmgr.WebServiceReportData{
+	report := protocol.WebServiceReportData{
 		HostAssetID: wsc.assetID,
 		Services:    services,
 		Discovery:   discoveryStats,
@@ -362,8 +362,8 @@ func (wsc *WebServiceCollector) RunCycle(ctx context.Context) {
 		log.Printf("webservices: failed to marshal report: %v", err)
 		return
 	}
-	if err := wsc.transport.Send(agentmgr.Message{
-		Type: agentmgr.MsgWebServiceReport,
+	if err := wsc.transport.Send(protocol.Message{
+		Type: protocol.MsgWebServiceReport,
 		Data: data,
 	}); err != nil {
 		log.Printf("webservices: failed to send report: %v", err)
@@ -403,7 +403,7 @@ func millisecondsSince(start time.Time) int {
 	return int(elapsed)
 }
 
-func countDiscoveredServicesBySource(services []agentmgr.DiscoveredWebService) map[string]int {
+func countDiscoveredServicesBySource(services []protocol.DiscoveredWebService) map[string]int {
 	if len(services) == 0 {
 		return map[string]int{}
 	}
@@ -425,7 +425,7 @@ func (wsc *WebServiceCollector) now() time.Time {
 	return time.Now().UTC()
 }
 
-func healthCacheKeyForService(svc agentmgr.DiscoveredWebService) string {
+func healthCacheKeyForService(svc protocol.DiscoveredWebService) string {
 	if id := strings.TrimSpace(svc.ID); id != "" {
 		return "id:" + strings.ToLower(id)
 	}
@@ -438,7 +438,7 @@ func healthCacheKeyForService(svc agentmgr.DiscoveredWebService) string {
 	return ""
 }
 
-func healthCacheInputURL(svc agentmgr.DiscoveredWebService) string {
+func healthCacheInputURL(svc protocol.DiscoveredWebService) string {
 	if base := strings.TrimSpace(serviceFingerprintBaseURL(svc)); base != "" {
 		return base
 	}
@@ -478,7 +478,7 @@ type healthCheckJob struct {
 // two-pass strategy: cached results are applied sequentially (near-zero cost),
 // then cache misses are fanned out across a bounded worker pool so that
 // HTTP timeouts overlap instead of stacking.
-func (wsc *WebServiceCollector) applyHealthChecksParallel(services []agentmgr.DiscoveredWebService, now time.Time) {
+func (wsc *WebServiceCollector) applyHealthChecksParallel(services []protocol.DiscoveredWebService, now time.Time) {
 	if wsc.healthCache == nil {
 		wsc.healthCache = make(map[string]healthCacheEntry)
 	}
@@ -539,7 +539,7 @@ func (wsc *WebServiceCollector) applyHealthChecksParallel(services []agentmgr.Di
 	wsc.pruneHealthCache(now)
 }
 
-func (wsc *WebServiceCollector) applyHealthCheckWithCache(svc *agentmgr.DiscoveredWebService, now time.Time) {
+func (wsc *WebServiceCollector) applyHealthCheckWithCache(svc *protocol.DiscoveredWebService, now time.Time) {
 	if svc == nil {
 		return
 	}
@@ -609,7 +609,7 @@ func (wsc *WebServiceCollector) pruneHealthCache(now time.Time) {
 
 // enrichFromProxies queries all registered proxy providers concurrently, then
 // enriches the discovered services with proxy route information.
-func (wsc *WebServiceCollector) enrichFromProxies(containers []dockerpkg.DockerContainer, services []agentmgr.DiscoveredWebService) ([]agentmgr.DiscoveredWebService, bool) {
+func (wsc *WebServiceCollector) enrichFromProxies(containers []dockerpkg.DockerContainer, services []protocol.DiscoveredWebService) ([]protocol.DiscoveredWebService, bool) {
 	type providerResult struct {
 		name   string
 		routes []ProxyRoute
@@ -651,7 +651,7 @@ func (wsc *WebServiceCollector) enrichFromProxies(containers []dockerpkg.DockerC
 // healthCheckWithFallback performs health check on a service.
 // If the primary URL fails and a raw_url exists in metadata, retries with the raw URL
 // to avoid false "down" from DNS resolution failures on proxied domains.
-func (wsc *WebServiceCollector) healthCheckWithFallback(svc *agentmgr.DiscoveredWebService) {
+func (wsc *WebServiceCollector) healthCheckWithFallback(svc *protocol.DiscoveredWebService) {
 	wsc.healthCheck(svc)
 
 	// If proxied URL failed and we have a raw URL, retry with raw
@@ -671,7 +671,7 @@ func (wsc *WebServiceCollector) healthCheckWithFallback(svc *agentmgr.Discovered
 
 // healthCheck performs an HTTP health check on a discovered service.
 // It tries HEAD first, then falls back to GET. Status < 500 = "up".
-func (wsc *WebServiceCollector) healthCheck(svc *agentmgr.DiscoveredWebService) {
+func (wsc *WebServiceCollector) healthCheck(svc *protocol.DiscoveredWebService) {
 	healthPath := ""
 	if svc.Metadata != nil && svc.Metadata["health_path"] != "" {
 		healthPath = svc.Metadata["health_path"]
@@ -867,11 +867,11 @@ func alternateSchemeURL(rawURL string) string {
 	return parsed.String()
 }
 
-func cloneDiscoveredServices(in []agentmgr.DiscoveredWebService) []agentmgr.DiscoveredWebService {
+func cloneDiscoveredServices(in []protocol.DiscoveredWebService) []protocol.DiscoveredWebService {
 	if len(in) == 0 {
 		return nil
 	}
-	out := make([]agentmgr.DiscoveredWebService, 0, len(in))
+	out := make([]protocol.DiscoveredWebService, 0, len(in))
 	for _, svc := range in {
 		cloned := svc
 		if svc.Metadata != nil {
@@ -885,11 +885,11 @@ func cloneDiscoveredServices(in []agentmgr.DiscoveredWebService) []agentmgr.Disc
 	return out
 }
 
-func filterServicesBySource(in []agentmgr.DiscoveredWebService, source string) []agentmgr.DiscoveredWebService {
+func filterServicesBySource(in []protocol.DiscoveredWebService, source string) []protocol.DiscoveredWebService {
 	if len(in) == 0 {
 		return nil
 	}
-	out := make([]agentmgr.DiscoveredWebService, 0, len(in))
+	out := make([]protocol.DiscoveredWebService, 0, len(in))
 	for _, svc := range in {
 		if svc.Source == source {
 			out = append(out, svc)
@@ -898,11 +898,11 @@ func filterServicesBySource(in []agentmgr.DiscoveredWebService, source string) [
 	return out
 }
 
-func dedupeDiscoveredServices(in []agentmgr.DiscoveredWebService) []agentmgr.DiscoveredWebService {
+func dedupeDiscoveredServices(in []protocol.DiscoveredWebService) []protocol.DiscoveredWebService {
 	if len(in) == 0 {
 		return in
 	}
-	out := make([]agentmgr.DiscoveredWebService, 0, len(in))
+	out := make([]protocol.DiscoveredWebService, 0, len(in))
 	seen := make(map[string]struct{}, len(in))
 	for _, svc := range in {
 		if svc.ID == "" {

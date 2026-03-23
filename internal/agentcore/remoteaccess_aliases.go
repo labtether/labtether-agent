@@ -5,9 +5,9 @@ package agentcore
 // package to continue using the same identifiers without import changes.
 
 import (
-	"github.com/labtether/labtether/internal/agentcore/files"
-	"github.com/labtether/labtether/internal/agentcore/remoteaccess"
-	"github.com/labtether/labtether/internal/agentmgr"
+	"github.com/labtether/labtether-agent/internal/agentcore/files"
+	"github.com/labtether/labtether-agent/internal/agentcore/remoteaccess"
+	"github.com/labtether/protocol"
 )
 
 func init() {
@@ -42,7 +42,7 @@ type webrtcManager = remoteaccess.WebRTCManager
 type webrtcSession = remoteaccess.WebRTCSession
 type webrtcInputEvent = remoteaccess.WebRTCInputEvent
 
-func newWebRTCManager(caps agentmgr.WebRTCCapabilitiesData, settings remoteaccess.SettingsProvider, fileMgr *files.Manager, dispMgr *displayManager) *webrtcManager {
+func newWebRTCManager(caps protocol.WebRTCCapabilitiesData, settings remoteaccess.SettingsProvider, fileMgr *files.Manager, dispMgr *displayManager) *webrtcManager {
 	return remoteaccess.NewWebRTCManager(caps, settings, fileMgr, dispMgr)
 }
 
@@ -77,7 +77,7 @@ type gstPipelineConfig = remoteaccess.GstPipelineConfig
 type gstAudioConfig = remoteaccess.GstAudioConfig
 type encoderCandidate = remoteaccess.EncoderCandidate
 
-func detectWebRTCCapabilitiesForConfig(cfg RuntimeConfig) agentmgr.WebRTCCapabilitiesData {
+func detectWebRTCCapabilitiesForConfig(cfg RuntimeConfig) protocol.WebRTCCapabilitiesData {
 	return remoteaccess.DetectWebRTCCapabilitiesForSettings(
 		AgentSettingValuesFromConfigSnapshot(configSnapshotFromRuntimeConfig(cfg)),
 	)
@@ -141,10 +141,10 @@ var wakeX11Display = remoteaccess.WakeX11Display
 var startAudioCapture = &remoteaccess.StartAudioCapture
 
 // Exec/command handler aliases.
-var handleCommandRequest = func(transport *wsTransport, msg agentmgr.Message, cfg RuntimeConfig) {
+var handleCommandRequest = func(transport *wsTransport, msg protocol.Message, cfg RuntimeConfig) {
 	remoteaccess.HandleCommandRequest(transport, msg, remoteaccess.ExecConfig{APIToken: cfg.APIToken})
 }
-var handleUpdateRequest = func(transport *wsTransport, msg agentmgr.Message, cfg RuntimeConfig) {
+var handleUpdateRequest = func(transport *wsTransport, msg protocol.Message, cfg RuntimeConfig) {
 	remoteaccess.HandleUpdateRequest(transport, msg, remoteaccess.ExecConfig{APIToken: cfg.APIToken})
 }
 
@@ -153,7 +153,7 @@ var validateUpdatePackages = remoteaccess.ValidateUpdatePackages
 
 // Diagnostic aliases.
 var collectDesktopDiagnostic = remoteaccess.CollectDesktopDiagnostic
-var handleDesktopDiagnose = func(transport *wsTransport, msg agentmgr.Message, deskMgr *desktopManager, webrtcMgr *webrtcManager) {
+var handleDesktopDiagnose = func(transport *wsTransport, msg protocol.Message, deskMgr *desktopManager, webrtcMgr *webrtcManager) {
 	remoteaccess.HandleDesktopDiagnose(transport, msg, deskMgr, webrtcMgr)
 }
 
