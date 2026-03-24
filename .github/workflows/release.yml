@@ -64,10 +64,18 @@ jobs:
           zip "labtether-agent-${SUFFIX}-${VERSION}.zip" "labtether-agent-${SUFFIX}"
           sha256sum "labtether-agent-${SUFFIX}-${VERSION}.zip" > "labtether-agent-${SUFFIX}-${VERSION}.zip.sha256"
 
+      - name: Checksum raw binary
+        env:
+          SUFFIX: ${{ matrix.suffix }}
+        run: |
+          sha256sum "labtether-agent-${SUFFIX}" > "labtether-agent-${SUFFIX}.sha256"
+
       - name: Upload release assets
         uses: softprops/action-gh-release@v2
         with:
           files: |
+            labtether-agent-${{ matrix.suffix }}
+            labtether-agent-${{ matrix.suffix }}.sha256
             labtether-agent-*.tar.gz
             labtether-agent-*.tar.gz.sha256
             labtether-agent-*.zip
