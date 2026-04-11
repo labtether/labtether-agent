@@ -157,15 +157,22 @@ func (tm *TerminalManager) HandleTerminalStart(transport MessageSender, msg prot
 	// Notify hub that terminal is ready
 	sendTerminalStartedWithTmux(transport, req.SessionID, tmuxAttached)
 
-	// Stream PTY output → hub
-	go tm.streamOutput(transport, sess)
+	// Stream PTY output → hub. The streamOutput goroutine is responsible
+	// for final teardown once its Read loop exits naturally (on EOF/EIO
+	// after the child closes its slave PTY). Closing Ptmx elsewhere while
+	// streamOutput is still reading causes "file already closed" errors
+	// and loses any buffered output, which breaks large-output tests.
+	go func() {
+		tm.streamOutput(transport, sess)
+		tm.cleanup(req.SessionID)
+		SendTerminalClosed(transport, req.SessionID, "shell exited")
+	}()
 
-	// Wait for process exit and clean up
+	// Observe process exit for lifecycle signalling only. Do NOT close
+	// the PTY here — streamOutput owns that.
 	go func() {
 		_ = cmd.Wait()
 		close(sess.done)
-		tm.cleanup(req.SessionID)
-		SendTerminalClosed(transport, req.SessionID, "shell exited")
 	}()
 }
 
