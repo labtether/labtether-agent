@@ -261,6 +261,12 @@ func TestDockerExecManagerHandleExecStartStreamsOutputAndCleansUp(t *testing.T) 
 		case r.Method == http.MethodPost && r.URL.Path == "/containers/ct-1/exec":
 			_ = json.NewEncoder(w).Encode(map[string]string{"Id": "exec-1"})
 		case r.Method == http.MethodPost && r.URL.Path == "/exec/exec-1/start":
+			// Drain the request body before hijacking. Real Docker reads
+			// the exec-start body before responding; if the mock server
+			// hijacks and closes without draining, the client's body
+			// write races the close and gets EPIPE on slower runners.
+			_, _ = io.Copy(io.Discard, r.Body)
+
 			hijacker, ok := w.(http.Hijacker)
 			if !ok {
 				t.Fatal("docker exec test server does not support hijacking")
