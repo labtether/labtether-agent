@@ -74,6 +74,12 @@ func HandleCommandRequest(transport MessageSender, msg protocol.Message, cfg Exe
 	}
 	output, err := cmd.CombinedOutput()
 
+	// Force-kill if the process survived the context timeout.
+	if ctx.Err() == context.DeadlineExceeded && cmd.Process != nil {
+		_ = cmd.Process.Kill()
+		_, _ = cmd.Process.Wait() // Reap zombie.
+	}
+
 	status := "succeeded"
 	outputStr := TruncateCommandOutput(output, MaxCommandOutputBytes)
 	if ctx.Err() == context.DeadlineExceeded {
@@ -216,8 +222,19 @@ func HandleUpdateRequest(transport MessageSender, msg protocol.Message, cfg Exec
 		cmd.Env = append(cmd.Environ(), "DEBIAN_FRONTEND=noninteractive")
 	}
 	output, err := cmd.CombinedOutput()
+
+	// Force-kill if the process survived the context timeout.
+	if ctx.Err() == context.DeadlineExceeded && cmd.Process != nil {
+		_ = cmd.Process.Kill()
+		_, _ = cmd.Process.Wait() // Reap zombie.
+	}
+
 	outputStr := TruncateCommandOutput(output, MaxCommandOutputBytes)
 
+	if ctx.Err() == context.DeadlineExceeded {
+		sendResult("failed", outputStr, "update timed out")
+		return
+	}
 	if err != nil {
 		sendResult("failed", outputStr, err.Error())
 		return

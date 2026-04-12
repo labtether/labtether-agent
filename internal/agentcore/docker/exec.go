@@ -79,7 +79,8 @@ func (em *DockerExecManager) HandleExecStart(transport Transport, msg protocol.M
 	}
 	em.mu.Unlock()
 
-	ctx, cancel := context.WithCancel(context.Background())
+	const dockerExecTimeout = 5 * time.Minute
+	ctx, cancel := context.WithTimeout(context.Background(), dockerExecTimeout)
 
 	// Create exec instance
 	cmd := req.Command
