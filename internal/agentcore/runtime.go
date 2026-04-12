@@ -26,6 +26,9 @@ type Runtime struct {
 	telemetryBuf   *RingBuffer[TelemetrySample]
 	deviceIdentity *deviceIdentity
 
+	// HeartbeatCounter is incremented on every heartbeat tick; monitored by the watchdog.
+	HeartbeatCounter atomic.Int64
+
 	// Dynamic config overrides (0 = use default from cfg).
 	collectIntervalOverride   atomic.Int64
 	heartbeatIntervalOverride atomic.Int64
@@ -198,6 +201,7 @@ func (r *Runtime) heartbeatLoop(ctx context.Context) {
 			return
 		case <-ticker.C:
 			r.publishOnce(ctx)
+			r.HeartbeatCounter.Add(1)
 			// Check for dynamic interval override.
 			if override := r.heartbeatIntervalOverride.Load(); override > 0 {
 				newInterval := time.Duration(override) * time.Second

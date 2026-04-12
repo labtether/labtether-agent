@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
 	"strings"
 	"time"
 
@@ -148,6 +149,11 @@ func Run(ctx context.Context, cfg RuntimeConfig, provider TelemetryProvider) err
 		runtime.telemetryBuf = telemetryBuf
 		runtime.deviceIdentity = identity
 
+		go RunWatchdog(ctx, WatchdogConfig{
+			HeartbeatCounter: &runtime.HeartbeatCounter,
+			ExitFunc:         os.Exit,
+		})
+
 		// Docker and web service collectors: declared here (before reconnect loop)
 		// so the onConnect closure can reference them for state resets.
 		var dockerCollector *dockerpkg.DockerCollector
@@ -255,6 +261,10 @@ func Run(ctx context.Context, cfg RuntimeConfig, provider TelemetryProvider) err
 	publisher = httpPublisher
 	runtime := NewRuntime(cfg, provider, publisher)
 	runtime.deviceIdentity = identity
+	go RunWatchdog(ctx, WatchdogConfig{
+		HeartbeatCounter: &runtime.HeartbeatCounter,
+		ExitFunc:         os.Exit,
+	})
 	return runtime.Run(ctx)
 }
 
