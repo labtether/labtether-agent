@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -267,6 +268,11 @@ func (t *wsTransport) Connect(ctx context.Context) error {
 // pingLoop sends periodic WebSocket pings to the hub. It exits when the done
 // channel is closed or when the connection changes (reconnect replaces conn).
 func (t *wsTransport) pingLoop(conn *websocket.Conn, done chan struct{}) {
+	defer func() {
+		if err := recover(); err != nil {
+			log.Printf("agentws: panic in pingLoop: %v\n%s", err, debug.Stack())
+		}
+	}()
 	ticker := time.NewTicker(clientPingInterval)
 	defer ticker.Stop()
 	for {

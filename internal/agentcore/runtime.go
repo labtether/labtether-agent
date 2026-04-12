@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -149,6 +150,11 @@ func isLoopbackBindAddress(value string) bool {
 }
 
 func (r *Runtime) collectLoop(ctx context.Context) {
+	defer func() {
+		if err := recover(); err != nil {
+			log.Printf("agent: panic in collectLoop: %v\n%s", err, debug.Stack())
+		}
+	}()
 	r.collectOnce(time.Now().UTC())
 	currentInterval := r.cfg.CollectInterval
 	ticker := time.NewTicker(currentInterval)
@@ -175,6 +181,11 @@ func (r *Runtime) collectLoop(ctx context.Context) {
 }
 
 func (r *Runtime) heartbeatLoop(ctx context.Context) {
+	defer func() {
+		if err := recover(); err != nil {
+			log.Printf("agent: panic in heartbeatLoop: %v\n%s", err, debug.Stack())
+		}
+	}()
 	r.publishOnce(ctx)
 	currentInterval := r.cfg.HeartbeatInterval
 	ticker := time.NewTicker(currentInterval)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -74,14 +75,27 @@ func receiveLoop(ctx context.Context, transport *wsTransport, cfg RuntimeConfig,
 		defer dockerLogMgr.CloseAll()
 	}
 
-	// Semaphore limiting concurrent heavy command handlers to avoid unbounded
-	// goroutine growth under load.
+	// Semaphore limiting concurrent command handlers to avoid unbounded
+	// goroutine growth under load. All handlers (including lightweight ones)
+	// go through the semaphore so panics are contained and WaitGroup tracked.
 	const maxConcurrentHandlers = 20
 	sem := make(chan struct{}, maxConcurrentHandlers)
+
+	// handlerWG tracks all in-flight handler goroutines so receiveLoop can
+	// drain them gracefully on disconnect/shutdown.
+	var handlerWG sync.WaitGroup
 
 	for {
 		select {
 		case <-ctx.Done():
+			// Wait for in-flight handlers to drain.
+			drainDone := make(chan struct{})
+			go func() { handlerWG.Wait(); close(drainDone) }()
+			select {
+			case <-drainDone:
+			case <-time.After(5 * time.Second):
+				log.Printf("agentws: timed out waiting for handlers to drain")
+			}
 			return
 		default:
 		}
@@ -111,359 +125,675 @@ func receiveLoop(ctx context.Context, transport *wsTransport, cfg RuntimeConfig,
 		switch msg.Type {
 		case protocol.MsgCommandRequest:
 			sem <- struct{}{}
+			handlerWG.Add(1)
 			go func() {
+				defer handlerWG.Done()
 				defer func() { <-sem }()
-				handleCommandRequest(transport, msg, cfg)
+				safeHandler("command-request", func() {
+					handleCommandRequest(transport, msg, cfg)
+				})
 			}()
 		case protocol.MsgPing:
-			// Lightweight — no semaphore.
-			_ = transport.Send(protocol.Message{Type: protocol.MsgPong})
+			sem <- struct{}{}
+			handlerWG.Add(1)
+			go func() {
+				defer handlerWG.Done()
+				defer func() { <-sem }()
+				safeHandler("ping", func() {
+					_ = transport.Send(protocol.Message{Type: protocol.MsgPong})
+				})
+			}()
 		case protocol.MsgConfigUpdate:
-			// Lightweight — no semaphore.
-			handleConfigUpdate(transport, msg, runtime)
+			sem <- struct{}{}
+			handlerWG.Add(1)
+			go func() {
+				defer handlerWG.Done()
+				defer func() { <-sem }()
+				safeHandler("config-update", func() {
+					handleConfigUpdate(transport, msg, runtime)
+				})
+			}()
 		case protocol.MsgAgentSettingsApply:
-			// Lightweight — no semaphore.
-			handleAgentSettingsApply(transport, msg, runtime)
+			sem <- struct{}{}
+			handlerWG.Add(1)
+			go func() {
+				defer handlerWG.Done()
+				defer func() { <-sem }()
+				safeHandler("agent-settings-apply", func() {
+					handleAgentSettingsApply(transport, msg, runtime)
+				})
+			}()
 		case protocol.MsgUpdateRequest:
 			sem <- struct{}{}
+			handlerWG.Add(1)
 			go func() {
+				defer handlerWG.Done()
 				defer func() { <-sem }()
-				handleUpdateRequest(transport, msg, cfg)
+				safeHandler("update-request", func() {
+					handleUpdateRequest(transport, msg, cfg)
+				})
 			}()
 		case protocol.MsgTerminalProbe:
-			// Lightweight — no semaphore.
-			termMgr.HandleTerminalProbe(transport)
+			sem <- struct{}{}
+			handlerWG.Add(1)
+			go func() {
+				defer handlerWG.Done()
+				defer func() { <-sem }()
+				safeHandler("terminal-probe", func() {
+					termMgr.HandleTerminalProbe(transport)
+				})
+			}()
 		case protocol.MsgTerminalStart:
 			sem <- struct{}{}
+			handlerWG.Add(1)
 			go func() {
+				defer handlerWG.Done()
 				defer func() { <-sem }()
-				termMgr.HandleTerminalStart(transport, msg)
+				safeHandler("terminal-start", func() {
+					termMgr.HandleTerminalStart(transport, msg)
+				})
 			}()
 		case protocol.MsgTerminalData:
-			// Lightweight — no semaphore.
-			termMgr.HandleTerminalData(msg)
+			sem <- struct{}{}
+			handlerWG.Add(1)
+			go func() {
+				defer handlerWG.Done()
+				defer func() { <-sem }()
+				safeHandler("terminal-data", func() {
+					termMgr.HandleTerminalData(msg)
+				})
+			}()
 		case protocol.MsgTerminalResize:
-			// Lightweight — no semaphore.
-			termMgr.HandleTerminalResize(msg)
+			sem <- struct{}{}
+			handlerWG.Add(1)
+			go func() {
+				defer handlerWG.Done()
+				defer func() { <-sem }()
+				safeHandler("terminal-resize", func() {
+					termMgr.HandleTerminalResize(msg)
+				})
+			}()
 		case protocol.MsgTerminalTmuxKill:
 			sem <- struct{}{}
+			handlerWG.Add(1)
 			go func() {
+				defer handlerWG.Done()
 				defer func() { <-sem }()
-				termMgr.HandleTerminalTmuxKill(transport, msg)
+				safeHandler("terminal-tmux-kill", func() {
+					termMgr.HandleTerminalTmuxKill(transport, msg)
+				})
 			}()
 		case protocol.MsgTerminalClose:
-			// Lightweight — no semaphore.
-			termMgr.HandleTerminalClose(msg)
+			sem <- struct{}{}
+			handlerWG.Add(1)
+			go func() {
+				defer handlerWG.Done()
+				defer func() { <-sem }()
+				safeHandler("terminal-close", func() {
+					termMgr.HandleTerminalClose(msg)
+				})
+			}()
 		case protocol.MsgSSHKeyInstall:
 			sem <- struct{}{}
+			handlerWG.Add(1)
 			go func() {
+				defer handlerWG.Done()
 				defer func() { <-sem }()
-				handleSSHKeyInstall(transport, msg)
+				safeHandler("ssh-key-install", func() {
+					handleSSHKeyInstall(transport, msg)
+				})
 			}()
 		case protocol.MsgSSHKeyRemove:
 			sem <- struct{}{}
+			handlerWG.Add(1)
 			go func() {
+				defer handlerWG.Done()
 				defer func() { <-sem }()
-				handleSSHKeyRemove(transport, msg)
+				safeHandler("ssh-key-remove", func() {
+					handleSSHKeyRemove(transport, msg)
+				})
 			}()
 		case protocol.MsgDesktopStart:
 			sem <- struct{}{}
+			handlerWG.Add(1)
 			go func() {
+				defer handlerWG.Done()
 				defer func() { <-sem }()
-				deskMgr.HandleDesktopStart(transport, msg)
+				safeHandler("desktop-start", func() {
+					deskMgr.HandleDesktopStart(transport, msg)
+				})
 			}()
 		case protocol.MsgDesktopData:
-			// Lightweight — no semaphore.
-			deskMgr.HandleDesktopData(msg)
+			sem <- struct{}{}
+			handlerWG.Add(1)
+			go func() {
+				defer handlerWG.Done()
+				defer func() { <-sem }()
+				safeHandler("desktop-data", func() {
+					deskMgr.HandleDesktopData(msg)
+				})
+			}()
 		case protocol.MsgDesktopClose:
-			// Lightweight — no semaphore.
-			deskMgr.HandleDesktopClose(msg)
+			sem <- struct{}{}
+			handlerWG.Add(1)
+			go func() {
+				defer handlerWG.Done()
+				defer func() { <-sem }()
+				safeHandler("desktop-close", func() {
+					deskMgr.HandleDesktopClose(msg)
+				})
+			}()
 		case protocol.MsgDesktopListDisplays:
 			sem <- struct{}{}
+			handlerWG.Add(1)
 			go func() {
+				defer handlerWG.Done()
 				defer func() { <-sem }()
-				handleListDisplays(transport, msg)
+				safeHandler("desktop-list-displays", func() {
+					handleListDisplays(transport, msg)
+				})
 			}()
 		case protocol.MsgDesktopDiagnose:
 			sem <- struct{}{}
+			handlerWG.Add(1)
 			go func() {
+				defer handlerWG.Done()
 				defer func() { <-sem }()
-				handleDesktopDiagnose(transport, msg, deskMgr, webrtcMgr)
+				safeHandler("desktop-diagnose", func() {
+					handleDesktopDiagnose(transport, msg, deskMgr, webrtcMgr)
+				})
 			}()
 		case protocol.MsgWebRTCStart:
 			if webrtcMgr != nil {
 				sem <- struct{}{}
+				handlerWG.Add(1)
 				go func() {
+					defer handlerWG.Done()
 					defer func() { <-sem }()
-					webrtcMgr.HandleWebRTCStart(transport, msg)
+					safeHandler("webrtc-start", func() {
+						webrtcMgr.HandleWebRTCStart(transport, msg)
+					})
 				}()
 			}
 		case protocol.MsgWebRTCOffer:
 			if webrtcMgr != nil {
-				// Offer handling is signaling-only and lightweight.
-				webrtcMgr.HandleWebRTCOffer(msg, transport)
+				sem <- struct{}{}
+				handlerWG.Add(1)
+				go func() {
+					defer handlerWG.Done()
+					defer func() { <-sem }()
+					safeHandler("webrtc-offer", func() {
+						webrtcMgr.HandleWebRTCOffer(msg, transport)
+					})
+				}()
 			}
 		case protocol.MsgWebRTCICE:
 			if webrtcMgr != nil {
-				// ICE candidate handling is lightweight.
-				webrtcMgr.HandleWebRTCICE(msg)
+				sem <- struct{}{}
+				handlerWG.Add(1)
+				go func() {
+					defer handlerWG.Done()
+					defer func() { <-sem }()
+					safeHandler("webrtc-ice", func() {
+						webrtcMgr.HandleWebRTCICE(msg)
+					})
+				}()
 			}
 		case protocol.MsgWebRTCInput:
 			if webrtcMgr != nil {
-				// Input relay is lightweight.
-				webrtcMgr.HandleWebRTCInput(msg)
+				sem <- struct{}{}
+				handlerWG.Add(1)
+				go func() {
+					defer handlerWG.Done()
+					defer func() { <-sem }()
+					safeHandler("webrtc-input", func() {
+						webrtcMgr.HandleWebRTCInput(msg)
+					})
+				}()
 			}
 		case protocol.MsgWebRTCStop:
 			if webrtcMgr != nil {
-				// Stop is lightweight.
-				webrtcMgr.HandleWebRTCStop(msg, transport)
+				sem <- struct{}{}
+				handlerWG.Add(1)
+				go func() {
+					defer handlerWG.Done()
+					defer func() { <-sem }()
+					safeHandler("webrtc-stop", func() {
+						webrtcMgr.HandleWebRTCStop(msg, transport)
+					})
+				}()
 			}
 		case protocol.MsgWoLSend:
-			// Lightweight — no semaphore.
-			system.HandleWoLSend(transport, msg)
+			sem <- struct{}{}
+			handlerWG.Add(1)
+			go func() {
+				defer handlerWG.Done()
+				defer func() { <-sem }()
+				safeHandler("wol-send", func() {
+					system.HandleWoLSend(transport, msg)
+				})
+			}()
 		case protocol.MsgFileList:
 			sem <- struct{}{}
+			handlerWG.Add(1)
 			go func() {
+				defer handlerWG.Done()
 				defer func() { <-sem }()
-				fileMgr.HandleFileList(transport, msg)
+				safeHandler("file-list", func() {
+					fileMgr.HandleFileList(transport, msg)
+				})
 			}()
 		case protocol.MsgFileRead:
 			sem <- struct{}{}
+			handlerWG.Add(1)
 			go func() {
+				defer handlerWG.Done()
 				defer func() { <-sem }()
-				fileMgr.HandleFileRead(transport, msg)
+				safeHandler("file-read", func() {
+					fileMgr.HandleFileRead(transport, msg)
+				})
 			}()
 		case protocol.MsgFileWrite:
-			// Lightweight — no semaphore.
-			fileMgr.HandleFileWrite(transport, msg)
+			sem <- struct{}{}
+			handlerWG.Add(1)
+			go func() {
+				defer handlerWG.Done()
+				defer func() { <-sem }()
+				safeHandler("file-write", func() {
+					fileMgr.HandleFileWrite(transport, msg)
+				})
+			}()
 		case protocol.MsgFileMkdir:
 			sem <- struct{}{}
+			handlerWG.Add(1)
 			go func() {
+				defer handlerWG.Done()
 				defer func() { <-sem }()
-				fileMgr.HandleFileMkdir(transport, msg)
+				safeHandler("file-mkdir", func() {
+					fileMgr.HandleFileMkdir(transport, msg)
+				})
 			}()
 		case protocol.MsgFileDelete:
 			sem <- struct{}{}
+			handlerWG.Add(1)
 			go func() {
+				defer handlerWG.Done()
 				defer func() { <-sem }()
-				fileMgr.HandleFileDelete(transport, msg)
+				safeHandler("file-delete", func() {
+					fileMgr.HandleFileDelete(transport, msg)
+				})
 			}()
 		case protocol.MsgFileRename:
 			sem <- struct{}{}
+			handlerWG.Add(1)
 			go func() {
+				defer handlerWG.Done()
 				defer func() { <-sem }()
-				fileMgr.HandleFileRename(transport, msg)
+				safeHandler("file-rename", func() {
+					fileMgr.HandleFileRename(transport, msg)
+				})
 			}()
 		case protocol.MsgFileCopy:
 			sem <- struct{}{}
+			handlerWG.Add(1)
 			go func() {
+				defer handlerWG.Done()
 				defer func() { <-sem }()
-				fileMgr.HandleFileCopy(transport, msg)
+				safeHandler("file-copy", func() {
+					fileMgr.HandleFileCopy(transport, msg)
+				})
 			}()
 		case protocol.MsgFileSearch:
 			sem <- struct{}{}
+			handlerWG.Add(1)
 			go func() {
+				defer handlerWG.Done()
 				defer func() { <-sem }()
-				fileMgr.HandleFileSearch(transport, msg)
+				safeHandler("file-search", func() {
+					fileMgr.HandleFileSearch(transport, msg)
+				})
 			}()
 		case protocol.MsgProcessList:
 			if processMgr != nil {
 				sem <- struct{}{}
+				handlerWG.Add(1)
 				go func() {
+					defer handlerWG.Done()
 					defer func() { <-sem }()
-					processMgr.HandleProcessList(transport, msg)
+					safeHandler("process-list", func() {
+						processMgr.HandleProcessList(transport, msg)
+					})
 				}()
 			}
 		case protocol.MsgProcessKill:
 			if processMgr != nil {
 				sem <- struct{}{}
+				handlerWG.Add(1)
 				go func() {
+					defer handlerWG.Done()
 					defer func() { <-sem }()
-					processMgr.HandleProcessKill(transport, msg)
+					safeHandler("process-kill", func() {
+						processMgr.HandleProcessKill(transport, msg)
+					})
 				}()
 			}
 		case protocol.MsgServiceList:
 			if serviceMgr != nil {
 				sem <- struct{}{}
+				handlerWG.Add(1)
 				go func() {
+					defer handlerWG.Done()
 					defer func() { <-sem }()
-					serviceMgr.HandleServiceList(transport, msg)
+					safeHandler("service-list", func() {
+						serviceMgr.HandleServiceList(transport, msg)
+					})
 				}()
 			}
 		case protocol.MsgServiceAction:
 			if serviceMgr != nil {
 				sem <- struct{}{}
+				handlerWG.Add(1)
 				go func() {
+					defer handlerWG.Done()
 					defer func() { <-sem }()
-					serviceMgr.HandleServiceAction(transport, msg)
+					safeHandler("service-action", func() {
+						serviceMgr.HandleServiceAction(transport, msg)
+					})
 				}()
 			}
 		case protocol.MsgJournalQuery:
 			if journalMgr != nil {
 				sem <- struct{}{}
+				handlerWG.Add(1)
 				go func() {
+					defer handlerWG.Done()
 					defer func() { <-sem }()
-					journalMgr.HandleJournalQuery(transport, msg)
+					safeHandler("journal-query", func() {
+						journalMgr.HandleJournalQuery(transport, msg)
+					})
 				}()
 			}
 		case protocol.MsgDiskList:
 			if diskMgr != nil {
 				sem <- struct{}{}
+				handlerWG.Add(1)
 				go func() {
+					defer handlerWG.Done()
 					defer func() { <-sem }()
-					diskMgr.HandleDiskList(transport, msg)
+					safeHandler("disk-list", func() {
+						diskMgr.HandleDiskList(transport, msg)
+					})
 				}()
 			}
 		case protocol.MsgNetworkList:
 			if networkMgr != nil {
 				sem <- struct{}{}
+				handlerWG.Add(1)
 				go func() {
+					defer handlerWG.Done()
 					defer func() { <-sem }()
-					networkMgr.HandleNetworkList(transport, msg)
+					safeHandler("network-list", func() {
+						networkMgr.HandleNetworkList(transport, msg)
+					})
 				}()
 			}
 		case protocol.MsgNetworkAction:
 			if networkMgr != nil {
 				sem <- struct{}{}
+				handlerWG.Add(1)
 				go func() {
+					defer handlerWG.Done()
 					defer func() { <-sem }()
-					networkMgr.HandleNetworkAction(transport, msg)
+					safeHandler("network-action", func() {
+						networkMgr.HandleNetworkAction(transport, msg)
+					})
 				}()
 			}
 		case protocol.MsgPackageList:
 			if packageMgr != nil {
 				sem <- struct{}{}
+				handlerWG.Add(1)
 				go func() {
+					defer handlerWG.Done()
 					defer func() { <-sem }()
-					packageMgr.HandlePackageList(transport, msg)
+					safeHandler("package-list", func() {
+						packageMgr.HandlePackageList(transport, msg)
+					})
 				}()
 			}
 		case protocol.MsgPackageAction:
 			if packageMgr != nil {
 				sem <- struct{}{}
+				handlerWG.Add(1)
 				go func() {
+					defer handlerWG.Done()
 					defer func() { <-sem }()
-					packageMgr.HandlePackageAction(transport, msg)
+					safeHandler("package-action", func() {
+						packageMgr.HandlePackageAction(transport, msg)
+					})
 				}()
 			}
 		case protocol.MsgCronList:
 			if cronMgr != nil {
 				sem <- struct{}{}
+				handlerWG.Add(1)
 				go func() {
+					defer handlerWG.Done()
 					defer func() { <-sem }()
-					cronMgr.HandleCronList(transport, msg)
+					safeHandler("cron-list", func() {
+						cronMgr.HandleCronList(transport, msg)
+					})
 				}()
 			}
 		case protocol.MsgUsersList:
 			if usersMgr != nil {
 				sem <- struct{}{}
+				handlerWG.Add(1)
 				go func() {
+					defer handlerWG.Done()
 					defer func() { <-sem }()
-					usersMgr.HandleUsersList(transport, msg)
+					safeHandler("users-list", func() {
+						usersMgr.HandleUsersList(transport, msg)
+					})
 				}()
 			}
 		case protocol.MsgAlertNotify:
-			// Lightweight — no semaphore.
-			handleAlertNotify(msg, runtime)
+			sem <- struct{}{}
+			handlerWG.Add(1)
+			go func() {
+				defer handlerWG.Done()
+				defer func() { <-sem }()
+				safeHandler("alert-notify", func() {
+					handleAlertNotify(msg, runtime)
+				})
+			}()
 		case protocol.MsgEnrollmentChallenge:
-			// Lightweight — no semaphore.
-			handleEnrollmentChallenge(transport, msg, cfg)
+			sem <- struct{}{}
+			handlerWG.Add(1)
+			go func() {
+				defer handlerWG.Done()
+				defer func() { <-sem }()
+				safeHandler("enrollment-challenge", func() {
+					handleEnrollmentChallenge(transport, msg, cfg)
+				})
+			}()
 		case protocol.MsgEnrollmentApproved:
-			// Lightweight — no semaphore.
-			handleEnrollmentApproved(transport, msg, cfg)
+			sem <- struct{}{}
+			handlerWG.Add(1)
+			go func() {
+				defer handlerWG.Done()
+				defer func() { <-sem }()
+				safeHandler("enrollment-approved", func() {
+					handleEnrollmentApproved(transport, msg, cfg)
+				})
+			}()
 		case protocol.MsgEnrollmentRejected:
-			// Lightweight — no semaphore.
-			handleEnrollmentRejected(msg)
+			sem <- struct{}{}
+			handlerWG.Add(1)
+			go func() {
+				defer handlerWG.Done()
+				defer func() { <-sem }()
+				safeHandler("enrollment-rejected", func() {
+					handleEnrollmentRejected(msg)
+				})
+			}()
 		// Clipboard messages.
 		case protocol.MsgClipboardGet:
 			if clipMgr != nil {
 				sem <- struct{}{}
+				handlerWG.Add(1)
 				go func() {
+					defer handlerWG.Done()
 					defer func() { <-sem }()
-					clipMgr.HandleClipboardGet(transport, msg)
+					safeHandler("clipboard-get", func() {
+						clipMgr.HandleClipboardGet(transport, msg)
+					})
 				}()
 			}
 		case protocol.MsgClipboardSet:
 			if clipMgr != nil {
 				sem <- struct{}{}
+				handlerWG.Add(1)
 				go func() {
+					defer handlerWG.Done()
 					defer func() { <-sem }()
-					clipMgr.HandleClipboardSet(transport, msg)
+					safeHandler("clipboard-set", func() {
+						clipMgr.HandleClipboardSet(transport, msg)
+					})
 				}()
 			}
 		// Desktop audio sideband messages.
 		case protocol.MsgDesktopAudioStart:
 			if audioMgr != nil {
 				sem <- struct{}{}
+				handlerWG.Add(1)
 				go func() {
+					defer handlerWG.Done()
 					defer func() { <-sem }()
-					audioMgr.HandleAudioStart(transport, msg)
+					safeHandler("desktop-audio-start", func() {
+						audioMgr.HandleAudioStart(transport, msg)
+					})
 				}()
 			}
 		case protocol.MsgDesktopAudioStop:
-			// Lightweight — no semaphore.
 			if audioMgr != nil {
-				audioMgr.HandleAudioStop(msg)
+				sem <- struct{}{}
+				handlerWG.Add(1)
+				go func() {
+					defer handlerWG.Done()
+					defer func() { <-sem }()
+					safeHandler("desktop-audio-stop", func() {
+						audioMgr.HandleAudioStop(msg)
+					})
+				}()
 			}
 		// Docker container management messages.
 		case protocol.MsgDockerAction:
 			if dockerCollector != nil {
 				sem <- struct{}{}
+				handlerWG.Add(1)
 				go func() {
+					defer handlerWG.Done()
 					defer func() { <-sem }()
-					dockerCollector.HandleDockerAction(transport, msg)
+					safeHandler("docker-action", func() {
+						dockerCollector.HandleDockerAction(transport, msg)
+					})
 				}()
 			}
 		case protocol.MsgDockerExecStart:
 			if execMgr != nil {
 				sem <- struct{}{}
+				handlerWG.Add(1)
 				go func() {
+					defer handlerWG.Done()
 					defer func() { <-sem }()
-					execMgr.HandleExecStart(transport, msg)
+					safeHandler("docker-exec-start", func() {
+						execMgr.HandleExecStart(transport, msg)
+					})
 				}()
 			}
 		case protocol.MsgDockerExecInput:
-			// Lightweight — no semaphore.
 			if execMgr != nil {
-				execMgr.HandleExecInput(msg)
+				sem <- struct{}{}
+				handlerWG.Add(1)
+				go func() {
+					defer handlerWG.Done()
+					defer func() { <-sem }()
+					safeHandler("docker-exec-input", func() {
+						execMgr.HandleExecInput(msg)
+					})
+				}()
 			}
 		case protocol.MsgDockerExecResize:
-			// Lightweight — no semaphore.
 			if execMgr != nil {
-				execMgr.HandleExecResize(msg)
+				sem <- struct{}{}
+				handlerWG.Add(1)
+				go func() {
+					defer handlerWG.Done()
+					defer func() { <-sem }()
+					safeHandler("docker-exec-resize", func() {
+						execMgr.HandleExecResize(msg)
+					})
+				}()
 			}
 		case protocol.MsgDockerExecClose:
-			// Lightweight — no semaphore.
 			if execMgr != nil {
-				execMgr.HandleExecClose(msg)
+				sem <- struct{}{}
+				handlerWG.Add(1)
+				go func() {
+					defer handlerWG.Done()
+					defer func() { <-sem }()
+					safeHandler("docker-exec-close", func() {
+						execMgr.HandleExecClose(msg)
+					})
+				}()
 			}
 		case protocol.MsgDockerLogsStart:
 			if dockerLogMgr != nil {
 				sem <- struct{}{}
+				handlerWG.Add(1)
 				go func() {
+					defer handlerWG.Done()
 					defer func() { <-sem }()
-					dockerLogMgr.HandleLogsStart(ctx, transport, msg)
+					safeHandler("docker-logs-start", func() {
+						dockerLogMgr.HandleLogsStart(ctx, transport, msg)
+					})
 				}()
 			}
 		case protocol.MsgDockerLogsStop:
-			// Lightweight — no semaphore.
 			if dockerLogMgr != nil {
-				dockerLogMgr.HandleLogsStop(msg)
+				sem <- struct{}{}
+				handlerWG.Add(1)
+				go func() {
+					defer handlerWG.Done()
+					defer func() { <-sem }()
+					safeHandler("docker-logs-stop", func() {
+						dockerLogMgr.HandleLogsStop(msg)
+					})
+				}()
 			}
 		case protocol.MsgDockerComposeAction:
 			if dockerCollector != nil {
 				sem <- struct{}{}
+				handlerWG.Add(1)
 				go func() {
+					defer handlerWG.Done()
 					defer func() { <-sem }()
-					dockerCollector.HandleComposeAction(transport, msg)
+					safeHandler("docker-compose-action", func() {
+						dockerCollector.HandleComposeAction(transport, msg)
+					})
 				}()
 			}
 		case protocol.MsgWebServiceSync:
 			if webServiceCollector != nil {
 				sem <- struct{}{}
+				handlerWG.Add(1)
 				go func() {
+					defer handlerWG.Done()
 					defer func() { <-sem }()
-					webServiceCollector.RunCycle(ctx)
+					safeHandler("web-service-sync", func() {
+						webServiceCollector.RunCycle(ctx)
+					})
 				}()
 			}
 		default:
