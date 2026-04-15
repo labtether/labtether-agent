@@ -1,3 +1,9 @@
+<div align="center">
+
+<img src=".github/logo.svg" alt="LabTether" width="80" />
+
+</div>
+
 # LabTether Agent
 
 The cross-platform agent for [LabTether](https://labtether.com) -- reports telemetry, executes actions, and enables remote access for your machines.
