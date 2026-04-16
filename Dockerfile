@@ -2,6 +2,7 @@ FROM golang:1.26-alpine AS builder
 
 ARG TARGETOS
 ARG TARGETARCH
+ARG VERSION=1.2.0
 WORKDIR /src
 
 COPY go.mod go.sum ./
@@ -11,7 +12,7 @@ COPY . .
 RUN CGO_ENABLED=0 \
     GOOS=${TARGETOS:-$(go env GOOS)} \
     GOARCH=${TARGETARCH:-$(go env GOARCH)} \
-    go build -trimpath -ldflags="-s -w" -o /out/service ./cmd/labtether-agent
+    go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o /out/service ./cmd/labtether-agent
 
 # Agent needs a shell for PTY terminal sessions.
 # Using Alpine instead of distroless so /bin/sh and /bin/bash are available.

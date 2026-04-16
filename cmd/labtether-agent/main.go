@@ -12,6 +12,9 @@ import (
 	"github.com/labtether/labtether-agent/internal/agentplatform"
 )
 
+// version is injected at build time via -ldflags "-X main.version=..."
+var version string
+
 func main() {
 	if strings.EqualFold(strings.TrimSpace(os.Getenv("LABTETHER_ALLOW_INSECURE_TRANSPORT")), "true") {
 		log.Printf("labtether-agent: WARNING: insecure transport mode is enabled (LABTETHER_ALLOW_INSECURE_TRANSPORT=true)")
