@@ -61,6 +61,7 @@ func TestBuildAgentReleaseCheckURL(t *testing.T) {
 func TestCheckAndApplySelfUpdate_ReplacesExecutable(t *testing.T) {
 	t.Setenv(envAllowInsecureTransport, "true")
 	t.Setenv("LABTETHER_OUTBOUND_ALLOW_LOOPBACK", "true")
+	t.Setenv(envSelfUpdateAcceptUnsigned, "true")
 	tempDir := t.TempDir()
 	executablePath := filepath.Join(tempDir, "labtether-agent")
 	if err := os.WriteFile(executablePath, []byte("old-binary"), 0o755); err != nil {
@@ -117,6 +118,7 @@ func TestCheckAndApplySelfUpdate_ReplacesExecutable(t *testing.T) {
 func TestCheckAndApplySelfUpdate_NoopWhenChecksumMatches(t *testing.T) {
 	t.Setenv(envAllowInsecureTransport, "true")
 	t.Setenv("LABTETHER_OUTBOUND_ALLOW_LOOPBACK", "true")
+	t.Setenv(envSelfUpdateAcceptUnsigned, "true")
 	tempDir := t.TempDir()
 	executablePath := filepath.Join(tempDir, "labtether-agent")
 	currentBinary := []byte("same-binary-content")
@@ -161,6 +163,7 @@ func TestCheckAndApplySelfUpdate_NoopWhenChecksumMatches(t *testing.T) {
 func TestCheckAndApplySelfUpdate_ForceWhenChecksumMatches(t *testing.T) {
 	t.Setenv(envAllowInsecureTransport, "true")
 	t.Setenv("LABTETHER_OUTBOUND_ALLOW_LOOPBACK", "true")
+	t.Setenv(envSelfUpdateAcceptUnsigned, "true")
 	tempDir := t.TempDir()
 	executablePath := filepath.Join(tempDir, "labtether-agent")
 	currentBinary := []byte("same-binary-content")
@@ -350,6 +353,7 @@ func TestDownloadReleaseBinary(t *testing.T) {
 func TestCheckAndApplySelfUpdateRejectsSignedMetadataMismatch(t *testing.T) {
 	t.Setenv(envAllowInsecureTransport, "true")
 	t.Setenv("LABTETHER_OUTBOUND_ALLOW_LOOPBACK", "true")
+	t.Setenv(envSelfUpdateAcceptUnsigned, "true")
 
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -411,6 +415,7 @@ func TestCheckAndApplySelfUpdateRejectsSignedMetadataMismatch(t *testing.T) {
 func TestMaybeAutoUpdateOnStartupRequestsRestart(t *testing.T) {
 	t.Setenv(envAllowInsecureTransport, "true")
 	t.Setenv("LABTETHER_OUTBOUND_ALLOW_LOOPBACK", "true")
+	t.Setenv(envSelfUpdateAcceptUnsigned, "true")
 
 	tempDir := t.TempDir()
 	executablePath := filepath.Join(tempDir, "labtether-agent")

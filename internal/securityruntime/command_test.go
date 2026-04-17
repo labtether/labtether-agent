@@ -4,9 +4,26 @@ import "testing"
 
 func TestValidateExecBinaryAllowsUnknownWhenAllowlistDisabled(t *testing.T) {
 	t.Setenv(envExecAllowlistMode, "false")
+	t.Setenv(envExecAllowlistAcceptRisk, "true")
 	t.Setenv(envExecAllowedBinaries, "")
 	if err := ValidateExecBinary("custom-binary"); err != nil {
 		t.Fatalf("expected command to be allowed when allowlist mode is disabled, got %v", err)
+	}
+}
+
+func TestValidateExecBinaryBlocksWhenAllowlistDisabledWithoutAcceptRisk(t *testing.T) {
+	t.Setenv(envExecAllowlistMode, "false")
+	t.Setenv(envExecAllowlistAcceptRisk, "")
+	if err := ValidateExecBinary("custom-binary"); err == nil {
+		t.Fatalf("expected command to be blocked when allowlist is disabled without accept-risk flag")
+	}
+}
+
+func TestValidateShellCommandBlocksWhenAllowlistDisabledWithoutAcceptRisk(t *testing.T) {
+	t.Setenv(envShellAllowlistMode, "false")
+	t.Setenv(envShellAllowlistAcceptRisk, "")
+	if err := ValidateShellCommand("whoami"); err == nil {
+		t.Fatalf("expected shell command to be blocked when allowlist is disabled without accept-risk flag")
 	}
 }
 

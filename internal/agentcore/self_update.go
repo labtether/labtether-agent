@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -23,6 +24,7 @@ const selfUpdateExitCode = 10
 const (
 	envSelfUpdateTrustedPublicKey      = "LABTETHER_AUTO_UPDATE_TRUSTED_PUBLIC_KEY"
 	envSelfUpdateAllowExternalDownload = "LABTETHER_AUTO_UPDATE_ALLOW_EXTERNAL_DOWNLOAD"
+	envSelfUpdateAcceptUnsigned        = "LABTETHER_AUTO_UPDATE_ACCEPT_UNSIGNED"
 	maxSelfUpdateBinarySize            = 100 * 1024 * 1024 // 100MB
 )
 
@@ -299,7 +301,11 @@ func validateReleaseMetadata(checkURL, downloadURL string, release agentReleaseM
 func verifyReleaseMetadataSignature(release agentReleaseMetadata, downloadURL string) error {
 	trustedKeyRaw := strings.TrimSpace(os.Getenv(envSelfUpdateTrustedPublicKey))
 	if trustedKeyRaw == "" {
-		return nil
+		if parseBoolEnv(envSelfUpdateAcceptUnsigned, false) {
+			log.Printf("self-update: WARNING %s is unset and %s=true — applying release without signature verification", envSelfUpdateTrustedPublicKey, envSelfUpdateAcceptUnsigned)
+			return nil
+		}
+		return fmt.Errorf("self-update refused: %s is not configured (set %s=true to accept unsigned releases at your own risk)", envSelfUpdateTrustedPublicKey, envSelfUpdateAcceptUnsigned)
 	}
 	keyBytes, err := decodeSelfUpdatePublicKey(trustedKeyRaw)
 	if err != nil {

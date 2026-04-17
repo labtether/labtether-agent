@@ -14,9 +14,11 @@ import (
 
 const (
 	envExecAllowlistMode        = "LABTETHER_EXEC_ALLOWLIST_MODE"
+	envExecAllowlistAcceptRisk  = "LABTETHER_EXEC_ALLOWLIST_ACCEPT_RISK"
 	envExecAllowedBinaries      = "LABTETHER_EXEC_ALLOWED_BINARIES"
 	envExecBlockedBinaries      = "LABTETHER_EXEC_BLOCKED_BINARIES"
 	envShellAllowlistMode       = "LABTETHER_SHELL_COMMAND_ALLOWLIST_MODE"
+	envShellAllowlistAcceptRisk = "LABTETHER_SHELL_COMMAND_ALLOWLIST_ACCEPT_RISK"
 	envShellAllowlistPrefixes   = "LABTETHER_SHELL_COMMAND_ALLOWLIST_PREFIXES"
 	envShellBlockedSubstrings   = "LABTETHER_SHELL_COMMAND_BLOCKED_SUBSTRINGS"
 	defaultShellCommandFallback = "command is required"
@@ -276,6 +278,9 @@ func ValidateExecBinary(name string) error {
 	}
 
 	if !parseBoolEnv(envExecAllowlistMode, true) {
+		if !parseBoolEnv(envExecAllowlistAcceptRisk, false) {
+			return fmt.Errorf("refusing to run %q: %s=false requires %s=true to acknowledge that disabling the exec allowlist removes a significant security control", normalized, envExecAllowlistMode, envExecAllowlistAcceptRisk)
+		}
 		return nil
 	}
 
@@ -328,6 +333,9 @@ func ValidateShellCommand(command string) error {
 	}
 
 	if !parseBoolEnv(envShellAllowlistMode, true) {
+		if !parseBoolEnv(envShellAllowlistAcceptRisk, false) {
+			return fmt.Errorf("refusing shell command: %s=false requires %s=true to acknowledge that disabling the shell allowlist removes a significant security control", envShellAllowlistMode, envShellAllowlistAcceptRisk)
+		}
 		return nil
 	}
 
