@@ -56,9 +56,11 @@ jobs:
           sha256sum "labtether-agent-${SUFFIX}" > "labtether-agent-${SUFFIX}.sha256"
 
       - name: Sign release metadata
+        # Run the signer on the host (not cross-compiled), but embed the matrix
+        # target into the signed payload via --os / --arch.
         env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
+          TARGET_OS: ${{ matrix.goos }}
+          TARGET_ARCH: ${{ matrix.goarch }}
           SUFFIX: ${{ matrix.suffix }}
           VERSION: ${{ github.ref_name }}
           RELEASE_SIGNING_PRIVATE_KEY: ${{ secrets.RELEASE_SIGNING_PRIVATE_KEY }}
@@ -67,10 +69,11 @@ jobs:
             echo "RELEASE_SIGNING_PRIVATE_KEY secret is not set — skipping signature step"
             exit 0
           fi
+          unset GOOS GOARCH
           printf '%s' "${RELEASE_SIGNING_PRIVATE_KEY}" | go run ./scripts/release \
             --version "${VERSION}" \
-            --os "${GOOS}" \
-            --arch "${GOARCH}" \
+            --os "${TARGET_OS}" \
+            --arch "${TARGET_ARCH}" \
             --binary "labtether-agent-${SUFFIX}" \
             --out-prefix "labtether-agent-${SUFFIX}-${VERSION}"
 
