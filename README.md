@@ -90,6 +90,30 @@ docker run -d ghcr.io/labtether/labtether-agent:latest \
 
 ---
 
+## Release signing
+
+Release binaries published on GitHub Releases are signed with an ed25519 key.
+Agents that verify self-updates against this key will refuse any update whose
+signature does not match the canonical release payload
+(`version\nos\narch\nsha256\nsize`).
+
+**Public key (base64, ed25519):**
+
+```
+jM9Mqx0db6S+w6FMKDnIX2jvVp7N554+6galqPvsq88=
+```
+
+To turn on verification, set this on every agent:
+
+```bash
+export LABTETHER_AUTO_UPDATE_TRUSTED_PUBLIC_KEY="jM9Mqx0db6S+w6FMKDnIX2jvVp7N554+6galqPvsq88="
+```
+
+Maintainers: see [`docs/RELEASE_SIGNING.md`](docs/RELEASE_SIGNING.md) for key
+rotation and CI setup.
+
+---
+
 ## Links
 
 - **LabTether Hub** -- [github.com/labtether/labtether](https://github.com/labtether/labtether)
