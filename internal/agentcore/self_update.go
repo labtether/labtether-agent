@@ -319,7 +319,7 @@ func verifyReleaseMetadataSignature(release agentReleaseMetadata, downloadURL st
 	if err != nil {
 		return fmt.Errorf("decode release signature: %w", err)
 	}
-	payload := []byte(selfUpdateSignaturePayload(release, downloadURL))
+	payload := []byte(selfUpdateSignaturePayload(release))
 	if !ed25519.Verify(ed25519.PublicKey(keyBytes), payload, signature) {
 		return fmt.Errorf("release metadata signature verification failed")
 	}
@@ -366,13 +366,17 @@ func decodeSelfUpdateSignature(raw string) ([]byte, error) {
 	return nil, fmt.Errorf("signature must be %d-byte base64 or hex", ed25519.SignatureSize)
 }
 
-func selfUpdateSignaturePayload(release agentReleaseMetadata, downloadURL string) string {
+// selfUpdateSignaturePayload returns the canonical byte sequence the release
+// signer covers. The download URL is intentionally excluded: it is constructed
+// by the hub at request time and cannot be determined by the CI signer. The
+// SHA-256 digest already binds the returned binary to the signed metadata —
+// any URL swap fails the hash check downstream.
+func selfUpdateSignaturePayload(release agentReleaseMetadata) string {
 	return strings.Join([]string{
 		strings.TrimSpace(release.Version),
 		strings.TrimSpace(release.OS),
 		strings.TrimSpace(release.Arch),
 		strings.ToLower(strings.TrimSpace(release.SHA256)),
-		strings.TrimSpace(downloadURL),
 		fmt.Sprintf("%d", release.SizeBytes),
 	}, "\n")
 }

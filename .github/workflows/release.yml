@@ -55,6 +55,25 @@ jobs:
         run: |
           sha256sum "labtether-agent-${SUFFIX}" > "labtether-agent-${SUFFIX}.sha256"
 
+      - name: Sign release metadata
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          SUFFIX: ${{ matrix.suffix }}
+          VERSION: ${{ github.ref_name }}
+          RELEASE_SIGNING_PRIVATE_KEY: ${{ secrets.RELEASE_SIGNING_PRIVATE_KEY }}
+        run: |
+          if [ -z "${RELEASE_SIGNING_PRIVATE_KEY}" ]; then
+            echo "RELEASE_SIGNING_PRIVATE_KEY secret is not set — skipping signature step"
+            exit 0
+          fi
+          printf '%s' "${RELEASE_SIGNING_PRIVATE_KEY}" | go run ./scripts/release \
+            --version "${VERSION}" \
+            --os "${GOOS}" \
+            --arch "${GOARCH}" \
+            --binary "labtether-agent-${SUFFIX}" \
+            --out-prefix "labtether-agent-${SUFFIX}-${VERSION}"
+
       - name: Upload release assets
         uses: softprops/action-gh-release@v2
         with:
@@ -63,6 +82,8 @@ jobs:
             labtether-agent-${{ matrix.suffix }}.sha256
             labtether-agent-*.tar.gz
             labtether-agent-*.tar.gz.sha256
+            labtether-agent-*.sig
+            labtether-agent-*.metadata.json
 
   build-and-push-image:
     runs-on: ubuntu-latest

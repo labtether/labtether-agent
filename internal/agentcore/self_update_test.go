@@ -240,7 +240,7 @@ func TestVerifyReleaseMetadataSignature(t *testing.T) {
 		URL:       downloadURL,
 		SizeBytes: 123,
 	}
-	release.Signature = base64.StdEncoding.EncodeToString(ed25519.Sign(privateKey, []byte(selfUpdateSignaturePayload(release, downloadURL))))
+	release.Signature = base64.StdEncoding.EncodeToString(ed25519.Sign(privateKey, []byte(selfUpdateSignaturePayload(release))))
 
 	if err := verifyReleaseMetadataSignature(release, downloadURL); err != nil {
 		t.Fatalf("expected valid signature to verify, got %v", err)
@@ -369,15 +369,15 @@ func TestCheckAndApplySelfUpdateRejectsSignedMetadataMismatch(t *testing.T) {
 
 	newBinary := []byte("signed-binary")
 	newSHA := sha256Hex(newBinary)
-	badDownloadURL := "https://hub.example.com/agent.bin"
+	// Sign metadata claiming version v1.0.0 but serve v2.0.0 below — the version
+	// tamper is inside the signed payload so verification must fail.
 	signature := base64.StdEncoding.EncodeToString(ed25519.Sign(privateKey, []byte(selfUpdateSignaturePayload(agentReleaseMetadata{
-		Version:   "v2.0.0",
+		Version:   "v1.0.0",
 		OS:        "linux",
 		Arch:      "amd64",
 		SHA256:    newSHA,
-		URL:       badDownloadURL,
 		SizeBytes: int64(len(newBinary)),
-	}, badDownloadURL))))
+	}))))
 
 	var server *httptest.Server
 	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
