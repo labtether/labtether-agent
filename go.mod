@@ -5,11 +5,12 @@ go 1.26.1
 require (
 	github.com/creack/pty v1.1.24
 	github.com/gorilla/websocket v1.5.3
-	github.com/labtether/protocol v0.1.0
+	github.com/labtether/protocol v1.4.0
 	github.com/pion/interceptor v0.1.44
 	github.com/pion/rtp v1.10.1
 	github.com/pion/webrtc/v4 v4.2.11
 	github.com/shirou/gopsutil/v4 v4.26.3
+	golang.org/x/crypto v0.48.0
 	golang.org/x/sys v0.43.0
 )
 
@@ -36,7 +37,6 @@ require (
 	github.com/tklauser/numcpus v0.11.0 // indirect
 	github.com/wlynxg/anet v0.0.5 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
-	golang.org/x/crypto v0.48.0 // indirect
 	golang.org/x/net v0.50.0 // indirect
 	golang.org/x/time v0.10.0 // indirect
 )
