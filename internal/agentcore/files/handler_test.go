@@ -366,6 +366,88 @@ func TestHandleFileDeleteRemovesSymlinkWithoutTouchingTarget(t *testing.T) {
 	}
 }
 
+func TestHandleFileRenameRejectsBaseDirectory(t *testing.T) {
+	baseDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(baseDir, "keep.txt"), []byte("keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	fm := &Manager{
+		writers: make(map[string]*PendingWrite),
+		BaseDir: baseDir,
+	}
+	transport := &testFileTransport{}
+	fm.HandleFileRename(transport, protocol.Message{
+		Type: protocol.MsgFileRename,
+		ID:   "rename-base",
+		Data: marshalTestMessage(t, protocol.FileRenameData{
+			RequestID: "rename-base",
+			OldPath:   "",
+			NewPath:   "renamed-base",
+		}),
+	})
+
+	result := lastFileResult(t, transport)
+	if result.OK {
+		t.Fatal("expected base directory rename to fail")
+	}
+	if !strings.Contains(result.Error, "base directory") {
+		t.Fatalf("expected base directory error, got %q", result.Error)
+	}
+	if _, err := os.Stat(filepath.Join(baseDir, "keep.txt")); err != nil {
+		t.Fatalf("expected base directory contents to remain available: %v", err)
+	}
+}
+
+func TestHandleFileRenameRejectsExistingDestination(t *testing.T) {
+	baseDir := t.TempDir()
+	srcPath := filepath.Join(baseDir, "source.txt")
+	dstPath := filepath.Join(baseDir, "dest.txt")
+	if err := os.WriteFile(srcPath, []byte("source"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dstPath, []byte("dest"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	fm := &Manager{
+		writers: make(map[string]*PendingWrite),
+		BaseDir: baseDir,
+	}
+	transport := &testFileTransport{}
+	fm.HandleFileRename(transport, protocol.Message{
+		Type: protocol.MsgFileRename,
+		ID:   "rename-existing-dest",
+		Data: marshalTestMessage(t, protocol.FileRenameData{
+			RequestID: "rename-existing-dest",
+			OldPath:   "source.txt",
+			NewPath:   "dest.txt",
+		}),
+	})
+
+	result := lastFileResult(t, transport)
+	if result.OK {
+		t.Fatal("expected rename over existing destination to fail")
+	}
+	if !strings.Contains(result.Error, "destination already exists") {
+		t.Fatalf("expected existing destination error, got %q", result.Error)
+	}
+	srcBytes, err := os.ReadFile(srcPath)
+	if err != nil {
+		t.Fatalf("expected source file to remain: %v", err)
+	}
+	if string(srcBytes) != "source" {
+		t.Fatalf("unexpected source content: %q", string(srcBytes))
+	}
+	dstBytes, err := os.ReadFile(dstPath)
+	if err != nil {
+		t.Fatalf("expected destination file to remain: %v", err)
+	}
+	if string(dstBytes) != "dest" {
+		t.Fatalf("unexpected destination content: %q", string(dstBytes))
+	}
+}
+
 func TestWriteChunkRejectsMissingDescendantThroughSymlinkedParent(t *testing.T) {
 	baseDir := t.TempDir()
 	outsideDir := t.TempDir()

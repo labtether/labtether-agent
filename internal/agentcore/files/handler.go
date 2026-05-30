@@ -285,8 +285,20 @@ func (fm *Manager) HandleFileRename(transport MessageSender, msg protocol.Messag
 		return
 	}
 
+	if filepath.Clean(oldPath) == filepath.Clean(fm.BaseDir) {
+		fm.SendFileResult(transport, req.RequestID, false, "cannot rename base directory")
+		return
+	}
+
 	// Ensure source exists.
 	if _, err := os.Lstat(oldPath); err != nil {
+		fm.SendFileResult(transport, req.RequestID, false, err.Error())
+		return
+	}
+	if _, err := os.Lstat(newPath); err == nil {
+		fm.SendFileResult(transport, req.RequestID, false, "destination already exists")
+		return
+	} else if !errors.Is(err, os.ErrNotExist) {
 		fm.SendFileResult(transport, req.RequestID, false, err.Error())
 		return
 	}
@@ -302,6 +314,13 @@ func (fm *Manager) HandleFileRename(transport MessageSender, msg protocol.Messag
 	}
 	if recheckedOldPath != oldPath || recheckedNewPath != newPath {
 		fm.SendFileResult(transport, req.RequestID, false, "path changed during validation")
+		return
+	}
+	if _, err := os.Lstat(newPath); err == nil {
+		fm.SendFileResult(transport, req.RequestID, false, "destination already exists")
+		return
+	} else if !errors.Is(err, os.ErrNotExist) {
+		fm.SendFileResult(transport, req.RequestID, false, err.Error())
 		return
 	}
 
