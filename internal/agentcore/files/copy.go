@@ -83,7 +83,18 @@ func CopyPathRecursive(srcPath, dstPath string) error {
 	}
 
 	if srcInfo.IsDir() {
-		if PathWithinBaseDir(srcPath, dstPath) && srcPath != dstPath {
+		dstContainmentPath, err := copyDestinationContainmentPath(dstPath)
+		if err != nil {
+			return err
+		}
+		srcContainmentPath, err := filepath.EvalSymlinks(srcPath)
+		if err != nil {
+			return err
+		}
+		if srcContainmentPath == dstContainmentPath {
+			return fmt.Errorf("source and destination are identical")
+		}
+		if PathWithinBaseDir(srcContainmentPath, dstContainmentPath) {
 			return fmt.Errorf("destination cannot be inside source directory")
 		}
 		if err := os.MkdirAll(dstPath, srcInfo.Mode().Perm()); err != nil {
@@ -106,6 +117,15 @@ func CopyPathRecursive(srcPath, dstPath string) error {
 	}
 
 	return copyRegularFile(srcPath, dstPath, srcInfo.Mode().Perm())
+}
+
+func copyDestinationContainmentPath(dstPath string) (string, error) {
+	cleaned := filepath.Clean(dstPath)
+	resolvedParent, err := resolveExistingPathForContainment(filepath.Dir(cleaned))
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(resolvedParent, filepath.Base(cleaned)), nil
 }
 
 func copyRegularFile(srcPath, dstPath string, mode os.FileMode) error {

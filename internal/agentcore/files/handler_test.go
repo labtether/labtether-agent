@@ -551,6 +551,34 @@ func TestCopyPathRecursiveRejectsDestinationInsideSource(t *testing.T) {
 	}
 }
 
+func TestCopyPathRecursiveRejectsDestinationInsideSourceThroughSymlinkedParent(t *testing.T) {
+	tmpDir := t.TempDir()
+	srcDir := filepath.Join(tmpDir, "src")
+	if err := os.MkdirAll(srcDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, "data.txt"), []byte("content"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	linkPath := filepath.Join(tmpDir, "link-to-src")
+	if err := os.Symlink(srcDir, linkPath); err != nil {
+		t.Skipf("symlink not supported on this platform: %v", err)
+	}
+
+	dstDir := filepath.Join(linkPath, "nested-copy")
+	err := CopyPathRecursive(srcDir, dstDir)
+	if err == nil {
+		t.Fatal("expected symlink-parent nested destination copy to fail")
+	}
+	if !strings.Contains(err.Error(), "inside source directory") {
+		t.Fatalf("expected inside-source error, got: %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(srcDir, "nested-copy")); !os.IsNotExist(statErr) {
+		t.Fatalf("expected nested copy directory to remain absent, stat err=%v", statErr)
+	}
+}
+
 func TestResolveFileBaseDirHomeModeUsesHomeByDefault(t *testing.T) {
 	home, err := os.UserHomeDir()
 	if err != nil || strings.TrimSpace(home) == "" {
