@@ -40,10 +40,12 @@ type Manager struct {
 
 // PendingWrite tracks an in-progress file upload.
 type PendingWrite struct {
+	mu      sync.Mutex
 	File    *os.File
 	Path    string
 	TmpPath string
 	Written int64
+	Closed  bool
 }
 
 // NewManager creates a new file Manager with the given file root mode.
@@ -235,15 +237,23 @@ func (fm *Manager) HandleFileDelete(transport MessageSender, msg protocol.Messag
 		return
 	}
 
-	filePath, err := fm.ValidatePath(req.Path)
+	filePath, err := fm.ValidatePathNoFollowFinal(req.Path)
 	if err != nil {
 		fm.SendFileResult(transport, req.RequestID, false, err.Error())
 		return
 	}
 
 	// Safety: don't allow deleting the base directory itself.
-	if filePath == fm.BaseDir {
+	if filepath.Clean(filePath) == filepath.Clean(fm.BaseDir) {
 		fm.SendFileResult(transport, req.RequestID, false, "cannot delete base directory")
+		return
+	}
+	if recheckedPath, err := fm.ValidatePathNoFollowFinal(req.Path); err != nil || recheckedPath != filePath {
+		if err != nil {
+			fm.SendFileResult(transport, req.RequestID, false, err.Error())
+		} else {
+			fm.SendFileResult(transport, req.RequestID, false, "path changed during validation")
+		}
 		return
 	}
 
@@ -263,21 +273,35 @@ func (fm *Manager) HandleFileRename(transport MessageSender, msg protocol.Messag
 		return
 	}
 
-	oldPath, err := fm.ValidatePath(req.OldPath)
+	oldPath, err := fm.ValidatePathNoFollowFinal(req.OldPath)
 	if err != nil {
 		fm.SendFileResult(transport, req.RequestID, false, err.Error())
 		return
 	}
 
-	newPath, err := fm.ValidatePath(req.NewPath)
+	newPath, err := fm.ValidatePathNoFollowFinal(req.NewPath)
 	if err != nil {
 		fm.SendFileResult(transport, req.RequestID, false, err.Error())
 		return
 	}
 
 	// Ensure source exists.
-	if _, err := os.Stat(oldPath); err != nil {
+	if _, err := os.Lstat(oldPath); err != nil {
 		fm.SendFileResult(transport, req.RequestID, false, err.Error())
+		return
+	}
+	recheckedOldPath, oldErr := fm.ValidatePathNoFollowFinal(req.OldPath)
+	recheckedNewPath, newErr := fm.ValidatePathNoFollowFinal(req.NewPath)
+	if oldErr != nil {
+		fm.SendFileResult(transport, req.RequestID, false, oldErr.Error())
+		return
+	}
+	if newErr != nil {
+		fm.SendFileResult(transport, req.RequestID, false, newErr.Error())
+		return
+	}
+	if recheckedOldPath != oldPath || recheckedNewPath != newPath {
+		fm.SendFileResult(transport, req.RequestID, false, "path changed during validation")
 		return
 	}
 

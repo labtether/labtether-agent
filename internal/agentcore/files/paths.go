@@ -165,15 +165,12 @@ func (fm *Manager) ValidatePath(rawPath string) (string, error) {
 
 	// Resolve baseDir symlinks first so path containment checks are performed on
 	// canonical paths.
-	resolvedBase, err := filepath.EvalSymlinks(filepath.Clean(fm.BaseDir))
-	if err != nil {
-		resolvedBase = filepath.Clean(fm.BaseDir)
-	}
+	resolvedBase := resolveBaseForContainment(fm.BaseDir)
 
-	// Resolve full target path when it exists. This blocks symlink escapes where
-	// the final path component points outside baseDir.
 	resolved := cleaned
 	if info, statErr := os.Lstat(cleaned); statErr == nil && info != nil {
+		// Resolve full target path when it exists. This blocks symlink escapes
+		// where the final path component points outside baseDir.
 		resolvedTarget, evalErr := filepath.EvalSymlinks(cleaned)
 		if evalErr != nil {
 			return "", fmt.Errorf("resolve path %q: %w", cleaned, evalErr)
@@ -183,11 +180,12 @@ func (fm *Manager) ValidatePath(rawPath string) (string, error) {
 		// Should never happen, but keep a deterministic fallback.
 		resolved = cleaned
 	} else if errors.Is(statErr, os.ErrNotExist) {
-		// For new targets, resolve parent symlinks and join basename.
-		parent := filepath.Dir(cleaned)
-		resolvedParent, evalErr := filepath.EvalSymlinks(parent)
+		// For new targets, resolve the deepest existing parent first. A direct
+		// EvalSymlinks(parent) can fail when later parent segments do not exist
+		// yet, which must not hide an earlier symlink escape.
+		resolvedParent, evalErr := resolveParentForContainment(cleaned)
 		if evalErr != nil {
-			resolvedParent = filepath.Clean(parent)
+			return "", evalErr
 		}
 		resolved = filepath.Join(resolvedParent, filepath.Base(cleaned))
 	} else {
@@ -199,6 +197,90 @@ func (fm *Manager) ValidatePath(rawPath string) (string, error) {
 	}
 
 	return resolved, nil
+}
+
+// ValidatePathNoFollowFinal validates containment like ValidatePath but returns
+// the lexical target path instead of the final symlink target. Mutating
+// operations use this so deleting, renaming, or overwriting a symlink acts on
+// the link itself rather than the file or directory it points to.
+func (fm *Manager) ValidatePathNoFollowFinal(rawPath string) (string, error) {
+	if rawPath == "" {
+		rawPath = fm.BaseDir
+	}
+	if strings.HasPrefix(rawPath, "~/") || rawPath == "~" {
+		home := strings.TrimSpace(fm.HomeDir)
+		if home == "" {
+			home = strings.TrimSpace(ResolveAgentFileHomeDir())
+		}
+		if home == "" {
+			return "", fmt.Errorf("cannot resolve home directory")
+		}
+		rawPath = filepath.Join(home, strings.TrimPrefix(rawPath, "~"))
+	}
+	if !filepath.IsAbs(rawPath) {
+		rawPath = filepath.Join(fm.BaseDir, rawPath)
+	}
+
+	cleaned := filepath.Clean(rawPath)
+	resolvedBase := resolveBaseForContainment(fm.BaseDir)
+	if cleaned == filepath.Clean(fm.BaseDir) {
+		return cleaned, nil
+	}
+
+	resolvedParent, parentErr := resolveParentForContainment(cleaned)
+	if parentErr != nil {
+		return "", parentErr
+	}
+	containmentPath := filepath.Join(resolvedParent, filepath.Base(cleaned))
+	if _, statErr := os.Lstat(cleaned); statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
+		return "", fmt.Errorf("stat path %q: %w", cleaned, statErr)
+	}
+
+	if !PathWithinBaseDir(resolvedBase, containmentPath) {
+		return "", fmt.Errorf("path %q is outside the allowed base directory", rawPath)
+	}
+	return cleaned, nil
+}
+
+func resolveParentForContainment(cleaned string) (string, error) {
+	return resolveExistingPathForContainment(filepath.Dir(cleaned))
+}
+
+func resolveBaseForContainment(baseDir string) string {
+	cleaned := filepath.Clean(baseDir)
+	if resolved, err := filepath.EvalSymlinks(cleaned); err == nil {
+		return resolved
+	}
+	if resolved, err := resolveExistingPathForContainment(cleaned); err == nil {
+		return resolved
+	}
+	return cleaned
+}
+
+func resolveExistingPathForContainment(path string) (string, error) {
+	current := filepath.Clean(path)
+	missing := []string{}
+	for {
+		if _, err := os.Lstat(current); err == nil {
+			resolved, evalErr := filepath.EvalSymlinks(current)
+			if evalErr != nil {
+				return "", fmt.Errorf("resolve path %q: %w", current, evalErr)
+			}
+			for i := len(missing) - 1; i >= 0; i-- {
+				resolved = filepath.Join(resolved, missing[i])
+			}
+			return resolved, nil
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return "", fmt.Errorf("stat path %q: %w", current, err)
+		}
+
+		parent := filepath.Dir(current)
+		if parent == current {
+			return current, nil
+		}
+		missing = append(missing, filepath.Base(current))
+		current = parent
+	}
 }
 
 // PathWithinBaseDir checks whether path is within baseDir.

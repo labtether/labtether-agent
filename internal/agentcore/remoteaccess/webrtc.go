@@ -47,6 +47,7 @@ type WebRTCFileTransferMessage struct {
 	Name         string `json:"name,omitempty"`
 	Path         string `json:"path,omitempty"`
 	Data         string `json:"data,omitempty"`
+	Offset       int64  `json:"offset,omitempty"`
 	Done         bool   `json:"done,omitempty"`
 	BytesWritten int64  `json:"bytes_written,omitempty"`
 	Error        string `json:"error,omitempty"`
@@ -1216,6 +1217,7 @@ func (wm *WebRTCManager) handleFileTransferDataChannelMessage(dc *webrtc.DataCha
 			RequestID: payload.RequestID,
 			Path:      payload.Path,
 			Data:      payload.Data,
+			Offset:    payload.Offset,
 			Done:      payload.Done,
 		})
 		reply.BytesWritten = bytesWritten
