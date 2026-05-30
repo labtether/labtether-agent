@@ -26,7 +26,7 @@ func (fm *Manager) HandleFileCopy(transport MessageSender, msg protocol.Message)
 		return
 	}
 
-	dstPath, err := fm.ValidatePath(req.DstPath)
+	dstPath, err := fm.ValidatePathNoFollowFinal(req.DstPath)
 	if err != nil {
 		fm.SendFileResult(transport, req.RequestID, false, err.Error())
 		return
@@ -46,6 +46,20 @@ func (fm *Manager) HandleFileCopy(transport MessageSender, msg protocol.Message)
 		return
 	} else if !errors.Is(err, os.ErrNotExist) {
 		fm.SendFileResult(transport, req.RequestID, false, err.Error())
+		return
+	}
+	recheckedSrcPath, srcErr := fm.ValidatePath(req.SrcPath)
+	recheckedDstPath, dstErr := fm.ValidatePathNoFollowFinal(req.DstPath)
+	if srcErr != nil {
+		fm.SendFileResult(transport, req.RequestID, false, srcErr.Error())
+		return
+	}
+	if dstErr != nil {
+		fm.SendFileResult(transport, req.RequestID, false, dstErr.Error())
+		return
+	}
+	if recheckedSrcPath != srcPath || recheckedDstPath != dstPath {
+		fm.SendFileResult(transport, req.RequestID, false, "path changed during validation")
 		return
 	}
 

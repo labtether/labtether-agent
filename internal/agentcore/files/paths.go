@@ -201,6 +201,56 @@ func (fm *Manager) ValidatePath(rawPath string) (string, error) {
 	return resolved, nil
 }
 
+// ValidatePathNoFollowFinal validates containment like ValidatePath but returns
+// the lexical target path instead of the final symlink target. Mutating
+// operations use this so deleting, renaming, or overwriting a symlink acts on
+// the link itself rather than the file or directory it points to.
+func (fm *Manager) ValidatePathNoFollowFinal(rawPath string) (string, error) {
+	if rawPath == "" {
+		rawPath = fm.BaseDir
+	}
+	if strings.HasPrefix(rawPath, "~/") || rawPath == "~" {
+		home := strings.TrimSpace(fm.HomeDir)
+		if home == "" {
+			home = strings.TrimSpace(ResolveAgentFileHomeDir())
+		}
+		if home == "" {
+			return "", fmt.Errorf("cannot resolve home directory")
+		}
+		rawPath = filepath.Join(home, strings.TrimPrefix(rawPath, "~"))
+	}
+	if !filepath.IsAbs(rawPath) {
+		rawPath = filepath.Join(fm.BaseDir, rawPath)
+	}
+
+	cleaned := filepath.Clean(rawPath)
+	resolvedBase, err := filepath.EvalSymlinks(filepath.Clean(fm.BaseDir))
+	if err != nil {
+		resolvedBase = filepath.Clean(fm.BaseDir)
+	}
+
+	parent := filepath.Dir(cleaned)
+	resolvedParent, parentErr := filepath.EvalSymlinks(parent)
+	if parentErr != nil {
+		resolvedParent = filepath.Clean(parent)
+	}
+	containmentPath := filepath.Join(resolvedParent, filepath.Base(cleaned))
+	if info, statErr := os.Lstat(cleaned); statErr == nil && info != nil && info.Mode()&os.ModeSymlink != 0 {
+		resolvedTarget, evalErr := filepath.EvalSymlinks(cleaned)
+		if evalErr != nil {
+			return "", fmt.Errorf("resolve path %q: %w", cleaned, evalErr)
+		}
+		containmentPath = resolvedTarget
+	} else if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
+		return "", fmt.Errorf("stat path %q: %w", cleaned, statErr)
+	}
+
+	if !PathWithinBaseDir(resolvedBase, containmentPath) {
+		return "", fmt.Errorf("path %q is outside the allowed base directory", rawPath)
+	}
+	return cleaned, nil
+}
+
 // PathWithinBaseDir checks whether path is within baseDir.
 func PathWithinBaseDir(baseDir, path string) bool {
 	baseDir = filepath.Clean(baseDir)
