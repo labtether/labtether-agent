@@ -126,7 +126,7 @@ func (fm *Manager) HandleFileRead(transport MessageSender, msg protocol.Message)
 		return
 	}
 
-	filePath, err := fm.ValidatePathNoFollowFinal(req.Path)
+	filePath, err := fm.ValidatePath(req.Path)
 	if err != nil {
 		fm.sendFileData(transport, req.RequestID, "", 0, true, err.Error())
 		return
@@ -237,14 +237,14 @@ func (fm *Manager) HandleFileDelete(transport MessageSender, msg protocol.Messag
 		return
 	}
 
-	filePath, err := fm.ValidatePath(req.Path)
+	filePath, err := fm.ValidatePathNoFollowFinal(req.Path)
 	if err != nil {
 		fm.SendFileResult(transport, req.RequestID, false, err.Error())
 		return
 	}
 
 	// Safety: don't allow deleting the base directory itself.
-	if filePath == fm.BaseDir {
+	if filepath.Clean(filePath) == filepath.Clean(fm.BaseDir) {
 		fm.SendFileResult(transport, req.RequestID, false, "cannot delete base directory")
 		return
 	}

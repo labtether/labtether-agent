@@ -41,7 +41,7 @@ func (fm *Manager) HandleFileCopy(transport MessageSender, msg protocol.Message)
 		fm.SendFileResult(transport, req.RequestID, false, err.Error())
 		return
 	}
-	if _, err := os.Stat(dstPath); err == nil {
+	if _, err := os.Lstat(dstPath); err == nil {
 		fm.SendFileResult(transport, req.RequestID, false, "destination already exists")
 		return
 	} else if !errors.Is(err, os.ErrNotExist) {

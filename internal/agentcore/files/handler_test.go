@@ -1,13 +1,59 @@
 package files
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"os"
 	"os/user"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/labtether/protocol"
 )
+
+type testFileTransport struct {
+	messages []protocol.Message
+}
+
+func (t *testFileTransport) Send(msg protocol.Message) error {
+	t.messages = append(t.messages, msg)
+	return nil
+}
+
+func marshalTestMessage(t *testing.T, v interface{}) json.RawMessage {
+	t.Helper()
+	data, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
+
+func lastFileResult(t *testing.T, transport *testFileTransport) protocol.FileResultData {
+	t.Helper()
+	if len(transport.messages) == 0 {
+		t.Fatal("expected at least one message")
+	}
+	var result protocol.FileResultData
+	if err := json.Unmarshal(transport.messages[len(transport.messages)-1].Data, &result); err != nil {
+		t.Fatalf("decode file result: %v", err)
+	}
+	return result
+}
+
+func lastFileData(t *testing.T, transport *testFileTransport) protocol.FileDataPayload {
+	t.Helper()
+	if len(transport.messages) == 0 {
+		t.Fatal("expected at least one message")
+	}
+	var result protocol.FileDataPayload
+	if err := json.Unmarshal(transport.messages[len(transport.messages)-1].Data, &result); err != nil {
+		t.Fatalf("decode file data: %v", err)
+	}
+	return result
+}
 
 // TestFileWriteSizeLimitEnforced verifies that the size enforcement check
 // would reject writes that exceed MaxFileSize (regression for F3: agent file
@@ -189,6 +235,161 @@ func TestValidatePathRejectsSymlinkDirectoryOutside(t *testing.T) {
 
 	if _, err := fm.ValidatePath("outside-dir"); err == nil {
 		t.Fatalf("expected symlink directory path to be rejected")
+	}
+}
+
+func TestValidatePathRejectsMissingDescendantThroughSymlinkedParent(t *testing.T) {
+	baseDir := t.TempDir()
+	outsideDir := t.TempDir()
+
+	linkPath := filepath.Join(baseDir, "outside-dir")
+	if err := os.Symlink(outsideDir, linkPath); err != nil {
+		t.Skipf("symlink not supported on this platform: %v", err)
+	}
+
+	fm := &Manager{
+		writers: make(map[string]*PendingWrite),
+		BaseDir: baseDir,
+	}
+
+	if _, err := fm.ValidatePath(filepath.Join("outside-dir", "new", "file.txt")); err == nil {
+		t.Fatal("expected missing descendant under symlinked parent to be rejected")
+	}
+	if _, err := fm.ValidatePathNoFollowFinal(filepath.Join("outside-dir", "new", "file.txt")); err == nil {
+		t.Fatal("expected no-follow validation to reject symlinked parent escape")
+	}
+}
+
+func TestValidatePathNoFollowFinalAllowsFinalSymlinkToOutside(t *testing.T) {
+	baseDir := t.TempDir()
+	outsideDir := t.TempDir()
+	outsideFile := filepath.Join(outsideDir, "secret.txt")
+	if err := os.WriteFile(outsideFile, []byte("secret"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	linkPath := filepath.Join(baseDir, "outside-link")
+	if err := os.Symlink(outsideFile, linkPath); err != nil {
+		t.Skipf("symlink not supported on this platform: %v", err)
+	}
+
+	fm := &Manager{
+		writers: make(map[string]*PendingWrite),
+		BaseDir: baseDir,
+	}
+
+	got, err := fm.ValidatePathNoFollowFinal("outside-link")
+	if err != nil {
+		t.Fatalf("expected final symlink itself to be accepted: %v", err)
+	}
+	if got != linkPath {
+		t.Fatalf("expected lexical link path %q, got %q", linkPath, got)
+	}
+}
+
+func TestHandleFileReadRejectsSymlinkToOutside(t *testing.T) {
+	baseDir := t.TempDir()
+	outsideDir := t.TempDir()
+	outsideFile := filepath.Join(outsideDir, "secret.txt")
+	if err := os.WriteFile(outsideFile, []byte("secret"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	linkPath := filepath.Join(baseDir, "outside-link")
+	if err := os.Symlink(outsideFile, linkPath); err != nil {
+		t.Skipf("symlink not supported on this platform: %v", err)
+	}
+
+	fm := &Manager{
+		writers: make(map[string]*PendingWrite),
+		BaseDir: baseDir,
+	}
+	transport := &testFileTransport{}
+	fm.HandleFileRead(transport, protocol.Message{
+		Type: protocol.MsgFileRead,
+		ID:   "read-1",
+		Data: marshalTestMessage(t, protocol.FileReadData{
+			RequestID: "read-1",
+			Path:      "outside-link",
+		}),
+	})
+
+	result := lastFileData(t, transport)
+	if result.Error == "" {
+		t.Fatal("expected read through symlink escape to fail")
+	}
+	if result.Data != "" {
+		t.Fatalf("expected no data for rejected read, got %q", result.Data)
+	}
+}
+
+func TestHandleFileDeleteRemovesSymlinkWithoutTouchingTarget(t *testing.T) {
+	baseDir := t.TempDir()
+	outsideDir := t.TempDir()
+	outsideFile := filepath.Join(outsideDir, "secret.txt")
+	if err := os.WriteFile(outsideFile, []byte("secret"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	linkPath := filepath.Join(baseDir, "outside-link")
+	if err := os.Symlink(outsideFile, linkPath); err != nil {
+		t.Skipf("symlink not supported on this platform: %v", err)
+	}
+
+	fm := &Manager{
+		writers: make(map[string]*PendingWrite),
+		BaseDir: baseDir,
+	}
+	transport := &testFileTransport{}
+	fm.HandleFileDelete(transport, protocol.Message{
+		Type: protocol.MsgFileDelete,
+		ID:   "delete-1",
+		Data: marshalTestMessage(t, protocol.FileDeleteData{
+			RequestID: "delete-1",
+			Path:      "outside-link",
+		}),
+	})
+
+	result := lastFileResult(t, transport)
+	if !result.OK {
+		t.Fatalf("expected symlink delete to succeed, got error: %s", result.Error)
+	}
+	if _, err := os.Lstat(linkPath); !os.IsNotExist(err) {
+		t.Fatalf("expected symlink to be removed, stat err=%v", err)
+	}
+	got, err := os.ReadFile(outsideFile)
+	if err != nil {
+		t.Fatalf("outside target was removed or unreadable: %v", err)
+	}
+	if string(got) != "secret" {
+		t.Fatalf("outside target content changed: %q", string(got))
+	}
+}
+
+func TestWriteChunkRejectsMissingDescendantThroughSymlinkedParent(t *testing.T) {
+	baseDir := t.TempDir()
+	outsideDir := t.TempDir()
+
+	linkPath := filepath.Join(baseDir, "outside-dir")
+	if err := os.Symlink(outsideDir, linkPath); err != nil {
+		t.Skipf("symlink not supported on this platform: %v", err)
+	}
+
+	fm := &Manager{
+		writers: make(map[string]*PendingWrite),
+		BaseDir: baseDir,
+	}
+	_, err := fm.WriteChunk(protocol.FileWriteData{
+		RequestID: "write-1",
+		Path:      filepath.Join("outside-dir", "new", "file.txt"),
+		Data:      base64.StdEncoding.EncodeToString([]byte("secret")),
+		Done:      true,
+	})
+	if err == nil {
+		t.Fatal("expected upload through symlinked parent to be rejected")
+	}
+	if _, statErr := os.Stat(filepath.Join(outsideDir, "new")); !os.IsNotExist(statErr) {
+		t.Fatalf("expected outside directory to remain untouched, stat err=%v", statErr)
 	}
 }
 
@@ -393,7 +594,11 @@ func TestValidatePathExpandsHomeUsingResolvedFileHome(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ValidatePath returned error: %v", err)
 	}
-	if filepath.Clean(got) != "/tmp/labtether-agent-home/notes.txt" {
+	tmpRoot, err := filepath.EvalSymlinks("/tmp")
+	if err != nil {
+		tmpRoot = "/tmp"
+	}
+	if filepath.Clean(got) != filepath.Join(tmpRoot, "labtether-agent-home", "notes.txt") {
 		t.Fatalf("ValidatePath expanded path = %q", got)
 	}
 }
