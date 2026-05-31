@@ -197,7 +197,7 @@ func NormalizeX11DisplayIdentifier(raw string) string {
 	if display == "" {
 		return ""
 	}
-	if strings.Contains(display, ":") {
+	if strictLocalX11DisplayPattern.MatchString(display) {
 		return display
 	}
 	return ""

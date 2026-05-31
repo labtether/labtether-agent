@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -228,6 +229,74 @@ func TestDockerClientPingUnixSocketBypassesOutboundURLPolicy(t *testing.T) {
 
 	if err := client.ping(context.Background()); err != nil {
 		t.Fatalf("expected unix socket ping to bypass outbound URL policy, got %v", err)
+	}
+}
+
+func TestDockerClientEscapesActionQueryValues(t *testing.T) {
+	srv, client := newSecureDockerClientFixture(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/images/create":
+			if got := r.URL.Query()["fromImage"]; len(got) != 1 || got[0] != "ghcr.io/labtether/app:latest&tag=bad" {
+				t.Errorf("fromImage query values=%q", got)
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			if injected := r.URL.Query().Get("tag"); injected != "" {
+				t.Errorf("unexpected injected tag query value %q", injected)
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+		case "/containers/ct-1/kill":
+			if got := r.URL.Query()["signal"]; len(got) != 1 || got[0] != "SIGTERM&force=true" {
+				t.Errorf("signal query values=%q", got)
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			if injected := r.URL.Query().Get("force"); injected != "" {
+				t.Errorf("unexpected injected force query value %q", injected)
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+		default:
+			t.Errorf("unexpected path %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	if err := client.pullImage(context.Background(), "ghcr.io/labtether/app:latest&tag=bad"); err != nil {
+		t.Fatalf("pull image: %v", err)
+	}
+	if err := client.killContainer(context.Background(), "ct-1", "SIGTERM&force=true"); err != nil {
+		t.Fatalf("kill container: %v", err)
+	}
+}
+
+func TestDockerClientEscapesImagePathSegment(t *testing.T) {
+	srv, client := newSecureDockerClientFixture(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/images/ghcr.io/labtether/app:latest" {
+			t.Errorf("path=%q", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if !strings.HasPrefix(r.RequestURI, "/images/ghcr.io%2Flabtether%2Fapp:latest?") {
+			t.Errorf("request URI %q does not keep image ref slashes escaped", r.RequestURI)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		if got := r.URL.Query().Get("force"); got != "true" {
+			t.Errorf("force=%q", got)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	if err := client.removeImage(context.Background(), "ghcr.io/labtether/app:latest", true); err != nil {
+		t.Fatalf("remove image: %v", err)
 	}
 }
 

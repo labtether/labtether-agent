@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	neturl "net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -124,52 +125,68 @@ func (c *dockerClient) doDelete(ctx context.Context, path string) error {
 	return nil
 }
 
+func dockerPathSegment(value string) string {
+	return neturl.PathEscape(strings.TrimSpace(value))
+}
+
 func (c *dockerClient) startContainer(ctx context.Context, id string) error {
-	_, err := c.post(ctx, "/containers/"+id+"/start")
+	_, err := c.post(ctx, "/containers/"+dockerPathSegment(id)+"/start")
 	return err
 }
 
 func (c *dockerClient) stopContainer(ctx context.Context, id string, timeout int) error {
-	_, err := c.post(ctx, fmt.Sprintf("/containers/%s/stop?t=%d", id, timeout))
+	query := neturl.Values{}
+	query.Set("t", strconv.Itoa(timeout))
+	_, err := c.post(ctx, "/containers/"+dockerPathSegment(id)+"/stop?"+query.Encode())
 	return err
 }
 
 func (c *dockerClient) restartContainer(ctx context.Context, id string, timeout int) error {
-	_, err := c.post(ctx, fmt.Sprintf("/containers/%s/restart?t=%d", id, timeout))
+	query := neturl.Values{}
+	query.Set("t", strconv.Itoa(timeout))
+	_, err := c.post(ctx, "/containers/"+dockerPathSegment(id)+"/restart?"+query.Encode())
 	return err
 }
 
 func (c *dockerClient) killContainer(ctx context.Context, id string, signal string) error {
-	path := "/containers/" + id + "/kill"
+	path := "/containers/" + dockerPathSegment(id) + "/kill"
 	if signal != "" {
-		path += "?signal=" + signal
+		query := neturl.Values{}
+		query.Set("signal", signal)
+		path += "?" + query.Encode()
 	}
 	_, err := c.post(ctx, path)
 	return err
 }
 
 func (c *dockerClient) removeContainer(ctx context.Context, id string, force bool) error {
-	path := fmt.Sprintf("/containers/%s?force=%t", id, force)
+	query := neturl.Values{}
+	query.Set("force", strconv.FormatBool(force))
+	path := "/containers/" + dockerPathSegment(id) + "?" + query.Encode()
 	return c.doDelete(ctx, path)
 }
 
 func (c *dockerClient) pauseContainer(ctx context.Context, id string) error {
-	_, err := c.post(ctx, "/containers/"+id+"/pause")
+	_, err := c.post(ctx, "/containers/"+dockerPathSegment(id)+"/pause")
 	return err
 }
 
 func (c *dockerClient) unpauseContainer(ctx context.Context, id string) error {
-	_, err := c.post(ctx, "/containers/"+id+"/unpause")
+	_, err := c.post(ctx, "/containers/"+dockerPathSegment(id)+"/unpause")
 	return err
 }
 
 func (c *dockerClient) pullImage(ctx context.Context, imageRef string) error {
-	_, err := c.post(ctx, "/images/create?fromImage="+imageRef)
+	query := neturl.Values{}
+	query.Set("fromImage", strings.TrimSpace(imageRef))
+	_, err := c.post(ctx, "/images/create?"+query.Encode())
 	return err
 }
 
 func (c *dockerClient) removeImage(ctx context.Context, id string, force bool) error {
-	path := fmt.Sprintf("/images/%s?force=%t", id, force)
+	query := neturl.Values{}
+	query.Set("force", strconv.FormatBool(force))
+	path := "/images/" + dockerPathSegment(id) + "?" + query.Encode()
 	return c.doDelete(ctx, path)
 }
 
@@ -359,7 +376,9 @@ func (c *dockerClient) streamEvents(ctx context.Context, ch chan<- DockerEvent) 
 
 // containerStats fetches one-shot stats for a container.
 func (c *dockerClient) containerStats(ctx context.Context, containerID string) (DockerStatsResponse, error) {
-	data, err := c.get(ctx, "/containers/"+containerID+"/stats?stream=false")
+	query := neturl.Values{}
+	query.Set("stream", "false")
+	data, err := c.get(ctx, "/containers/"+dockerPathSegment(containerID)+"/stats?"+query.Encode())
 	if err != nil {
 		return DockerStatsResponse{}, err
 	}
@@ -379,7 +398,7 @@ func (c *dockerClient) createExec(ctx context.Context, containerID string, cmd [
 	}
 	jsonBody, _ := json.Marshal(body)
 	req, err := c.newRequest(ctx, http.MethodPost,
-		c.baseURL+"/containers/"+containerID+"/exec", bytes.NewReader(jsonBody))
+		c.baseURL+"/containers/"+dockerPathSegment(containerID)+"/exec", bytes.NewReader(jsonBody))
 	if err != nil {
 		return "", err
 	}
@@ -404,8 +423,13 @@ func (c *dockerClient) createExec(ctx context.Context, containerID string, cmd [
 
 // containerLogs fetches container logs. Returns the response body for streaming.
 func (c *dockerClient) containerLogs(ctx context.Context, containerID string, tail int, follow, timestamps bool) (io.ReadCloser, error) {
-	path := fmt.Sprintf("/containers/%s/logs?stdout=1&stderr=1&tail=%d&follow=%t&timestamps=%t",
-		containerID, tail, follow, timestamps)
+	query := neturl.Values{}
+	query.Set("stdout", "1")
+	query.Set("stderr", "1")
+	query.Set("tail", strconv.Itoa(tail))
+	query.Set("follow", strconv.FormatBool(follow))
+	query.Set("timestamps", strconv.FormatBool(timestamps))
+	path := "/containers/" + dockerPathSegment(containerID) + "/logs?" + query.Encode()
 	req, err := c.newRequest(ctx, http.MethodGet, c.baseURL+path, nil)
 	if err != nil {
 		return nil, err
