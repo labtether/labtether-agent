@@ -199,7 +199,7 @@ func TestExtractHostPortForService(t *testing.T) {
 }
 
 func TestParsePortList(t *testing.T) {
-	got := parsePortList(" 8080,443;8080 bad 65536 0 80 ")
+	got := parsePortList(" 8080,443;8080 bad 65536 0 80 +3000 3000abc ")
 	want := []int{80, 443, 8080}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("parsePortList() = %v, want %v", got, want)

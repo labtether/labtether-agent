@@ -96,6 +96,25 @@ func TestValidateOutboundDialTarget(t *testing.T) {
 	}
 }
 
+func TestValidateOutboundHostPortRejectsSignedAndMalformedPorts(t *testing.T) {
+	t.Setenv(envOutboundAllowlistMode, "true")
+	t.Setenv(envOutboundAllowPrivate, "false")
+	t.Setenv(envOutboundAllowLoopback, "false")
+	t.Setenv(envOutboundAllowedHosts, "collector.example.com")
+
+	if host, port, err := ValidateOutboundHostPort(" collector.example.com ", "", 443); err != nil {
+		t.Fatalf("expected fallback port to be allowed, got %v", err)
+	} else if host != "collector.example.com" || port != 443 {
+		t.Fatalf("ValidateOutboundHostPort() = %q, %d; want collector.example.com, 443", host, port)
+	}
+
+	for _, raw := range []string{"+443", "-443", "443abc"} {
+		if _, _, err := ValidateOutboundHostPort("collector.example.com", raw, 443); err == nil {
+			t.Fatalf("expected port %q to fail", raw)
+		}
+	}
+}
+
 func TestValidateOutboundURLRejectsHostResolvingToLoopback(t *testing.T) {
 	withMockLookupIPAddrs(t, func(_ context.Context, host string) ([]net.IPAddr, error) {
 		if host == "public.example.com" {

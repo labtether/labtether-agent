@@ -543,6 +543,5 @@ func isGenericPortServiceName(name string) bool {
 	if !strings.HasPrefix(trimmed, "port ") {
 		return false
 	}
-	_, err := strconv.Atoi(strings.TrimSpace(strings.TrimPrefix(trimmed, "port ")))
-	return err == nil
+	return parsePortValue(strings.TrimPrefix(trimmed, "port ")) > 0
 }

@@ -657,6 +657,8 @@ func TestPortFromURL(t *testing.T) {
 		{"https://example.com:8443/path", 8443},
 		{"http://10.0.1.5", 0},
 		{"https://secure.local", 0},
+		{"https://example.com:+8443/path", 0},
+		{"https://example.com:99999/path", 0},
 		{"", 0},
 		{"not-a-url", 0},
 	}
