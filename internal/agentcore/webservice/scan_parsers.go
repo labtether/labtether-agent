@@ -11,8 +11,8 @@ func parsePortValue(raw string) int {
 	if trimmed == "" {
 		return 0
 	}
-	port, err := strconv.Atoi(trimmed)
-	if err != nil {
+	port, ok := strictDecimalInt(trimmed)
+	if !ok {
 		return 0
 	}
 	if port <= 0 || port > 65535 {
@@ -38,8 +38,8 @@ func parsePortList(raw string) []int {
 		if value == "" {
 			continue
 		}
-		port, err := strconv.Atoi(value)
-		if err != nil || port <= 0 || port > 65535 {
+		port, ok := strictDecimalInt(value)
+		if !ok || port <= 0 || port > 65535 {
 			continue
 		}
 		if _, ok := seen[port]; ok {

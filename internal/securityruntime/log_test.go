@@ -22,3 +22,14 @@ func TestSanitizeLogValueTruncates(t *testing.T) {
 		t.Fatalf("expected truncation marker, got %q", got)
 	}
 }
+
+func TestLogSanitizeMaxLengthRejectsSignedAndMalformedValues(t *testing.T) {
+	for _, raw := range []string{"+64", "-64", "64abc"} {
+		t.Run(raw, func(t *testing.T) {
+			t.Setenv(envLogSanitizeMaxLength, raw)
+			if got := logSanitizeMaxLength(); got != defaultLogMaxLength {
+				t.Fatalf("logSanitizeMaxLength() = %d, want %d", got, defaultLogMaxLength)
+			}
+		})
+	}
+}

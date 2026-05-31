@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"strconv"
 	"strings"
 	"unicode"
 )
@@ -21,8 +20,8 @@ func logSanitizeMaxLength() int {
 	if raw == "" {
 		return defaultLogMaxLength
 	}
-	parsed, err := strconv.Atoi(raw)
-	if err != nil {
+	parsed, ok := strictDecimalInt(raw)
+	if !ok {
 		return defaultLogMaxLength
 	}
 	if parsed < minLogMaxLength {

@@ -441,8 +441,8 @@ func ValidateOutboundHostPort(host, portRaw string, fallbackPort int) (string, i
 	}
 	port := fallbackPort
 	if trimmedPort := strings.TrimSpace(portRaw); trimmedPort != "" {
-		parsedPort, err := strconv.Atoi(trimmedPort)
-		if err != nil {
+		parsedPort, ok := strictDecimalInt(trimmedPort)
+		if !ok {
 			return "", 0, fmt.Errorf("invalid port %q", trimmedPort)
 		}
 		port = parsedPort

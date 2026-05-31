@@ -3,7 +3,6 @@ package webservice
 import (
 	"fmt"
 	"net/url"
-	"strconv"
 	"strings"
 
 	dockerpkg "github.com/labtether/labtether-agent/internal/agentcore/docker"
@@ -321,7 +320,7 @@ func portFromURL(rawURL string) int {
 	// Only return explicitly specified ports.
 	_, portStr, err := splitHostPort(parsed.Host)
 	if err == nil && portStr != "" {
-		if p, err := strconv.Atoi(portStr); err == nil {
+		if p := parsePortValue(portStr); p > 0 {
 			return p
 		}
 	}
