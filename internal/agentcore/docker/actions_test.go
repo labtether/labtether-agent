@@ -30,6 +30,18 @@ func TestSplitDockerParamList(t *testing.T) {
 	}
 }
 
+func TestParseDockerActionIntRejectsLooseValues(t *testing.T) {
+	if got, err := parseInt(" 30 "); err != nil || got != 30 {
+		t.Fatalf("parseInt valid value = %d, %v; want 30, nil", got, err)
+	}
+
+	for _, raw := range []string{"30abc", "1e3", "1.5", ""} {
+		if got, err := parseInt(raw); err == nil {
+			t.Fatalf("parseInt(%q) = %d, nil; want error", raw, got)
+		}
+	}
+}
+
 func TestParseDockerPortBindings(t *testing.T) {
 	got := parseDockerPortBindings("8080:80,9443:9443/tcp,5353:5353/udp,invalid,9000:")
 	if len(got) != 3 {

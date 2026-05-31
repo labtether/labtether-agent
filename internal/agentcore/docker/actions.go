@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -202,9 +203,7 @@ func (dc *DockerCollector) dispatchDockerAction(ctx context.Context, req protoco
 
 // parseInt is a simple string-to-int converter for action params.
 func parseInt(s string) (int, error) {
-	var n int
-	_, err := fmt.Sscanf(s, "%d", &n)
-	return n, err
+	return strconv.Atoi(strings.TrimSpace(s))
 }
 
 func splitDockerParamList(raw string, preferredSeparator string) []string {
