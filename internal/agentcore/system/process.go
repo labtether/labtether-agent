@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"math"
 	"os/exec"
 	"sort"
 	"strconv"
@@ -184,8 +185,8 @@ func CollectProcesses() ([]protocol.ProcessInfo, error) {
 		if pidErr != nil {
 			continue
 		}
-		cpuPct, _ := strconv.ParseFloat(fields[2], 64)
-		memPct, _ := strconv.ParseFloat(fields[3], 64)
+		cpuPct := parseProcessFloat(fields[2])
+		memPct := parseProcessFloat(fields[3])
 		memRSS, _ := strconv.ParseInt(fields[5], 10, 64) // RSS in KB
 		// fields[10:] is the command and its arguments.
 		command := strings.Join(fields[10:], " ")
@@ -211,4 +212,12 @@ func CollectProcesses() ([]protocol.ProcessInfo, error) {
 	}
 
 	return processes, nil
+}
+
+func parseProcessFloat(raw string) float64 {
+	value, err := strconv.ParseFloat(strings.TrimSpace(raw), 64)
+	if err != nil || math.IsNaN(value) || math.IsInf(value, 0) {
+		return 0
+	}
+	return value
 }

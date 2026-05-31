@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
+	"math"
 	"os"
 	"os/exec"
 	"runtime"
@@ -303,7 +304,7 @@ func readKiloHertzFileAsMHz(path string) float64 {
 		return 0
 	}
 	value, err := strconv.ParseFloat(raw, 64)
-	if err != nil || value <= 0 {
+	if err != nil || value <= 0 || math.IsNaN(value) || math.IsInf(value, 0) {
 		return 0
 	}
 	return value / 1000.0
