@@ -64,6 +64,29 @@ func TestWebRTCVideoBitrateForQuality(t *testing.T) {
 	}
 }
 
+func TestNormalizeWebRTCSessionVideoSettingsDefaultsAndClamps(t *testing.T) {
+	width, height, fps := normalizeWebRTCSessionVideoSettings(protocol.WebRTCSessionData{}, WebRTCConfig{FPS: 60})
+	if width != defaultWebRTCWidth || height != defaultWebRTCHeight || fps != 60 {
+		t.Fatalf("defaults width=%d height=%d fps=%d", width, height, fps)
+	}
+
+	width, height, fps = normalizeWebRTCSessionVideoSettings(
+		protocol.WebRTCSessionData{Width: 999999, Height: 999999, FPS: 999999},
+		WebRTCConfig{FPS: 999999},
+	)
+	if width != maxWebRTCWidth || height != maxWebRTCHeight || fps != maxWebRTCFPS {
+		t.Fatalf("max clamp width=%d height=%d fps=%d", width, height, fps)
+	}
+
+	width, height, fps = normalizeWebRTCSessionVideoSettings(
+		protocol.WebRTCSessionData{Width: -1, Height: -1, FPS: 1},
+		WebRTCConfig{FPS: -1},
+	)
+	if width != defaultWebRTCWidth || height != defaultWebRTCHeight || fps != minWebRTCFPS {
+		t.Fatalf("min/default clamp width=%d height=%d fps=%d", width, height, fps)
+	}
+}
+
 func TestWebRTCManagerHandleWebRTCStartReportsUnavailable(t *testing.T) {
 	transport, messages, cleanup := newDesktopRuntimeTransport(t)
 	defer cleanup()

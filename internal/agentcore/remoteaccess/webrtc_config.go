@@ -21,11 +21,21 @@ type WebRTCConfig struct {
 	FPS                        int
 }
 
+const (
+	defaultWebRTCWidth  = 1920
+	defaultWebRTCHeight = 1080
+	maxWebRTCWidth      = 7680
+	maxWebRTCHeight     = 4320
+	minWebRTCFPS        = 5
+	defaultWebRTCFPS    = 30
+	maxWebRTCFPS        = 120
+)
+
 func LoadWebRTCConfig(settings map[string]string) WebRTCConfig {
 	cfg := WebRTCConfig{
 		Enabled: true,
 		STUNURL: "stun:stun.l.google.com:19302",
-		FPS:     30,
+		FPS:     defaultWebRTCFPS,
 	}
 
 	if v, ok := settings[sysconfig.SettingKeyWebRTCEnabled]; ok {
@@ -54,11 +64,11 @@ func LoadWebRTCConfig(settings map[string]string) WebRTCConfig {
 
 	if raw := strings.TrimSpace(settings[sysconfig.SettingKeyCaptureFPS]); raw != "" {
 		if fps, err := strconv.Atoi(raw); err == nil {
-			if fps < 5 {
-				fps = 5
+			if fps < minWebRTCFPS {
+				fps = minWebRTCFPS
 			}
-			if fps > 120 {
-				fps = 120
+			if fps > maxWebRTCFPS {
+				fps = maxWebRTCFPS
 			}
 			cfg.FPS = fps
 		}

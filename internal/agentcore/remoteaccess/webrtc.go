@@ -152,6 +152,26 @@ type WebRTCManager struct {
 	dispMgr  *DisplayManager
 }
 
+func clampWebRTCValue(value, fallback, min, max int) int {
+	if value <= 0 {
+		value = fallback
+	}
+	if value < min {
+		return min
+	}
+	if value > max {
+		return max
+	}
+	return value
+}
+
+func normalizeWebRTCSessionVideoSettings(req protocol.WebRTCSessionData, cfg WebRTCConfig) (int, int, int) {
+	fallbackFPS := clampWebRTCValue(cfg.FPS, defaultWebRTCFPS, minWebRTCFPS, maxWebRTCFPS)
+	return clampWebRTCValue(req.Width, defaultWebRTCWidth, 1, maxWebRTCWidth),
+		clampWebRTCValue(req.Height, defaultWebRTCHeight, 1, maxWebRTCHeight),
+		clampWebRTCValue(req.FPS, fallbackFPS, minWebRTCFPS, maxWebRTCFPS)
+}
+
 func NewWebRTCManager(caps protocol.WebRTCCapabilitiesData, settings SettingsProvider, fileMgr *files.Manager, dispMgr *DisplayManager) *WebRTCManager {
 	return &WebRTCManager{
 		Sessions: make(map[string]*WebRTCSession),
@@ -407,18 +427,7 @@ func (wm *WebRTCManager) HandleWebRTCStart(transport MessageSender, msg protocol
 	wm.Mu.Lock()
 	wm.Sessions[req.SessionID] = sess
 	wm.Mu.Unlock()
-	width := req.Width
-	if width <= 0 {
-		width = 1920
-	}
-	height := req.Height
-	if height <= 0 {
-		height = 1080
-	}
-	fps := req.FPS
-	if fps <= 0 {
-		fps = webrtcCfg.FPS
-	}
+	width, height, fps := normalizeWebRTCSessionVideoSettings(req, webrtcCfg)
 	videoBitrate := WebRTCVideoBitrateForQuality(req.Quality)
 
 	videoPipeline := BuildGStreamerVideoPipeline(GstPipelineConfig{
