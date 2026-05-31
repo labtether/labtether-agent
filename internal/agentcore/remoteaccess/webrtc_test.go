@@ -33,6 +33,38 @@ func TestResolveWebRTCDisplay(t *testing.T) {
 	}
 }
 
+func TestNormalizeX11DisplayIdentifierRequiresLocalDisplay(t *testing.T) {
+	tests := []struct {
+		raw  string
+		want string
+	}{
+		{raw: " :0 ", want: ":0"},
+		{raw: ":12.1", want: ":12.1"},
+		{raw: "localhost:10.0", want: ""},
+		{raw: ":../../tmp/bad", want: ""},
+		{raw: "Display 1", want: ""},
+	}
+
+	for _, tt := range tests {
+		if got := NormalizeX11DisplayIdentifier(tt.raw); got != tt.want {
+			t.Fatalf("NormalizeX11DisplayIdentifier(%q)=%q, want %q", tt.raw, got, tt.want)
+		}
+	}
+}
+
+func TestResolveWebRTCDisplayRejectsUnsafeDisplaySelection(t *testing.T) {
+	caps := protocol.WebRTCCapabilitiesData{
+		Displays: []string{"Display 1", ":2"},
+	}
+
+	if got := ResolveWebRTCDisplay(":../../tmp/bad", caps); got != ":2" {
+		t.Fatalf("expected unsafe requested display to fall back to first valid advertised display, got %q", got)
+	}
+	if got := ResolveWebRTCDisplay("", protocol.WebRTCCapabilitiesData{Displays: []string{"host:0", "Display 1"}}); got != ":0" {
+		t.Fatalf("expected invalid advertised displays to fall back to :0, got %q", got)
+	}
+}
+
 func TestResolveWebRTCDisplayWaylandIgnoresX11Selection(t *testing.T) {
 	caps := protocol.WebRTCCapabilitiesData{
 		DesktopSessionType: DesktopSessionTypeWayland,

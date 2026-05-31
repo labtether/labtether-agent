@@ -80,21 +80,19 @@ func ResolveWebRTCDisplay(requested string, caps protocol.WebRTCCapabilitiesData
 	if strings.EqualFold(strings.TrimSpace(caps.DesktopSessionType), DesktopSessionTypeWayland) {
 		return ""
 	}
-	display := strings.TrimSpace(requested)
+	display := NormalizeX11DisplayIdentifier(requested)
 	if display != "" {
 		for _, candidate := range caps.Displays {
-			if display == strings.TrimSpace(candidate) {
+			if display == NormalizeX11DisplayIdentifier(candidate) {
 				return display
 			}
 		}
-		if strings.HasPrefix(display, ":") {
-			return display
-		}
+		return display
 	}
 	for _, candidate := range caps.Displays {
-		trimmed := strings.TrimSpace(candidate)
-		if trimmed != "" {
-			return trimmed
+		normalized := NormalizeX11DisplayIdentifier(candidate)
+		if normalized != "" {
+			return normalized
 		}
 	}
 	return ":0"
