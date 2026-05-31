@@ -3,6 +3,7 @@ package files
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -472,6 +473,58 @@ func TestWriteChunkRejectsMissingDescendantThroughSymlinkedParent(t *testing.T) 
 	}
 	if _, statErr := os.Stat(filepath.Join(outsideDir, "new")); !os.IsNotExist(statErr) {
 		t.Fatalf("expected outside directory to remain untouched, stat err=%v", statErr)
+	}
+}
+
+func TestCleanupPendingWriteDoesNotRemoveReplacementForSameRequestID(t *testing.T) {
+	baseDir := t.TempDir()
+	oldFile, err := os.CreateTemp(baseDir, ".lt-upload-old-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	newFile, err := os.CreateTemp(baseDir, ".lt-upload-new-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	oldPending := &PendingWrite{
+		File:    oldFile,
+		Path:    filepath.Join(baseDir, "old.txt"),
+		TmpPath: oldFile.Name(),
+	}
+	newPending := &PendingWrite{
+		File:    newFile,
+		Path:    filepath.Join(baseDir, "new.txt"),
+		TmpPath: newFile.Name(),
+	}
+	fm := &Manager{
+		writers: map[string]*PendingWrite{
+			"upload-1": newPending,
+		},
+		BaseDir: baseDir,
+	}
+	t.Cleanup(fm.CloseAll)
+
+	fm.cleanupPendingWrite("upload-1", oldPending)
+
+	if !oldPending.Closed {
+		t.Fatal("expected stale pending writer to be closed")
+	}
+	if _, statErr := os.Stat(oldPending.TmpPath); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("expected stale temp file to be removed, stat err=%v", statErr)
+	}
+	if newPending.Closed {
+		t.Fatal("replacement pending writer was closed")
+	}
+	if _, statErr := os.Stat(newPending.TmpPath); statErr != nil {
+		t.Fatalf("expected replacement temp file to remain, stat err=%v", statErr)
+	}
+
+	fm.mu.Lock()
+	got := fm.writers["upload-1"]
+	fm.mu.Unlock()
+	if got != newPending {
+		t.Fatal("replacement pending writer was removed from manager")
 	}
 }
 
