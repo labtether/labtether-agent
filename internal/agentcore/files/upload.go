@@ -138,7 +138,7 @@ func (fm *Manager) WriteChunk(req protocol.FileWriteData) (int64, error) {
 		fm.writers[req.RequestID] = pw
 	} else if pw.Path != filePath {
 		fm.mu.Unlock()
-		fm.cleanupWrite(req.RequestID)
+		fm.cleanupPendingWrite(req.RequestID, pw)
 		return 0, errors.New("upload request_id path mismatch")
 	}
 	fm.mu.Unlock()
@@ -146,7 +146,7 @@ func (fm *Manager) WriteChunk(req protocol.FileWriteData) (int64, error) {
 	// Decode and write chunk.
 	decoded, err := base64.StdEncoding.DecodeString(req.Data)
 	if err != nil {
-		fm.cleanupWrite(req.RequestID)
+		fm.cleanupPendingWrite(req.RequestID, pw)
 		return 0, errors.New("invalid base64 data")
 	}
 
@@ -215,18 +215,8 @@ func (fm *Manager) WriteChunk(req protocol.FileWriteData) (int64, error) {
 	return written, nil
 }
 
-func (fm *Manager) cleanupWrite(requestID string) {
-	fm.mu.Lock()
-	if fm.writers == nil {
-		fm.mu.Unlock()
-		return
-	}
-	pw, ok := fm.writers[requestID]
-	if ok {
-		delete(fm.writers, requestID)
-	}
-	fm.mu.Unlock()
-	if !ok {
+func (fm *Manager) cleanupPendingWrite(requestID string, pw *PendingWrite) {
+	if pw == nil {
 		return
 	}
 	pw.mu.Lock()
