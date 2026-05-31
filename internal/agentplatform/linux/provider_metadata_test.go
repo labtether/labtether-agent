@@ -4,6 +4,8 @@ package linux
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -147,5 +149,19 @@ func TestReadCapabilityMetadataWithoutTooling(t *testing.T) {
 	}
 	if got := metadata["cap_network"]; got != "list" {
 		t.Fatalf("cap_network=%q, want list", got)
+	}
+}
+
+func TestReadKiloHertzFileAsMHzRejectsNonFiniteValues(t *testing.T) {
+	dir := t.TempDir()
+
+	for _, raw := range []string{"NaN", "Inf", "-Inf"} {
+		path := filepath.Join(dir, raw)
+		if err := os.WriteFile(path, []byte(raw), 0o600); err != nil {
+			t.Fatalf("write fixture: %v", err)
+		}
+		if got := readKiloHertzFileAsMHz(path); got != 0 {
+			t.Fatalf("readKiloHertzFileAsMHz(%q) = %v, want 0", raw, got)
+		}
 	}
 }
