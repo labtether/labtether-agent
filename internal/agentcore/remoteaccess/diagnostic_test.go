@@ -4,6 +4,9 @@ import (
 	"os"
 	"os/exec"
 	"testing"
+	"time"
+
+	"github.com/labtether/protocol"
 )
 
 func TestCollectDesktopDiagnosticBasicFields(t *testing.T) {
@@ -25,5 +28,20 @@ func TestCollectDesktopDiagnosticDetectsXterm(t *testing.T) {
 	wantXterm := xtermErr == nil
 	if diag.XtermAvailable != wantXterm {
 		t.Errorf("XtermAvailable=%v, want %v", diag.XtermAvailable, wantXterm)
+	}
+}
+
+func TestHandleDesktopDiagnoseRejectsMalformedPayload(t *testing.T) {
+	transport := newMockTransport()
+
+	HandleDesktopDiagnose(transport, protocol.Message{
+		Type: protocol.MsgDesktopDiagnose,
+		Data: []byte(`{"request_id":`),
+	}, nil, nil)
+
+	select {
+	case msg := <-transport.messages:
+		t.Fatalf("unexpected response for malformed payload: %+v", msg)
+	case <-time.After(100 * time.Millisecond):
 	}
 }
