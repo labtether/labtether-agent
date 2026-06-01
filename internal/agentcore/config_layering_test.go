@@ -112,6 +112,48 @@ func TestLoadConfigSettingsFileOverridesEnvAcrossRuntimeFields(t *testing.T) {
 	}
 }
 
+func TestLoadConfigSettingsFileRejectsOutOfRangeIntervalsBeforeDurationConversion(t *testing.T) {
+	dir := t.TempDir()
+	settingsPath := filepath.Join(dir, "agent-settings.json")
+	payload := struct {
+		Version   int               `json:"version"`
+		Values    map[string]string `json:"values"`
+		UpdatedAt string            `json:"updated_at"`
+	}{
+		Version: 1,
+		Values: map[string]string{
+			"Collect_Interval_Sec":          "2147483647",
+			"Heartbeat_Interval_Sec":        "2147483647",
+			"Docker_Discovery_Interval_Sec": "2147483647",
+		},
+		UpdatedAt: "2026-03-09T00:00:00Z",
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal settings payload: %v", err)
+	}
+	if err := os.WriteFile(settingsPath, data, 0o600); err != nil {
+		t.Fatalf("write settings payload: %v", err)
+	}
+
+	t.Setenv("LABTETHER_AGENT_SETTINGS_FILE", settingsPath)
+	t.Setenv("AGENT_COLLECT_INTERVAL", "12")
+	t.Setenv("AGENT_HEARTBEAT_INTERVAL", "30")
+	t.Setenv("LABTETHER_DOCKER_DISCOVERY_INTERVAL", "40")
+
+	cfg := LoadConfig("test-agent", "8090", "test")
+
+	if cfg.CollectInterval != 12*time.Second {
+		t.Fatalf("CollectInterval=%v, want env fallback 12s", cfg.CollectInterval)
+	}
+	if cfg.HeartbeatInterval != 30*time.Second {
+		t.Fatalf("HeartbeatInterval=%v, want env fallback 30s", cfg.HeartbeatInterval)
+	}
+	if cfg.DockerDiscoveryInterval != 40*time.Second {
+		t.Fatalf("DockerDiscoveryInterval=%v, want env fallback 40s", cfg.DockerDiscoveryInterval)
+	}
+}
+
 func TestLoadConfigExplicitSecretsBeatFileSecrets(t *testing.T) {
 	dir := t.TempDir()
 	tokenFile := filepath.Join(dir, "agent-token")

@@ -12,7 +12,6 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/creack/pty"
 
@@ -291,13 +290,7 @@ func (tm *TerminalManager) HandleTerminalTmuxKill(transport MessageSender, msg p
 		return
 	}
 
-	timeout := DefaultCommandTimeout
-	if req.Timeout > 0 {
-		timeout = time.Duration(req.Timeout) * time.Second
-	}
-	if timeout > MaxRemoteCommandTimeout {
-		timeout = MaxRemoteCommandTimeout
-	}
+	timeout := remoteCommandTimeoutFromSeconds(req.Timeout)
 
 	checkCtx, checkCancel := context.WithTimeout(context.Background(), timeout)
 	defer checkCancel()

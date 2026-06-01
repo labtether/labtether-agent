@@ -129,3 +129,10 @@ func TestLoadConfigLowPowerAllowsExplicitOverrides(t *testing.T) {
 		t.Fatal("LogStreamEnabled=false, want true")
 	}
 }
+
+func TestParseDurationOrDefaultBoundsLargeNumericSecondsBeforeConversion(t *testing.T) {
+	got := parseDurationOrDefault("9223372036", 30*time.Second, 5*time.Second, 5*time.Minute)
+	if got != 5*time.Minute {
+		t.Fatalf("parseDurationOrDefault(huge seconds) = %v, want %v", got, 5*time.Minute)
+	}
+}

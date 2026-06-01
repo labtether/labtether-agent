@@ -206,13 +206,13 @@ func LoadConfig(defaultName, defaultPort, defaultSource string) RuntimeConfig {
 			}
 		}
 		if raw := strings.TrimSpace(settings[SettingKeyCollectIntervalSec]); raw != "" {
-			if seconds, err := strconv.Atoi(raw); err == nil {
-				cfg.CollectInterval = time.Duration(seconds) * time.Second
+			if interval, ok := durationFromAgentSettingSeconds(SettingKeyCollectIntervalSec, raw); ok {
+				cfg.CollectInterval = interval
 			}
 		}
 		if raw := strings.TrimSpace(settings[SettingKeyHeartbeatIntervalSec]); raw != "" {
-			if seconds, err := strconv.Atoi(raw); err == nil {
-				cfg.HeartbeatInterval = time.Duration(seconds) * time.Second
+			if interval, ok := durationFromAgentSettingSeconds(SettingKeyHeartbeatIntervalSec, raw); ok {
+				cfg.HeartbeatInterval = interval
 			}
 		}
 		if raw := strings.TrimSpace(settings[SettingKeyDockerEnabled]); raw != "" {
@@ -222,8 +222,8 @@ func LoadConfig(defaultName, defaultPort, defaultSource string) RuntimeConfig {
 			cfg.DockerSocket = raw
 		}
 		if raw := strings.TrimSpace(settings[SettingKeyDockerDiscoveryIntervalSec]); raw != "" {
-			if seconds, err := strconv.Atoi(raw); err == nil {
-				cfg.DockerDiscoveryInterval = time.Duration(seconds) * time.Second
+			if interval, ok := durationFromAgentSettingSeconds(SettingKeyDockerDiscoveryIntervalSec, raw); ok {
+				cfg.DockerDiscoveryInterval = interval
 			}
 		}
 		if raw := strings.TrimSpace(settings[SettingKeyServicesDiscoveryDockerEnabled]); raw != "" {
@@ -498,19 +498,42 @@ func parseDurationOrDefault(raw string, fallback, minValue, maxValue time.Durati
 		return fallback
 	}
 	if seconds, err := strconv.Atoi(trimmed); err == nil {
-		duration := time.Duration(seconds) * time.Second
-		if duration < minValue {
-			return minValue
-		}
-		if duration > maxValue {
-			return maxValue
-		}
-		return duration
+		return clampDurationSeconds(seconds, minValue, maxValue)
 	}
 	duration, err := time.ParseDuration(trimmed)
 	if err != nil {
 		return fallback
 	}
+	if duration < minValue {
+		return minValue
+	}
+	if duration > maxValue {
+		return maxValue
+	}
+	return duration
+}
+
+func durationFromAgentSettingSeconds(key, raw string) (time.Duration, bool) {
+	normalized, err := NormalizeAgentSettingValue(key, raw)
+	if err != nil {
+		return 0, false
+	}
+	seconds, err := strconv.Atoi(normalized)
+	if err != nil {
+		return 0, false
+	}
+	return time.Duration(seconds) * time.Second, true
+}
+
+func clampDurationSeconds(seconds int, minValue, maxValue time.Duration) time.Duration {
+	if seconds <= 0 {
+		return minValue
+	}
+	maxSeconds := int(maxValue / time.Second)
+	if maxSeconds > 0 && seconds > maxSeconds {
+		return maxValue
+	}
+	duration := time.Duration(seconds) * time.Second
 	if duration < minValue {
 		return minValue
 	}

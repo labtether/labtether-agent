@@ -2,7 +2,9 @@ package remoteaccess
 
 import (
 	"encoding/base64"
+	"math"
 	"testing"
+	"time"
 )
 
 func TestTokenAllowsAnyCapability(t *testing.T) {
@@ -40,5 +42,17 @@ func TestValidateUpdatePackages(t *testing.T) {
 	}
 	if err := ValidateUpdatePackages([]string{"bad;rm -rf /"}); err == nil {
 		t.Fatalf("expected invalid package name to be rejected")
+	}
+}
+
+func TestRemoteCommandTimeoutFromSecondsBoundsBeforeDurationConversion(t *testing.T) {
+	if got := remoteCommandTimeoutFromSeconds(0); got != DefaultCommandTimeout {
+		t.Fatalf("remoteCommandTimeoutFromSeconds(0) = %s, want %s", got, DefaultCommandTimeout)
+	}
+	if got := remoteCommandTimeoutFromSeconds(2); got != 2*time.Second {
+		t.Fatalf("remoteCommandTimeoutFromSeconds(2) = %s, want 2s", got)
+	}
+	if got := remoteCommandTimeoutFromSeconds(math.MaxInt); got != MaxRemoteCommandTimeout {
+		t.Fatalf("remoteCommandTimeoutFromSeconds(MaxInt) = %s, want %s", got, MaxRemoteCommandTimeout)
 	}
 }
