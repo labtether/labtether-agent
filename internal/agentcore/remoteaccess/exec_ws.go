@@ -55,13 +55,7 @@ func HandleCommandRequest(transport MessageSender, msg protocol.Message, cfg Exe
 		return
 	}
 
-	timeout := DefaultCommandTimeout
-	if req.Timeout > 0 {
-		timeout = time.Duration(req.Timeout) * time.Second
-	}
-	if timeout > MaxRemoteCommandTimeout {
-		timeout = MaxRemoteCommandTimeout
-	}
+	timeout := remoteCommandTimeoutFromSeconds(req.Timeout)
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
