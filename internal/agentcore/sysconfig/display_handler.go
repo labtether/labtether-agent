@@ -13,7 +13,10 @@ func HandleListDisplays(transport MessageSender, msg protocol.Message) {
 	var req struct {
 		RequestID string `json:"request_id"`
 	}
-	_ = json.Unmarshal(msg.Data, &req)
+	if err := json.Unmarshal(msg.Data, &req); err != nil {
+		log.Printf("display: invalid list request: %v", err)
+		return
+	}
 
 	displays, err := PlatformListDisplaysFn()
 	resp := protocol.DisplayListData{

@@ -211,6 +211,31 @@ func TestHandleListDisplaysReturnsDisplaysAndErrors(t *testing.T) {
 			t.Fatalf("error=%q, want xrandr failed", resp.Error)
 		}
 	})
+
+	t.Run("malformed request", func(t *testing.T) {
+		called := false
+		sysconfig.PlatformListDisplaysFn = func() ([]protocol.DisplayInfo, error) {
+			called = true
+			return nil, nil
+		}
+
+		transport, messages, cleanup := newDesktopRuntimeTransport(t)
+		defer cleanup()
+
+		sysconfig.HandleListDisplays(transport, protocol.Message{
+			Type: protocol.MsgDesktopListDisplays,
+			Data: []byte(`{"request_id":`),
+		})
+
+		if called {
+			t.Fatal("malformed display request should not invoke platform display discovery")
+		}
+		select {
+		case msg := <-messages:
+			t.Fatalf("unexpected display response for malformed payload: %+v", msg)
+		case <-time.After(100 * time.Millisecond):
+		}
+	})
 }
 
 // Test helper functions moved to test_helpers_test.go

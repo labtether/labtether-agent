@@ -2,6 +2,7 @@ package remoteaccess
 
 import (
 	"encoding/json"
+	"log"
 	"os"
 	"os/exec"
 	"regexp"
@@ -151,7 +152,10 @@ func CollectDesktopDiagnostic(deskMgr *DesktopManager, webrtcMgr *WebRTCManager)
 // handleDesktopDiagnose handles a MsgDesktopDiagnose request from the hub.
 func HandleDesktopDiagnose(transport MessageSender, msg protocol.Message, deskMgr *DesktopManager, webrtcMgr *WebRTCManager) {
 	var req protocol.DesktopDiagnosticRequest
-	_ = json.Unmarshal(msg.Data, &req)
+	if err := json.Unmarshal(msg.Data, &req); err != nil {
+		log.Printf("desktop-diagnostic: invalid diagnose request: %v", err)
+		return
+	}
 
 	diag := CollectDesktopDiagnostic(deskMgr, webrtcMgr)
 	diag.RequestID = req.RequestID
