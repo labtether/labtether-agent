@@ -43,7 +43,7 @@ func (LinuxLogBackend) QueryEntries(req protocol.JournalQueryData) ([]protocol.L
 	if err != nil {
 		return nil, fmt.Errorf("journalctl command blocked by runtime policy: %w", err)
 	}
-	out, err := cmd.CombinedOutput()
+	out, err := securityruntime.CaptureCombinedOutput(cmd, securityruntime.DefaultCommandOutputLimit)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) || ctx.Err() == context.DeadlineExceeded {
 			return nil, fmt.Errorf("journalctl query timed out")

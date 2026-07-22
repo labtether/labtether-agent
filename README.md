@@ -17,36 +17,57 @@ The cross-platform agent for [LabTether](https://labtether.com) -- reports telem
 
 ### Linux
 
-Download the latest binary from [Releases](https://github.com/labtether/labtether-agent/releases/latest):
+Choose an exact version from [Releases](https://github.com/labtether/labtether-agent/releases), then verify it before installation:
 
 ```bash
-curl -fsSL https://github.com/labtether/labtether-agent/releases/latest/download/labtether-agent-linux-amd64 \
-  -o /usr/local/bin/labtether-agent
-chmod +x /usr/local/bin/labtether-agent
+VERSION=vX.Y.Z
+ASSET=labtether-agent-linux-amd64
+tmp_dir="$(mktemp -d)"
+curl --proto '=https' --tlsv1.2 -fL \
+  "https://github.com/labtether/labtether-agent/releases/download/${VERSION}/${ASSET}" \
+  -o "${tmp_dir}/${ASSET}"
+curl --proto '=https' --tlsv1.2 -fL \
+  "https://github.com/labtether/labtether-agent/releases/download/${VERSION}/${ASSET}.sha256" \
+  -o "${tmp_dir}/${ASSET}.sha256"
+(cd "${tmp_dir}" && sha256sum --check "${ASSET}.sha256")
+gh attestation verify "${tmp_dir}/${ASSET}" -R labtether/labtether-agent
+sudo install -m 0755 "${tmp_dir}/${ASSET}" /usr/local/bin/labtether-agent
+rm -rf "${tmp_dir}"
 ```
 
 Then enroll with your hub:
 
 ```bash
-labtether-agent --hub wss://your-hub:8443/ws/agent --enrollment-token YOUR_TOKEN
+umask 077
+token_file="$(mktemp)"
+trap 'rm -f "$token_file"' EXIT
+read -r -s -p 'Enrollment token: ' enrollment_token
+printf '\n'
+printf '%s\n' "$enrollment_token" > "$token_file"
+unset enrollment_token
+sudo env \
+  LABTETHER_WS_URL=wss://your-hub:8443/ws/agent \
+  LABTETHER_ENROLLMENT_TOKEN_FILE="$token_file" \
+  /usr/local/bin/labtether-agent
 ```
 
 For systemd service setup and full configuration, see the [agent setup guide](https://labtether.com/docs/install-upgrade/agent-install-commands-by-os).
 
 ### Windows
 
-Pre-built Windows binaries (amd64, arm64) are also available from [Releases](https://github.com/labtether/labtether-agent/releases/latest). For the native Windows tray app with enrollment UI and credential management, see the [Windows Agent](https://github.com/labtether/labtether-win).
+Pre-built Windows binaries (amd64, arm64) are also available from [Releases](https://github.com/labtether/labtether-agent/releases). Verify the published checksum and GitHub build attestation before installation. For the native Windows tray app with enrollment UI and credential management, see the [Windows Agent](https://github.com/labtether/labtether-win).
 
 ---
 
 ## What It Does
 
-- **System telemetry** -- CPU, memory, disk, network, and temperature reported to your hub.
-- **Remote access** -- Terminal and desktop sessions from the LabTether console. No SSH keys or VNC clients needed.
+- **System telemetry** -- CPU, memory, disk, and network reported to your hub, with temperature included when the host exposes a usable sensor source.
+- **Remote access** -- Terminal sessions and platform-dependent desktop sessions from the LabTether console. Desktop capture requires the platform prerequisites documented by the agent when it reports an unavailable backend.
 - **Service management** -- Start, stop, and restart systemd services (Linux) or Windows services remotely.
 - **Package updates** -- View and apply package updates across your fleet.
 - **Docker monitoring** -- Container status, logs, and actions for Docker hosts.
 - **Process management** -- List and manage running processes from the dashboard.
+- **Host power controls** -- Graceful reboot and shutdown through a dedicated typed protocol, with no raw-shell fallback. The agent service must have the operating-system privileges required to change host power; an unprivileged or container-isolated agent reports failure instead of false success.
 
 ---
 
@@ -58,6 +79,13 @@ Pre-built Windows binaries (amd64, arm64) are also available from [Releases](htt
 | Windows | amd64, arm64 | Pre-built binaries in Releases. See also [labtether-win](https://github.com/labtether/labtether-win) for the native tray app. |
 | macOS | -- | See [labtether-mac](https://github.com/labtether/labtether-mac) for the native menu bar app (bundles this agent). |
 | FreeBSD | -- | Managed agentlessly via hub connectors. No agent install required. |
+
+Typed host power is advertised only when both native reboot and shutdown
+commands are present. The fixed implementations use systemd on Linux,
+`shutdown` on macOS and FreeBSD when the Go agent is deployed there, and
+`shutdown.exe` on Windows. A hub `202 Accepted` response means the operating
+system accepted the request; it does not claim the machine has already
+completed the transition.
 
 ---
 
@@ -84,9 +112,15 @@ For most users, download the pre-built binary from [Releases](https://github.com
 A container image is available for environments where a containerized agent is preferred:
 
 ```bash
-docker run -d ghcr.io/labtether/labtether-agent:latest \
-  --hub wss://your-hub:8443/ws/agent --enrollment-token YOUR_TOKEN
+gh attestation verify oci://ghcr.io/labtether/labtether-agent:vX.Y.Z -R labtether/labtether-agent
+docker run -d --cap-drop=ALL --security-opt=no-new-privileges \
+  --mount type=bind,src=/secure/labtether-enrollment-token,dst=/run/secrets/labtether-enrollment-token,readonly \
+  -e LABTETHER_WS_URL=wss://your-hub:8443/ws/agent \
+  -e LABTETHER_ENROLLMENT_TOKEN_FILE=/run/secrets/labtether-enrollment-token \
+  ghcr.io/labtether/labtether-agent:vX.Y.Z@sha256:RELEASE_DIGEST
 ```
+
+Use the immutable digest shown by the release rather than a mutable `latest` tag.
 
 ---
 

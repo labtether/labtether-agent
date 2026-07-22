@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"log"
 	"os/exec"
+	"runtime"
 	"strings"
 	"time"
 
@@ -67,6 +68,13 @@ func (um *UsersManager) HandleUsersList(transport MessageSender, msg protocol.Me
 // CollectUserSessions runs `who` and parses the output to extract active user sessions.
 // who output format: username tty    YYYY-MM-DD HH:MM (remote_host)
 func CollectUserSessions() ([]protocol.UserSession, error) {
+	if runtime.GOOS == "windows" {
+		return collectUserSessionsWindows()
+	}
+	return collectUserSessionsWho()
+}
+
+func collectUserSessionsWho() ([]protocol.UserSession, error) {
 	whoBin, err := exec.LookPath("who")
 	if err != nil {
 		return nil, err

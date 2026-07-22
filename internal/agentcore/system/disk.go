@@ -93,10 +93,14 @@ var VirtualFSTypes = map[string]bool{
 // On Linux it reads /proc/mounts and uses syscall.Statfs for space info.
 // On macOS and other platforms it parses `df -k` output.
 func CollectMounts() ([]protocol.MountInfo, error) {
-	if runtime.GOOS == "linux" {
+	switch runtime.GOOS {
+	case "linux":
 		return collectMountsLinux()
+	case "windows":
+		return collectMountsWindows()
+	default:
+		return collectMountsDF()
 	}
-	return collectMountsDF()
 }
 
 // collectMountsLinux reads /proc/mounts and calls StatfsMountPoint for each
@@ -150,21 +154,30 @@ func collectMountsLinux() ([]protocol.MountInfo, error) {
 	return mounts, nil
 }
 
-// collectMountsDF parses `df -k` output to collect mount/disk information.
+// collectMountsDF parses POSIX `df -kP` output to collect mount/disk information.
 // This works on Linux, macOS, and FreeBSD.
 //
-// df -k column layout:
+// df -kP column layout:
 //
 //	Filesystem  1024-blocks  Used  Available  Use%  Mounted on
 //	0           1            2     3          4     5
 func collectMountsDF() ([]protocol.MountInfo, error) {
-	out, err := exec.Command("df", "-k").CombinedOutput()
+	out, err := securityruntime.CaptureCombinedOutput(
+		exec.Command("df", "-kP"),
+		securityruntime.DefaultCommandOutputLimit,
+	)
 	if err != nil {
 		return nil, err
 	}
+	return parseMountsDFOutput(string(out)), nil
+}
 
+// parseMountsDFOutput locates the numeric df columns instead of assuming the
+// filesystem name is one token. This also accepts the extended Darwin `df -k`
+// layout, which inserts iused/ifree/%iused before the mount point.
+func parseMountsDFOutput(out string) []protocol.MountInfo {
 	var mounts []protocol.MountInfo
-	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	lines := strings.Split(strings.TrimSpace(out), "\n")
 	// Skip the header line.
 	for _, line := range lines[1:] {
 		line = strings.TrimSpace(line)
@@ -175,28 +188,49 @@ func collectMountsDF() ([]protocol.MountInfo, error) {
 		if len(fields) < 6 {
 			continue
 		}
-		device := fields[0]
-		mountPoint := fields[5]
+
+		columnStart := findDFNumericColumns(fields)
+		if columnStart < 1 {
+			continue
+		}
+		mountPointStart := columnStart + 4
+		// Darwin's non-POSIX df output includes inode counts after Capacity:
+		// iused ifree %iused. Accept that layout defensively as well.
+		if len(fields) >= mountPointStart+4 &&
+			isDFUint(fields[mountPointStart]) &&
+			isDFUint(fields[mountPointStart+1]) &&
+			isDFPercent(fields[mountPointStart+2]) {
+			mountPointStart += 3
+		}
+		if mountPointStart >= len(fields) {
+			continue
+		}
+
+		device := strings.Join(fields[:columnStart], " ")
+		mountPoint := strings.Join(fields[mountPointStart:], " ")
 
 		// Skip virtual paths.
 		if strings.HasPrefix(mountPoint, "/sys") || strings.HasPrefix(mountPoint, "/proc") {
 			continue
 		}
 		// Skip obvious virtual devices.
-		if device == "none" || device == "tmpfs" || device == "devtmpfs" {
+		if device == "none" || device == "tmpfs" || device == "devtmpfs" || device == "devfs" {
 			continue
 		}
 
-		totalKB, _ := strconv.ParseUint(fields[1], 10, 64)
-		usedKB, _ := strconv.ParseUint(fields[2], 10, 64)
-		availKB, _ := strconv.ParseUint(fields[3], 10, 64)
+		totalKB, totalErr := strconv.ParseUint(fields[columnStart], 10, 64)
+		usedKB, usedErr := strconv.ParseUint(fields[columnStart+1], 10, 64)
+		availKB, availErr := strconv.ParseUint(fields[columnStart+2], 10, 64)
+		if totalErr != nil || usedErr != nil || availErr != nil || totalKB == 0 {
+			continue
+		}
 
 		total := totalKB * 1024
 		used := usedKB * 1024
 		available := availKB * 1024
 
-		var usePct float64
-		if total > 0 {
+		usePct, percentErr := strconv.ParseFloat(strings.TrimSuffix(fields[columnStart+3], "%"), 64)
+		if percentErr != nil {
 			usePct = float64(used) / float64(total) * 100
 		}
 
@@ -210,5 +244,27 @@ func collectMountsDF() ([]protocol.MountInfo, error) {
 			UsePct:     usePct,
 		})
 	}
-	return mounts, nil
+	return mounts
+}
+
+func findDFNumericColumns(fields []string) int {
+	for i := 1; i+3 < len(fields); i++ {
+		if isDFUint(fields[i]) && isDFUint(fields[i+1]) && isDFUint(fields[i+2]) && isDFPercent(fields[i+3]) {
+			return i
+		}
+	}
+	return -1
+}
+
+func isDFUint(value string) bool {
+	_, err := strconv.ParseUint(value, 10, 64)
+	return err == nil
+}
+
+func isDFPercent(value string) bool {
+	if !strings.HasSuffix(value, "%") {
+		return false
+	}
+	_, err := strconv.ParseFloat(strings.TrimSuffix(value, "%"), 64)
+	return err == nil
 }

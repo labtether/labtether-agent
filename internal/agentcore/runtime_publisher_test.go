@@ -66,6 +66,23 @@ func TestRuntimePublishOnceBuffersTelemetryWhenDisconnected(t *testing.T) {
 	}
 }
 
+func TestRuntimePublishOnceBuffersTelemetryWhileEnrollmentPending(t *testing.T) {
+	publisher := &recordingHeartbeatPublisher{}
+	runtime := NewRuntime(RuntimeConfig{AssetID: "pending-node"}, nil, publisher)
+	runtime.transport = &wsTransport{connected: true, pendingEnrollment: true}
+	runtime.telemetryBuf = NewRingBuffer[TelemetrySample](4)
+	runtime.mu.Lock()
+	runtime.sample = TelemetrySample{AssetID: "pending-node", CPUPercent: 19}
+	runtime.mu.Unlock()
+
+	runtime.publishOnce(context.Background())
+
+	buffered := runtime.telemetryBuf.Drain()
+	if len(buffered) != 1 || buffered[0].AssetID != "pending-node" || buffered[0].CPUPercent != 19 {
+		t.Fatalf("pending telemetry buffer=%+v", buffered)
+	}
+}
+
 func TestReplayBufferedTelemetrySendsSamplesInOrder(t *testing.T) {
 	transport, messages, cleanup := newAgentcoreCapturedTransport(t)
 	defer cleanup()
@@ -130,6 +147,24 @@ func TestWSHeartbeatPublisherFallsBackToHTTPWhenDisconnected(t *testing.T) {
 	}
 	if published[0].AssetID != "node-1" {
 		t.Fatalf("fallback asset_id=%q, want node-1", published[0].AssetID)
+	}
+}
+
+func TestWSHeartbeatPublisherDoesNotFallbackWhileEnrollmentPending(t *testing.T) {
+	fallback := &recordingHeartbeatPublisher{}
+	publisher := newWSHeartbeatPublisher(
+		&wsTransport{connected: true, pendingEnrollment: true},
+		fallback,
+		RuntimeConfig{Source: "agent"},
+		nil,
+		nil,
+	)
+
+	if err := publisher.Publish(context.Background(), TelemetrySample{AssetID: "pending-node"}); err != nil {
+		t.Fatalf("Publish returned error: %v", err)
+	}
+	if got := len(fallback.snapshot()); got != 0 {
+		t.Fatalf("pending socket made %d unauthenticated HTTP fallback publishes", got)
 	}
 }
 

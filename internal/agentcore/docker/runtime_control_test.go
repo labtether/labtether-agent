@@ -413,6 +413,49 @@ func TestHandleComposeActionDeployWritesComposeFileAndQueuesRefresh(t *testing.T
 	}
 }
 
+func TestHandleComposeActionDrainsAndBoundsCommandOutput(t *testing.T) {
+	oldDetect := dockerComposeCLIDetect
+	oldNewCommandContext := dockerComposeNewCommandContext
+	t.Cleanup(func() {
+		dockerComposeCLIDetect = oldDetect
+		dockerComposeNewCommandContext = oldNewCommandContext
+	})
+
+	dockerComposeCLIDetect = func() (int, bool) { return 2, true }
+	dockerComposeNewCommandContext = func(ctx context.Context, _ string, _ ...string) (*exec.Cmd, error) {
+		return exec.CommandContext(ctx, "sh", "-c", "head -c 262144 /dev/zero | tr '\\000' x"), nil
+	}
+
+	transport := newRecordingCollectorTransport(true)
+	dc := NewDockerCollector("/tmp/docker.sock", transport, "asset-1", 30*time.Second)
+	dc.client = NewDockerClient("http://localhost:1")
+
+	raw, err := json.Marshal(protocol.DockerComposeActionData{
+		RequestID: "compose-bounded-output",
+		Action:    "up",
+		ConfigDir: t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("marshal docker compose action: %v", err)
+	}
+	dc.HandleComposeAction(transport, protocol.Message{Type: protocol.MsgDockerComposeAction, Data: raw})
+
+	msg := waitForCollectorMessage(t, transport, time.Second)
+	var result protocol.DockerComposeResultData
+	if err := json.Unmarshal(msg.Data, &result); err != nil {
+		t.Fatalf("decode docker compose result: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("expected successful compose command, got error %q", result.Error)
+	}
+	if len(result.Output) > composeActionOutputLimit+len("\n...output truncated") {
+		t.Fatalf("compose output length = %d, expected bounded output", len(result.Output))
+	}
+	if !strings.HasSuffix(result.Output, "...output truncated") {
+		t.Fatalf("compose output did not report truncation")
+	}
+}
+
 func dockerMuxFrame(stream byte, payload string) []byte {
 	frame := make([]byte, 8+len(payload))
 	frame[0] = stream

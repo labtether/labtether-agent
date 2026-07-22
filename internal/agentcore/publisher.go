@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -17,26 +17,42 @@ import (
 )
 
 func NewHeartbeatPublisher(cfg RuntimeConfig, staticMetadata map[string]string) HeartbeatPublisher {
-	cfg.APIBaseURL = normalizeAPIBaseURL(cfg.APIBaseURL)
-	if cfg.APIBaseURL == "" || cfg.APIToken == "" {
-		log.Printf("%s heartbeat disabled: LABTETHER_API_BASE_URL/LABTETHER_API_TOKEN not configured", cfg.Name)
-		return noopHeartbeatPublisher{}
+	return newHeartbeatPublisherWithRuntimeIdentity(cfg, staticMetadata, newRuntimeIdentitySource(cfg))
+}
+
+func newHeartbeatPublisherWithRuntimeIdentity(cfg RuntimeConfig, staticMetadata map[string]string, identity *runtimeIdentitySource) HeartbeatPublisher {
+	transport := &http.Transport{}
+	if tlsCfg := buildTLSConfig(&cfg); tlsCfg != nil {
+		transport.TLSClientConfig = tlsCfg
 	}
 
 	return &apiHeartbeatPublisher{
-		client: &http.Client{Timeout: 6 * time.Second},
-		cfg:    cfg,
-		meta:   cloneStringMap(staticMetadata),
+		client: &http.Client{
+			Timeout:   6 * time.Second,
+			Transport: transport,
+		},
+		source:   cfg.Source,
+		groupID:  cfg.GroupID,
+		meta:     cloneStringMap(staticMetadata),
+		identity: identity,
 	}
 }
 
 type apiHeartbeatPublisher struct {
-	client *http.Client
-	cfg    RuntimeConfig
-	meta   map[string]string
+	client   *http.Client
+	source   string
+	groupID  string
+	meta     map[string]string
+	identity *runtimeIdentitySource
 }
 
+var errHeartbeatCredentialsUnavailable = errors.New("heartbeat credentials are not available")
+
 func (p *apiHeartbeatPublisher) Publish(ctx context.Context, sample TelemetrySample) error {
+	identity := p.identity.Snapshot()
+	if identity.APIBaseURL == "" || identity.BearerToken == "" || identity.AssetID == "" {
+		return errHeartbeatCredentialsUnavailable
+	}
 	metadata := cloneStringMap(p.meta)
 	metadata[metricschema.HeartbeatKeyCPUPercent] = fmt.Sprintf("%.2f", sample.CPUPercent)
 	metadata[metricschema.HeartbeatKeyCPUUsedPercent] = fmt.Sprintf("%.2f", sample.CPUPercent)
@@ -56,11 +72,11 @@ func (p *apiHeartbeatPublisher) Publish(ctx context.Context, sample TelemetrySam
 	}
 
 	payload := assets.HeartbeatRequest{
-		AssetID:  sample.AssetID,
+		AssetID:  identity.AssetID,
 		Type:     "host",
-		Name:     sample.AssetID,
-		Source:   p.cfg.Source,
-		GroupID:  p.cfg.GroupID,
+		Name:     identity.AssetID,
+		Source:   p.source,
+		GroupID:  p.groupID,
 		Status:   "online",
 		Platform: resolvedPlatform,
 		Metadata: metadata,
@@ -71,13 +87,13 @@ func (p *apiHeartbeatPublisher) Publish(ctx context.Context, sample TelemetrySam
 		return fmt.Errorf("marshal heartbeat: %w", err)
 	}
 
-	endpoint := strings.TrimRight(p.cfg.APIBaseURL, "/") + "/assets/heartbeat"
+	endpoint := strings.TrimRight(identity.APIBaseURL, "/") + "/assets/heartbeat"
 	req, err := securityruntime.NewOutboundRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(raw))
 	if err != nil {
 		return fmt.Errorf("build heartbeat request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+p.cfg.APIToken)
+	req.Header.Set("Authorization", "Bearer "+identity.BearerToken)
 
 	resp, err := securityruntime.DoOutboundRequest(p.client, req)
 	if err != nil {

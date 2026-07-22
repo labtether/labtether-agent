@@ -32,6 +32,7 @@ type dockerExecSession struct {
 
 	mu          sync.Mutex
 	closeReason string
+	closing     bool
 }
 
 // dockerExecManager manages Docker exec sessions on the agent.
@@ -365,7 +366,7 @@ func (em *DockerExecManager) HandleExecClose(msg protocol.Message) {
 		return
 	}
 
-	sess.setReasonIfUnset("closed by hub")
+	sess.beginClose("closed by hub")
 	_ = sess.conn.Close()
 	sess.cancel()
 }
@@ -389,13 +390,29 @@ func (em *DockerExecManager) streamExecOutput(transport Transport, sess *dockerE
 			})
 		}
 		if err != nil {
-			if err != io.EOF {
+			if err != io.EOF && !sess.isClosing() {
 				sess.setReasonIfUnset("stdout read failed: " + err.Error())
 				log.Printf("docker-exec: output stream ended for session %s: %v", sess.sessionID, err)
 			}
 			return
 		}
 	}
+}
+
+func (s *dockerExecSession) beginClose(reason string) {
+	trimmed := strings.TrimSpace(reason)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.closing = true
+	if s.closeReason == "" && trimmed != "" {
+		s.closeReason = trimmed
+	}
+}
+
+func (s *dockerExecSession) isClosing() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.closing
 }
 
 func (s *dockerExecSession) setReasonIfUnset(reason string) {
@@ -433,6 +450,7 @@ func (em *DockerExecManager) CloseAll() {
 	em.mu.Lock()
 	defer em.mu.Unlock()
 	for id, sess := range em.sessions {
+		sess.beginClose("agent shutting down")
 		_ = sess.conn.Close()
 		sess.cancel()
 		delete(em.sessions, id)

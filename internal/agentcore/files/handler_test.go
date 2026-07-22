@@ -1,9 +1,14 @@
 package files
 
 import (
+	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
+	"io/fs"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -22,6 +27,84 @@ func (t *testFileTransport) Send(msg protocol.Message) error {
 	t.messages = append(t.messages, msg)
 	return nil
 }
+
+type failingFileTransport struct {
+	calls int
+	err   error
+}
+
+func (t *failingFileTransport) Send(protocol.Message) error {
+	t.calls++
+	return t.err
+}
+
+type cancelingFileTransport struct {
+	cancel context.CancelFunc
+	calls  int
+}
+
+func (t *cancelingFileTransport) Send(protocol.Message) error {
+	t.calls++
+	t.cancel()
+	return nil
+}
+
+type countingReader struct {
+	reader *bytes.Reader
+	reads  int
+}
+
+func (r *countingReader) Read(dst []byte) (int, error) {
+	r.reads++
+	return r.reader.Read(dst)
+}
+
+type generatedFileListReader struct {
+	remaining int
+	index     int
+	name      func(int) string
+	readSizes []int
+}
+
+func (r *generatedFileListReader) ReadDir(n int) ([]fs.DirEntry, error) {
+	r.readSizes = append(r.readSizes, n)
+	if r.remaining == 0 {
+		return nil, io.EOF
+	}
+	count := min(n, r.remaining)
+	entries := make([]fs.DirEntry, 0, count)
+	for range count {
+		name := fmt.Sprintf("entry-%d", r.index)
+		if r.name != nil {
+			name = r.name(r.index)
+		}
+		entries = append(entries, generatedFileListEntry{name: name})
+		r.index++
+	}
+	r.remaining -= count
+	if r.remaining == 0 {
+		return entries, io.EOF
+	}
+	return entries, nil
+}
+
+type generatedFileListEntry struct {
+	name string
+}
+
+func (e generatedFileListEntry) Name() string               { return e.name }
+func (e generatedFileListEntry) IsDir() bool                { return false }
+func (e generatedFileListEntry) Type() fs.FileMode          { return 0 }
+func (e generatedFileListEntry) Info() (fs.FileInfo, error) { return generatedFileListInfo(e), nil }
+
+type generatedFileListInfo generatedFileListEntry
+
+func (i generatedFileListInfo) Name() string       { return i.name }
+func (i generatedFileListInfo) Size() int64        { return 1 }
+func (i generatedFileListInfo) Mode() fs.FileMode  { return 0o600 }
+func (i generatedFileListInfo) ModTime() time.Time { return time.Unix(1, 0) }
+func (i generatedFileListInfo) IsDir() bool        { return false }
+func (i generatedFileListInfo) Sys() any           { return nil }
 
 func marshalTestMessage(t *testing.T, v interface{}) json.RawMessage {
 	t.Helper()
@@ -54,6 +137,115 @@ func lastFileData(t *testing.T, transport *testFileTransport) protocol.FileDataP
 		t.Fatalf("decode file data: %v", err)
 	}
 	return result
+}
+
+func TestReadBoundedFileEntriesUsesIncrementalPositiveReadsAndPreservesNormalListing(t *testing.T) {
+	reader := &generatedFileListReader{
+		remaining: 3,
+		name: func(index int) string {
+			if index == 0 {
+				return ".hidden"
+			}
+			return fmt.Sprintf("visible-%d", index)
+		},
+	}
+
+	entries, err := readBoundedFileEntries(reader, false, "request-1", "/tmp")
+	if err != nil {
+		t.Fatalf("readBoundedFileEntries: %v", err)
+	}
+	if len(entries) != 2 || entries[0].Name != "visible-1" || entries[1].Name != "visible-2" {
+		t.Fatalf("entries = %#v, want the two visible entries", entries)
+	}
+	if len(reader.readSizes) == 0 {
+		t.Fatal("expected at least one incremental ReadDir call")
+	}
+	for _, size := range reader.readSizes {
+		if size != maxFileListReadBatch {
+			t.Fatalf("ReadDir called with %d, want bounded batch %d", size, maxFileListReadBatch)
+		}
+	}
+}
+
+func TestReadBoundedFileEntriesRejectsVisibleEntryAmplification(t *testing.T) {
+	reader := &generatedFileListReader{remaining: maxFileListEntries + 1}
+
+	entries, err := readBoundedFileEntries(reader, true, "request-entries", "/tmp")
+	if !errors.Is(err, errFileListLimitExceeded) {
+		t.Fatalf("error = %v, want errFileListLimitExceeded", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("returned %d partial entries on limit failure, want none", len(entries))
+	}
+	if reader.index != maxFileListEntries+1 {
+		t.Fatalf("scanned %d entries, want %d", reader.index, maxFileListEntries+1)
+	}
+}
+
+func TestReadBoundedFileEntriesCapsHiddenEntryScanning(t *testing.T) {
+	reader := &generatedFileListReader{
+		remaining: maxFileListScanned + 1,
+		name: func(int) string {
+			return ".hidden"
+		},
+	}
+
+	_, err := readBoundedFileEntries(reader, false, "request-hidden", "/tmp")
+	if !errors.Is(err, errFileListLimitExceeded) {
+		t.Fatalf("error = %v, want errFileListLimitExceeded", err)
+	}
+	if reader.index > maxFileListScanned+maxFileListReadBatch {
+		t.Fatalf("scanned %d entries, exceeded one bounded read beyond scan limit", reader.index)
+	}
+}
+
+func TestReadBoundedFileEntriesCapsSerializedResponse(t *testing.T) {
+	reader := &generatedFileListReader{
+		remaining: maxFileListEntries,
+		name: func(index int) string {
+			return fmt.Sprintf("%04d-%s", index, strings.Repeat("\x01", 250))
+		},
+	}
+
+	_, err := readBoundedFileEntries(reader, true, "request-bytes", "/tmp")
+	if !errors.Is(err, errFileListLimitExceeded) {
+		t.Fatalf("error = %v, want errFileListLimitExceeded", err)
+	}
+	if err == nil || !strings.Contains(err.Error(), "serialized response") {
+		t.Fatalf("error = %v, want explicit serialized response limit", err)
+	}
+	if reader.index >= maxFileListEntries {
+		t.Fatalf("serialized cap did not stop enumeration early; scanned %d entries", reader.index)
+	}
+}
+
+func TestSendFileListedFallsBackToBoundedErrorResponse(t *testing.T) {
+	transport := &testFileTransport{}
+	fm := &Manager{}
+	oversizedRequestID := strings.Repeat("r", maxFileListResponseSize+1)
+
+	fm.sendFileListed(transport, oversizedRequestID, "/tmp", nil, "")
+
+	if len(transport.messages) != 1 {
+		t.Fatalf("sent %d messages, want 1", len(transport.messages))
+	}
+	msg := transport.messages[0]
+	if len(msg.Data) > maxFileListResponseSize {
+		t.Fatalf("serialized response is %d bytes, limit %d", len(msg.Data), maxFileListResponseSize)
+	}
+	var listed protocol.FileListedData
+	if err := json.Unmarshal(msg.Data, &listed); err != nil {
+		t.Fatalf("decode bounded error response: %v", err)
+	}
+	if listed.Error == "" || !strings.Contains(listed.Error, "safe limits") {
+		t.Fatalf("error = %q, want explicit safe-limit error", listed.Error)
+	}
+	if len(listed.RequestID) != maxFileListRequestIDLen {
+		t.Fatalf("fallback request ID length = %d, want %d", len(listed.RequestID), maxFileListRequestIDLen)
+	}
+	if len(listed.Entries) != 0 {
+		t.Fatalf("fallback returned %d entries, want none", len(listed.Entries))
+	}
 }
 
 // TestFileWriteSizeLimitEnforced verifies that the size enforcement check
@@ -321,6 +513,99 @@ func TestHandleFileReadRejectsSymlinkToOutside(t *testing.T) {
 	}
 	if result.Data != "" {
 		t.Fatalf("expected no data for rejected read, got %q", result.Data)
+	}
+}
+
+func TestStreamFileReadEnforcesCumulativeLimitIndependentOfStat(t *testing.T) {
+	fm := &Manager{}
+	transport := &testFileTransport{}
+	limit := int64(FileChunkSize + 10)
+	reader := bytes.NewReader(bytes.Repeat([]byte("x"), int(limit+1)))
+
+	offset, err := fm.streamFileRead(context.Background(), transport, "bounded-read", reader, limit)
+	if !errors.Is(err, errFileReadLimitExceeded) {
+		t.Fatalf("streamFileRead error = %v, want cumulative limit error", err)
+	}
+	if offset != FileChunkSize {
+		t.Fatalf("offset = %d, want only the first bounded chunk %d", offset, FileChunkSize)
+	}
+	var sentBytes int
+	for _, msg := range transport.messages {
+		var payload protocol.FileDataPayload
+		if err := json.Unmarshal(msg.Data, &payload); err != nil {
+			t.Fatalf("decode payload: %v", err)
+		}
+		decoded, err := base64.StdEncoding.DecodeString(payload.Data)
+		if err != nil {
+			t.Fatalf("decode chunk: %v", err)
+		}
+		sentBytes += len(decoded)
+		if payload.Done {
+			t.Fatal("oversized stream must not be marked successfully complete")
+		}
+	}
+	if int64(sentBytes) > limit {
+		t.Fatalf("stream sent %d bytes beyond cumulative limit %d", sentBytes, limit)
+	}
+}
+
+func TestStreamFileReadStopsOnContextCancellation(t *testing.T) {
+	fm := &Manager{}
+	ctx, cancel := context.WithCancel(context.Background())
+	transport := &cancelingFileTransport{cancel: cancel}
+	reader := &countingReader{reader: bytes.NewReader(bytes.Repeat([]byte("x"), FileChunkSize*3))}
+
+	offset, err := fm.streamFileRead(ctx, transport, "canceled-read", reader, MaxFileSize)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("streamFileRead error = %v, want context cancellation", err)
+	}
+	if offset != FileChunkSize {
+		t.Fatalf("offset = %d, want one sent chunk", offset)
+	}
+	if transport.calls != 1 || reader.reads != 1 {
+		t.Fatalf("stream continued after cancellation: sends=%d reads=%d", transport.calls, reader.reads)
+	}
+}
+
+func TestHandleFileReadStopsOnSendFailureWithoutHandlerStall(t *testing.T) {
+	baseDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(baseDir, "large.bin"), bytes.Repeat([]byte("x"), FileChunkSize*3), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(baseDir, "small.txt"), []byte("still responsive"), 0o600); err != nil {
+		t.Fatalf("write follow-up fixture: %v", err)
+	}
+	fm := &Manager{BaseDir: baseDir}
+	transport := &failingFileTransport{err: errors.New("transport closed")}
+	request := protocol.Message{Data: marshalTestMessage(t, protocol.FileReadData{
+		RequestID: "failed-send",
+		Path:      "large.bin",
+	})}
+
+	done := make(chan struct{})
+	go func() {
+		fm.HandleFileRead(transport, request)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("file read handler stalled after transport send failure")
+	}
+	if transport.calls != 1 {
+		t.Fatalf("send calls = %d, want immediate stop after first failure", transport.calls)
+	}
+
+	// A subsequent handler on the same manager must still run, demonstrating
+	// that the failed stream did not retain manager/handler resources.
+	followUp := &testFileTransport{}
+	fm.HandleFileRead(followUp, protocol.Message{Data: marshalTestMessage(t, protocol.FileReadData{
+		RequestID: "follow-up",
+		Path:      "small.txt",
+	})})
+	result := lastFileData(t, followUp)
+	if result.Error != "" || !result.Done {
+		t.Fatalf("follow-up handler did not complete: %+v", result)
 	}
 }
 

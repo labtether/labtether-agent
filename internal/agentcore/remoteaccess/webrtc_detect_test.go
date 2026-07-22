@@ -290,12 +290,21 @@ func TestBestAudioSourcePrefersPipewireThenPulse(t *testing.T) {
 func TestDetectWebRTCCapabilitiesMissingGstLaunch(t *testing.T) {
 	originalGOOS := WebRTCRuntimeGOOS
 	originalLookPath := WebRTCLookPath
+	originalDetectSession := DetectDesktopSessionFn
 	t.Cleanup(func() {
 		WebRTCRuntimeGOOS = originalGOOS
 		WebRTCLookPath = originalLookPath
+		DetectDesktopSessionFn = originalDetectSession
 	})
 
 	WebRTCRuntimeGOOS = "linux"
+	DetectDesktopSessionFn = func() DesktopSessionInfo {
+		return DesktopSessionInfo{
+			Type:    DesktopSessionTypeX11,
+			Backend: DesktopBackendX11,
+			Display: ":7",
+		}
+	}
 	WebRTCLookPath = func(name string) (string, error) {
 		if name == "gst-launch-1.0" {
 			return "", errors.New("missing")
@@ -309,6 +318,12 @@ func TestDetectWebRTCCapabilitiesMissingGstLaunch(t *testing.T) {
 	}
 	if caps.UnavailableReason != webrtcReasonMissingGstLaunch {
 		t.Fatalf("reason=%q, want %q", caps.UnavailableReason, webrtcReasonMissingGstLaunch)
+	}
+	if !caps.VNCRealDesktopSupported {
+		t.Fatalf("missing WebRTC dependency suppressed valid X11 VNC support: %+v", caps)
+	}
+	if caps.WebRTCRealDesktopSupported {
+		t.Fatalf("WebRTC real-desktop support advertised without GStreamer: %+v", caps)
 	}
 }
 
@@ -397,7 +412,7 @@ func TestDetectWebRTCCapabilitiesCollectsEncodersAudioAndDisplays(t *testing.T) 
 			t.Fatal("expected gst element argument")
 		}
 		switch args[0] {
-		case "nvh264enc", "vp8enc", "pipewiresrc", "pulsesrc":
+		case "nvh264enc", "vp8enc", "pipewiresrc", "pulsesrc", "--version":
 			return exec.Command("/bin/sh", "-c", "exit 0"), nil
 		default:
 			return exec.Command("/bin/sh", "-c", "exit 1"), nil

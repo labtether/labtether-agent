@@ -2,6 +2,7 @@ package sysconfig
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net"
 	"strings"
@@ -113,13 +114,20 @@ func (nm *NetworkManager) SendNetworkResult(transport MessageSender, result prot
 }
 
 // collectNetInterfaces enumerates host network interfaces using the standard
-// library. Per-interface counters are read via ReadIfaceStats which is
-// implemented per platform (Linux reads /sys/class/net, other platforms return 0).
+// library. Per-interface counters are collected through one platform batch;
+// Windows and FreeBSD take a single gopsutil snapshot per list operation.
 func collectNetInterfaces() ([]protocol.NetInterface, error) {
 	raw, err := net.Interfaces()
 	if err != nil {
 		return nil, err
 	}
+	interfaceNames := make([]string, 0, len(raw))
+	for _, iface := range raw {
+		if iface.Flags&net.FlagLoopback == 0 {
+			interfaceNames = append(interfaceNames, iface.Name)
+		}
+	}
+	statsByName, statsErr := ReadIfaceStatsBatch(interfaceNames)
 
 	var result []protocol.NetInterface
 	for _, iface := range raw {
@@ -149,7 +157,7 @@ func collectNetInterfaces() ([]protocol.NetInterface, error) {
 			ips = []string{}
 		}
 
-		rxBytes, txBytes, rxPackets, txPackets := ReadIfaceStats(iface.Name)
+		stats := statsByName[iface.Name]
 
 		result = append(result, protocol.NetInterface{
 			Name:      iface.Name,
@@ -157,11 +165,14 @@ func collectNetInterfaces() ([]protocol.NetInterface, error) {
 			MAC:       mac,
 			MTU:       iface.MTU,
 			IPs:       ips,
-			RXBytes:   rxBytes,
-			TXBytes:   txBytes,
-			RXPackets: rxPackets,
-			TXPackets: txPackets,
+			RXBytes:   stats.RXBytes,
+			TXBytes:   stats.TXBytes,
+			RXPackets: stats.RXPackets,
+			TXPackets: stats.TXPackets,
 		})
+	}
+	if statsErr != nil {
+		return result, fmt.Errorf("collect per-interface network counters: %w", statsErr)
 	}
 	return result, nil
 }

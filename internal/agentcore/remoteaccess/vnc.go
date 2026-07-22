@@ -184,7 +184,7 @@ func StartDesktopBootstrapShell(display, xauthPath string) (*exec.Cmd, error) {
 // requested display. It always sets DISPLAY and only sets XAUTHORITY when a
 // real auth file is available for the display.
 func BuildX11ClientEnv(display, xauthPath string) []string {
-	env := os.Environ()
+	env := securityruntime.SanitizedChildEnv()
 	filtered := make([]string, 0, len(env)+1)
 	for _, e := range env {
 		if strings.HasPrefix(e, "XAUTHORITY=") || strings.HasPrefix(e, "DISPLAY=") {
@@ -351,7 +351,7 @@ func CreateX11VNCPasswordFile(x11vncPath, password string) (string, error) {
 		RemoveProcessLog(path)
 		return "", fmt.Errorf("failed to build x11vnc password command: %w", err)
 	}
-	if output, runErr := storeCmd.CombinedOutput(); runErr != nil {
+	if output, runErr := securityruntime.CaptureCombinedOutput(storeCmd, securityruntime.DefaultCommandOutputLimit); runErr != nil {
 		RemoveProcessLog(path)
 		if summary := strings.TrimSpace(string(output)); summary != "" {
 			return "", fmt.Errorf("failed to create x11vnc password file: %w (%s)", runErr, SummarizeProcessLogTail(summary))
@@ -504,7 +504,7 @@ func CreateXauthorityFile(displayNum int) (string, error) {
 		RemoveProcessLog(path)
 		return "", fmt.Errorf("failed to build xauth command: %w", err)
 	}
-	if output, runErr := cmd.CombinedOutput(); runErr != nil {
+	if output, runErr := securityruntime.CaptureCombinedOutput(cmd, securityruntime.DefaultCommandOutputLimit); runErr != nil {
 		RemoveProcessLog(path)
 		return "", fmt.Errorf("xauth add failed: %w (%s)", runErr, strings.TrimSpace(string(output)))
 	}

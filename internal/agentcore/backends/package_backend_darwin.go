@@ -9,11 +9,17 @@ import (
 	"strings"
 	"time"
 
+	"github.com/labtether/labtether-agent/internal/agentcore/packagepolicy"
 	"github.com/labtether/labtether-agent/internal/securityruntime"
 	"github.com/labtether/protocol"
 )
 
 const darwinPackageListTimeout = 45 * time.Second
+
+var (
+	DarwinPackageLookPath            = exec.LookPath
+	RunDarwinPackageInventoryCommand = RunPackageInventoryCommand
+)
 
 // DarwinPackageBackend implements PackageBackend using Homebrew.
 type DarwinPackageBackend struct{}
@@ -44,6 +50,26 @@ func (DarwinPackageBackend) ListPackages() ([]protocol.PackageInfo, error) {
 		return nil, parseErr
 	}
 	return packages, nil
+}
+
+// ListUpgradablePackages lists outdated Homebrew formulae and casks with both
+// their installed and available versions.
+func (DarwinPackageBackend) ListUpgradablePackages() ([]UpgradablePackageInfo, error) {
+	if _, err := DarwinPackageLookPath("brew"); err != nil {
+		return nil, fmt.Errorf("brew is not available on this host")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), PackageInventoryCommandTimeout)
+	defer cancel()
+	out, runErr := RunDarwinPackageInventoryCommand(ctx, "brew", "outdated", "--json=v2")
+	if err := packageInventoryCommandError(ctx, "brew", "upgradable package listing", out, runErr); err != nil {
+		return nil, err
+	}
+	packages, err := ParseBrewUpgradablePackages(out)
+	if err != nil {
+		return nil, err
+	}
+	return normalizeUpgradablePackages(packages)
 }
 
 // PerformAction performs a Homebrew package action (install, remove, upgrade).
@@ -77,14 +103,20 @@ func (DarwinPackageBackend) PerformAction(action string, packages []string) (Pac
 
 // BuildDarwinPackageActionArgs builds the Homebrew arguments for a package action.
 func BuildDarwinPackageActionArgs(action string, packages []string) ([]string, error) {
+	normalizedPackages, err := packagepolicy.NormalizeAndValidate(packages)
+	if err != nil {
+		return nil, err
+	}
+	packages = normalizedPackages
+
 	switch action {
 	case "install":
-		return append([]string{"install"}, packages...), nil
+		return append([]string{"install", "--"}, packages...), nil
 	case "remove":
-		return append([]string{"uninstall"}, packages...), nil
+		return append([]string{"uninstall", "--"}, packages...), nil
 	case "upgrade":
 		if len(packages) > 0 {
-			return append([]string{"upgrade"}, packages...), nil
+			return append([]string{"upgrade", "--"}, packages...), nil
 		}
 		return []string{"upgrade"}, nil
 	default:
@@ -95,6 +127,18 @@ func BuildDarwinPackageActionArgs(action string, packages []string) ([]string, e
 type brewInstalledJSON struct {
 	Formulae []brewFormulaInfo `json:"formulae"`
 	Casks    []brewCaskInfo    `json:"casks"`
+}
+
+type brewOutdatedJSON struct {
+	Formulae []brewOutdatedInfo `json:"formulae"`
+	Casks    []brewOutdatedInfo `json:"casks"`
+}
+
+type brewOutdatedInfo struct {
+	Name              string   `json:"name"`
+	Token             string   `json:"token"`
+	InstalledVersions []string `json:"installed_versions"`
+	CurrentVersion    string   `json:"current_version"`
 }
 
 type brewFormulaInfo struct {
@@ -214,5 +258,41 @@ func ParseBrewInstalledPackages(raw []byte) ([]protocol.PackageInfo, error) {
 		return packages[i].Name < packages[j].Name
 	})
 
+	return packages, nil
+}
+
+// ParseBrewUpgradablePackages parses `brew outdated --json=v2` output.
+func ParseBrewUpgradablePackages(raw []byte) ([]UpgradablePackageInfo, error) {
+	var payload brewOutdatedJSON
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return nil, fmt.Errorf("failed to parse brew outdated output: %w", err)
+	}
+
+	entries := append(append([]brewOutdatedInfo(nil), payload.Formulae...), payload.Casks...)
+	if len(entries) > MaxPackageInventoryItems {
+		return nil, fmt.Errorf("upgradable package inventory exceeds %d entries", MaxPackageInventoryItems)
+	}
+	packages := make([]UpgradablePackageInfo, 0, len(entries))
+	for _, entry := range entries {
+		name := strings.TrimSpace(entry.Name)
+		if name == "" {
+			name = strings.TrimSpace(entry.Token)
+		}
+		current := ""
+		for _, installed := range entry.InstalledVersions {
+			if current = strings.TrimSpace(installed); current != "" {
+				break
+			}
+		}
+		available := strings.TrimSpace(entry.CurrentVersion)
+		if name == "" || current == "" || available == "" {
+			return nil, fmt.Errorf("brew outdated entry is missing name, installed version, or available version")
+		}
+		packages = append(packages, UpgradablePackageInfo{
+			Name:             name,
+			Version:          current,
+			AvailableVersion: available,
+		})
+	}
 	return packages, nil
 }

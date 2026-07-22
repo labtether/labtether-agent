@@ -2,10 +2,13 @@ package backends
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf16"
 
 	"github.com/labtether/labtether-agent/internal/securityruntime"
 )
@@ -59,29 +62,15 @@ func (HyperVBackend) ListVMs() ([]HyperVVM, error) {
 // PerformVMAction runs a lifecycle action against the named VM.
 // Supported actions: "start", "stop", "restart", "checkpoint".
 func (HyperVBackend) PerformVMAction(action, vmName string) error {
-	if strings.TrimSpace(vmName) == "" {
-		return fmt.Errorf("PerformVMAction: vmName must not be empty")
+	args, err := buildHyperVActionPowerShellArgs(action, vmName)
+	if err != nil {
+		return err
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), hyperVActionTimeout)
 	defer cancel()
 
-	var psCmd string
-	switch strings.ToLower(action) {
-	case "start":
-		psCmd = fmt.Sprintf("Start-VM -Name %q", vmName)
-	case "stop":
-		psCmd = fmt.Sprintf("Stop-VM -Name %q -Force", vmName)
-	case "restart":
-		psCmd = fmt.Sprintf("Restart-VM -Name %q -Force", vmName)
-	case "checkpoint":
-		psCmd = fmt.Sprintf("Checkpoint-VM -Name %q", vmName)
-	default:
-		return fmt.Errorf("PerformVMAction: unsupported action %q", action)
-	}
-
-	out, err := RunHyperVCommand(ctx, "powershell.exe",
-		"-NonInteractive", "-NoProfile", "-Command", psCmd)
+	out, err := RunHyperVCommand(ctx, "powershell.exe", args...)
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
 			return fmt.Errorf("VM action %q on %q timed out", action, vmName)
@@ -94,6 +83,52 @@ func (HyperVBackend) PerformVMAction(action, vmName string) error {
 	}
 
 	return nil
+}
+
+func buildHyperVActionPowerShellArgs(action, vmName string) ([]string, error) {
+	if strings.TrimSpace(vmName) == "" {
+		return nil, fmt.Errorf("PerformVMAction: vmName must not be empty")
+	}
+
+	var actionScript string
+	switch strings.ToLower(strings.TrimSpace(action)) {
+	case "start":
+		actionScript = "Start-VM -VM $vms"
+	case "stop":
+		actionScript = "Stop-VM -VM $vms -Force"
+	case "restart":
+		actionScript = "Restart-VM -VM $vms -Force"
+	case "checkpoint":
+		actionScript = "Checkpoint-VM -VM $vms"
+	default:
+		return nil, fmt.Errorf("PerformVMAction: unsupported action %q", action)
+	}
+
+	// VM names are data, never PowerShell source. The inner UTF-8 base64 value
+	// has no quote or command-separator characters; the entire fixed program is
+	// then passed through PowerShell's UTF-16LE -EncodedCommand interface.
+	encodedVMName := base64.StdEncoding.EncodeToString([]byte(vmName))
+	script := "$vmName = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('" +
+		encodedVMName +
+		"')); $vms = @(Get-VM | Where-Object { $_.Name -eq $vmName }); " +
+		"if ($vms.Count -ne 1) { throw 'Hyper-V VM name did not resolve uniquely' }; " +
+		actionScript
+
+	return []string{
+		"-NonInteractive",
+		"-NoProfile",
+		"-EncodedCommand",
+		encodePowerShellUTF16LE(script),
+	}, nil
+}
+
+func encodePowerShellUTF16LE(script string) string {
+	codeUnits := utf16.Encode([]rune(script))
+	raw := make([]byte, len(codeUnits)*2)
+	for index, codeUnit := range codeUnits {
+		binary.LittleEndian.PutUint16(raw[index*2:], codeUnit)
+	}
+	return base64.StdEncoding.EncodeToString(raw)
 }
 
 // vmUptimeJSON is the nested Uptime shape in Get-VM | ConvertTo-Json output.

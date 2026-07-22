@@ -26,7 +26,7 @@ func buildTLSConfig(cfg *RuntimeConfig) *tls.Config {
 	}
 
 	if cfg.TLSCAFile != "" {
-		caCert, err := os.ReadFile(cfg.TLSCAFile)
+		caCert, err := readBoundedRegularFile(cfg.TLSCAFile, maxLocalCAFileBytes)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "agent: warning: failed to read TLS CA file %s: %v\n", cfg.TLSCAFile, err)
 			return tlsCfg

@@ -1,9 +1,11 @@
 package sysconfig
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -116,11 +118,14 @@ Configuration for interface "Ethernet"
 	if !snapshot.WasDHCP {
 		t.Error("WasDHCP should be true")
 	}
+	if !snapshot.DHCPModeKnown {
+		t.Error("DHCP mode should be recognized")
+	}
 	if snapshot.StaticIP != "192.168.1.105" {
 		t.Errorf("StaticIP=%q, want 192.168.1.105", snapshot.StaticIP)
 	}
-	if snapshot.SubnetMask != "192.168.1.0/24" {
-		t.Errorf("SubnetMask=%q, want 192.168.1.0/24", snapshot.SubnetMask)
+	if snapshot.SubnetMask != "255.255.255.0" {
+		t.Errorf("SubnetMask=%q, want 255.255.255.0", snapshot.SubnetMask)
 	}
 	if snapshot.Gateway != "192.168.1.1" {
 		t.Errorf("Gateway=%q, want 192.168.1.1", snapshot.Gateway)
@@ -163,8 +168,8 @@ func TestParseWindowsIPConfig_SubnetWithParenthetical(t *testing.T) {
 `
 	snapshot := &WindowsNetworkSnapshot{}
 	ParseWindowsIPConfig(raw, snapshot)
-	if snapshot.SubnetMask != "192.168.1.0/24" {
-		t.Errorf("SubnetMask=%q, want 192.168.1.0/24", snapshot.SubnetMask)
+	if snapshot.SubnetMask != "255.255.255.0" {
+		t.Errorf("SubnetMask=%q, want 255.255.255.0", snapshot.SubnetMask)
 	}
 }
 
@@ -194,6 +199,17 @@ DNS servers configured through DHCP:  8.8.8.8
 	servers := ParseWindowsDNSServers(raw)
 	if len(servers) < 1 || servers[0] != "8.8.8.8" {
 		t.Errorf("servers=%v, want at least [8.8.8.8 ...]", servers)
+	}
+}
+
+func TestParseWindowsDNSConfigPreservesDHCPModeWithAssignedServers(t *testing.T) {
+	snapshot := &WindowsNetworkSnapshot{}
+	ParseWindowsDNSConfig("DNS servers configured through DHCP:  192.168.1.1\n", snapshot)
+	if !snapshot.DNSModeKnown || !snapshot.DNSWasDHCP {
+		t.Fatalf("expected known DHCP DNS mode, got %+v", snapshot)
+	}
+	if !reflect.DeepEqual(snapshot.DNSServers, []string{"192.168.1.1"}) {
+		t.Fatalf("unexpected DNS servers: %v", snapshot.DNSServers)
 	}
 }
 
@@ -427,6 +443,92 @@ func TestWindowsNetworkBackend_ApplyDHCP(t *testing.T) {
 	}
 }
 
+func TestWindowsNetworkBackend_DNSSnapshotFailurePreventsApply(t *testing.T) {
+	nm := &NetworkManager{}
+	backend := WindowsNetworkBackend{}
+
+	outputs := [][]byte{
+		[]byte("    DHCP enabled:                         Yes\n"),
+		[]byte("Access is denied.\n"),
+	}
+	errs := []error{nil, errors.New("exit status 1")}
+	req := protocol.NetworkActionData{
+		RequestID:  "req-dns-snapshot-failure",
+		Action:     "apply",
+		Connection: "Ethernet:dhcp",
+	}
+
+	var result protocol.NetworkResultData
+	calls := stubWindowsRun(outputs, errs, func() {
+		result = backend.ApplyAction(nm, req)
+	})
+
+	if result.OK {
+		t.Fatal("expected snapshot failure to prevent network apply")
+	}
+	if !strings.Contains(result.Error, "failed to snapshot network state") ||
+		!strings.Contains(result.Error, "dnsservers") {
+		t.Fatalf("unexpected error: %q", result.Error)
+	}
+	if len(calls) != 2 {
+		t.Fatalf("expected only IP and DNS snapshot calls, got %v", calls)
+	}
+	for _, call := range calls {
+		if strings.Contains(strings.Join(call, " "), " set ") {
+			t.Fatalf("network mutation was attempted after incomplete snapshot: %v", calls)
+		}
+	}
+	if nm.LastWindowsSnapshot != nil {
+		t.Fatal("incomplete snapshot must not be persisted for rollback")
+	}
+}
+
+func TestWindowsNetworkBackend_LocalizedIPSnapshotFailsClosed(t *testing.T) {
+	nm := &NetworkManager{}
+	backend := WindowsNetworkBackend{}
+	outputs := [][]byte{[]byte("    DHCP aktiviert:                      Ja\n    IP-Adresse:                          192.168.1.50\n")}
+
+	var result protocol.NetworkResultData
+	calls := stubWindowsRun(outputs, []error{nil}, func() {
+		result = backend.ApplyAction(nm, protocol.NetworkActionData{
+			RequestID: "localized-ip", Action: "apply", Connection: "Ethernet:dhcp",
+		})
+	})
+	if result.OK || !strings.Contains(result.Error, "unrecognized or localized DHCP mode") {
+		t.Fatalf("expected fail-closed localized snapshot error, got %+v", result)
+	}
+	if len(calls) != 1 || strings.Contains(strings.Join(calls[0], " "), " set ") {
+		t.Fatalf("unexpected calls after unrecognized IP snapshot: %v", calls)
+	}
+}
+
+func TestWindowsNetworkBackend_LocalizedDNSSnapshotFailsClosed(t *testing.T) {
+	nm := &NetworkManager{}
+	backend := WindowsNetworkBackend{}
+	outputs := [][]byte{
+		[]byte("    DHCP enabled:                         Yes\n"),
+		[]byte("    DNS-Server durch DHCP konfiguriert:   192.168.1.1\n"),
+	}
+
+	var result protocol.NetworkResultData
+	calls := stubWindowsRun(outputs, []error{nil, nil}, func() {
+		result = backend.ApplyAction(nm, protocol.NetworkActionData{
+			RequestID: "localized-dns", Action: "apply", Connection: "Ethernet:dhcp",
+		})
+	})
+	if result.OK || !strings.Contains(result.Error, "unrecognized or localized DNS mode") {
+		t.Fatalf("expected fail-closed localized DNS snapshot error, got %+v", result)
+	}
+	if len(calls) != 2 {
+		t.Fatalf("expected only two snapshot calls, got %v", calls)
+	}
+	for _, call := range calls {
+		if strings.Contains(strings.Join(call, " "), " set ") {
+			t.Fatalf("network mutation attempted after localized DNS snapshot: %v", calls)
+		}
+	}
+}
+
 func TestWindowsNetworkBackend_RollbackNoSnapshot(t *testing.T) {
 	nm := &NetworkManager{}
 	backend := WindowsNetworkBackend{}
@@ -473,7 +575,7 @@ func TestWindowsNetworkBackend_StaticSubAction(t *testing.T) {
 		// show config
 		[]byte("    DHCP enabled:                         Yes\n    IP Address:                           192.168.1.100\n"),
 		// show dnsservers
-		[]byte("    Statically Configured DNS Servers:    None\n"),
+		[]byte("    DNS servers configured through DHCP:  192.168.1.1\n"),
 		// netsh set static
 		[]byte("Ok.\n"),
 		// ping
@@ -563,7 +665,7 @@ func TestWindowsNetworkBackend_DNSSubAction(t *testing.T) {
 		// show config
 		[]byte("    DHCP enabled:                         Yes\n"),
 		// show dnsservers
-		[]byte("    Statically Configured DNS Servers:    None\n"),
+		[]byte("    DNS servers configured through DHCP:  192.168.1.1\n"),
 		// netsh set dnsservers primary
 		[]byte("Ok.\n"),
 		// ping

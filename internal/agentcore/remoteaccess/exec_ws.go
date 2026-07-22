@@ -7,15 +7,23 @@ import (
 	"fmt"
 	"log"
 	"os/exec"
-	"regexp"
 	"strings"
 	"time"
 
+	"github.com/labtether/labtether-agent/internal/agentcore/packagepolicy"
 	"github.com/labtether/labtether-agent/internal/securityruntime"
 	"github.com/labtether/protocol"
 )
 
-var updatePackageNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9+._:-]{0,127}$`)
+// UpdatePackageLookPath finds package-manager executables. It is overridable
+// so manager detection can be verified without running an OS update.
+var UpdatePackageLookPath = exec.LookPath
+
+// UpdatePackageCommand is the package-manager invocation for update.request.
+type UpdatePackageCommand struct {
+	Name string
+	Args []string
+}
 
 // ExecConfig contains the subset of runtime config needed by command/update handlers.
 type ExecConfig struct {
@@ -60,13 +68,16 @@ func HandleCommandRequest(transport MessageSender, msg protocol.Message, cfg Exe
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	cmd, err := securityruntime.NewCommandContext(ctx, "sh", "-lc", req.Command)
+	cmd, err := securityruntime.NewValidatedShellCommandContext(ctx, req.Command)
 	if err != nil {
 		log.Printf("agentws: command blocked by runtime policy: %v", err)
 		sendCommandResult(transport, req, "failed", err.Error())
 		return
 	}
-	output, err := cmd.CombinedOutput()
+	output := securityruntime.NewCappedRetainingWriter(MaxCommandOutputBytes)
+	cmd.Stdout = output
+	cmd.Stderr = output
+	err = cmd.Run()
 
 	// Force-kill if the process survived the context timeout.
 	if ctx.Err() == context.DeadlineExceeded && cmd.Process != nil {
@@ -75,7 +86,7 @@ func HandleCommandRequest(transport MessageSender, msg protocol.Message, cfg Exe
 	}
 
 	status := "succeeded"
-	outputStr := TruncateCommandOutput(output, MaxCommandOutputBytes)
+	outputStr := retainedCommandOutput(output)
 	if ctx.Err() == context.DeadlineExceeded {
 		status = "failed"
 		if outputStr != "" {
@@ -133,12 +144,17 @@ func HandleUpdateRequest(transport MessageSender, msg protocol.Message, cfg Exec
 		sendResult("failed", "", "token does not include update execution capability")
 		return
 	}
+	mode := strings.ToLower(strings.TrimSpace(req.Mode))
+	if mode != "self" && mode != "os_packages" {
+		sendResult("failed", "", fmt.Sprintf("unsupported update mode %q", mode))
+		return
+	}
 	if err := ValidateUpdatePackages(req.Packages); err != nil {
 		sendResult("failed", "", err.Error())
 		return
 	}
 
-	if strings.EqualFold(strings.TrimSpace(req.Mode), "self") {
+	if mode == "self" {
 		if req.Force {
 			sendProgress("checking", "Checking for agent binary updates (force enabled)...")
 		} else {
@@ -169,36 +185,15 @@ func HandleUpdateRequest(transport MessageSender, msg protocol.Message, cfg Exec
 		return
 	}
 
-	// Detect package manager
+	// Detect package manager.
 	sendProgress("detecting", "Detecting package manager...")
-	var pkgCmd string
-	var pkgArgs []string
-
-	if _, err := exec.LookPath("apt-get"); err == nil {
-		pkgCmd = "apt-get"
-		if len(req.Packages) > 0 {
-			pkgArgs = append([]string{"-y", "install"}, req.Packages...)
-		} else {
-			pkgArgs = []string{"-y", "upgrade"}
-		}
-	} else if _, err := exec.LookPath("yum"); err == nil {
-		pkgCmd = "yum"
-		if len(req.Packages) > 0 {
-			pkgArgs = append([]string{"-y", "install"}, req.Packages...)
-		} else {
-			pkgArgs = []string{"-y", "update"}
-		}
-	} else if _, err := exec.LookPath("brew"); err == nil {
-		pkgCmd = "brew"
-		if len(req.Packages) > 0 {
-			pkgArgs = append([]string{"install"}, req.Packages...)
-		} else {
-			pkgArgs = []string{"upgrade"}
-		}
-	} else {
+	updateCommand, err := ResolveUpdatePackageCommand(req.Packages, UpdatePackageLookPath)
+	if err != nil {
 		sendResult("failed", "", "no supported package manager found")
 		return
 	}
+	pkgCmd := updateCommand.Name
+	pkgArgs := updateCommand.Args
 
 	sendProgress("running", fmt.Sprintf("Running %s %s...", pkgCmd, strings.Join(pkgArgs, " ")))
 
@@ -215,7 +210,10 @@ func HandleUpdateRequest(transport MessageSender, msg protocol.Message, cfg Exec
 	if pkgCmd == "apt-get" {
 		cmd.Env = append(cmd.Environ(), "DEBIAN_FRONTEND=noninteractive")
 	}
-	output, err := cmd.CombinedOutput()
+	output := securityruntime.NewCappedRetainingWriter(MaxCommandOutputBytes)
+	cmd.Stdout = output
+	cmd.Stderr = output
+	err = cmd.Run()
 
 	// Force-kill if the process survived the context timeout.
 	if ctx.Err() == context.DeadlineExceeded && cmd.Process != nil {
@@ -223,7 +221,7 @@ func HandleUpdateRequest(transport MessageSender, msg protocol.Message, cfg Exec
 		_, _ = cmd.Process.Wait() // Reap zombie.
 	}
 
-	outputStr := TruncateCommandOutput(output, MaxCommandOutputBytes)
+	outputStr := retainedCommandOutput(output)
 
 	if ctx.Err() == context.DeadlineExceeded {
 		sendResult("failed", outputStr, "update timed out")
@@ -235,6 +233,71 @@ func HandleUpdateRequest(transport MessageSender, msg protocol.Message, cfg Exec
 	}
 
 	sendResult("succeeded", outputStr, "")
+}
+
+// ResolveUpdatePackageCommand detects a supported package manager and builds
+// its non-interactive update invocation. Keep the candidate order aligned with
+// the Linux package backend, with Homebrew retained for macOS agents.
+func ResolveUpdatePackageCommand(packages []string, lookPath func(string) (string, error)) (UpdatePackageCommand, error) {
+	for _, manager := range []string{"apt-get", "dnf", "yum", "zypper", "pacman", "apk", "brew"} {
+		if path, err := lookPath(manager); err == nil && path != "" {
+			return BuildUpdatePackageCommand(manager, packages)
+		}
+	}
+	return UpdatePackageCommand{}, fmt.Errorf("no supported package manager found")
+}
+
+// BuildUpdatePackageCommand returns a non-interactive update invocation for a
+// previously detected package manager.
+func BuildUpdatePackageCommand(manager string, packages []string) (UpdatePackageCommand, error) {
+	normalizedPackages, err := packagepolicy.NormalizeAndValidate(packages)
+	if err != nil {
+		return UpdatePackageCommand{}, err
+	}
+	packages = normalizedPackages
+
+	var args []string
+	switch manager {
+	case "apt-get":
+		if len(packages) > 0 {
+			args = append([]string{"-y", "install", "--"}, packages...)
+		} else {
+			args = []string{"-y", "upgrade"}
+		}
+	case "dnf", "yum":
+		if len(packages) > 0 {
+			args = append([]string{"-y", "install"}, packages...)
+		} else {
+			args = []string{"-y", "upgrade"}
+		}
+	case "zypper":
+		if len(packages) > 0 {
+			args = append([]string{"--non-interactive", "install"}, packages...)
+		} else {
+			args = []string{"--non-interactive", "update"}
+		}
+	case "pacman":
+		if len(packages) > 0 {
+			args = append([]string{"--noconfirm", "-S", "--"}, packages...)
+		} else {
+			args = []string{"--noconfirm", "-Syu"}
+		}
+	case "apk":
+		if len(packages) > 0 {
+			args = append([]string{"add", "--upgrade"}, packages...)
+		} else {
+			args = []string{"upgrade"}
+		}
+	case "brew":
+		if len(packages) > 0 {
+			args = append([]string{"install", "--"}, packages...)
+		} else {
+			args = []string{"upgrade"}
+		}
+	default:
+		return UpdatePackageCommand{}, fmt.Errorf("unsupported package manager %q", manager)
+	}
+	return UpdatePackageCommand{Name: manager, Args: args}, nil
 }
 
 func sendCommandResult(transport MessageSender, req protocol.CommandRequestData, status, output string) {
@@ -260,16 +323,16 @@ func sendCommandResult(transport MessageSender, req protocol.CommandRequestData,
 }
 
 func ValidateUpdatePackages(packages []string) error {
-	for _, raw := range packages {
-		pkg := strings.TrimSpace(raw)
-		if pkg == "" {
-			return fmt.Errorf("update package list contains an empty entry")
-		}
-		if !updatePackageNamePattern.MatchString(pkg) {
-			return fmt.Errorf("update package %q includes unsupported characters", pkg)
-		}
+	_, err := packagepolicy.NormalizeAndValidate(packages)
+	return err
+}
+
+func retainedCommandOutput(output *securityruntime.CappedRetainingWriter) string {
+	retained := strings.TrimSpace(string(output.Bytes()))
+	if output.Truncated() {
+		retained += "\n...output truncated"
 	}
-	return nil
+	return retained
 }
 
 func TokenAllowsAnyCapability(token string, required ...string) (checked bool, allowed bool) {

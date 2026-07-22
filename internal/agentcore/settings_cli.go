@@ -37,6 +37,9 @@ func HandleCLICommand(cfg RuntimeConfig, args []string) (handled bool, exitCode 
 		return true, runIdentityCommand(cfg, args[1:])
 	case "update":
 		return true, runUpdateCommand(cfg, args[1:])
+	case "-v", "--version":
+		printAgentVersion(cfg)
+		return true, 0
 	case "help", "-h", "--help":
 		if len(args) > 1 {
 			return true, printSubcommandHelp(cfg, args[1])
@@ -50,12 +53,16 @@ func HandleCLICommand(cfg RuntimeConfig, args []string) (handled bool, exitCode 
 	}
 }
 
-func printTopLevelHelp(cfg RuntimeConfig) {
+func printAgentVersion(cfg RuntimeConfig) {
 	version := strings.TrimSpace(cfg.Version)
 	if version == "" {
 		version = "dev"
 	}
 	fmt.Printf("labtether-agent %s\n", version)
+}
+
+func printTopLevelHelp(cfg RuntimeConfig) {
+	printAgentVersion(cfg)
 	fmt.Println()
 	fmt.Println("LabTether endpoint agent for telemetry, remote access, and automation.")
 	fmt.Println()

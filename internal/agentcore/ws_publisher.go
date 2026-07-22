@@ -17,7 +17,8 @@ import (
 type wsHeartbeatPublisher struct {
 	transport    *wsTransport
 	httpFallback HeartbeatPublisher
-	cfg          RuntimeConfig
+	source       string
+	groupID      string
 	meta         map[string]string
 	capabilities []string
 }
@@ -26,13 +27,20 @@ func newWSHeartbeatPublisher(transport *wsTransport, httpFallback HeartbeatPubli
 	return &wsHeartbeatPublisher{
 		transport:    transport,
 		httpFallback: httpFallback,
-		cfg:          cfg,
+		source:       cfg.Source,
+		groupID:      cfg.GroupID,
 		meta:         cloneStringMap(staticMeta),
 		capabilities: append([]string(nil), capabilities...),
 	}
 }
 
 func (p *wsHeartbeatPublisher) Publish(ctx context.Context, sample TelemetrySample) error {
+	// A pending-enrollment WebSocket is intentionally not ordinary connectivity.
+	// Keep the control channel quiet until approval instead of sending a Hub-
+	// rejected frame or falling back to an unauthenticated HTTP heartbeat.
+	if p.transport.EnrollmentPending() {
+		return nil
+	}
 	if !p.transport.Connected() {
 		if p.httpFallback != nil {
 			return p.httpFallback.Publish(ctx, sample)
@@ -70,13 +78,19 @@ func (p *wsHeartbeatPublisher) Publish(ctx context.Context, sample TelemetrySamp
 	if resolvedPlatform != "" {
 		metadata["platform"] = resolvedPlatform
 	}
+	assetID := p.transport.AssetID()
+	if assetID == "" {
+		// Compatibility for isolated transport tests. Production transports are
+		// always wired to the shared runtime identity source.
+		assetID = sample.AssetID
+	}
 
 	heartbeat := protocol.HeartbeatData{
-		AssetID:      sample.AssetID,
+		AssetID:      assetID,
 		Type:         "host",
-		Name:         sample.AssetID,
-		Source:       p.cfg.Source,
-		GroupID:      p.cfg.GroupID,
+		Name:         assetID,
+		Source:       p.source,
+		GroupID:      p.groupID,
 		Status:       "online",
 		Platform:     resolvedPlatform,
 		Metadata:     metadata,

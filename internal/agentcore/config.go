@@ -1,6 +1,7 @@
 package agentcore
 
 import (
+	"log"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -107,15 +108,19 @@ func LoadConfig(defaultName, defaultPort, defaultSource string) RuntimeConfig {
 	logStreamEnabled := parseBoolEnv("LABTETHER_LOG_STREAM_ENABLED", logStreamEnabledDefault)
 
 	apiToken := strings.TrimSpace(envOrDefault("LABTETHER_API_TOKEN", ""))
+	apiTokenFromFile := false
 	if apiToken == "" {
 		if token, err := loadTokenFromFile(tokenFile); err == nil {
 			apiToken = strings.TrimSpace(token)
+			apiTokenFromFile = apiToken != ""
 		}
 	}
 	enrollmentToken := strings.TrimSpace(envOrDefault("LABTETHER_ENROLLMENT_TOKEN", ""))
+	enrollmentTokenFromFile := false
 	if enrollmentToken == "" {
 		if token, err := loadSecretFromFile(enrollmentTokenFile); err == nil {
 			enrollmentToken = strings.TrimSpace(token)
+			enrollmentTokenFromFile = enrollmentToken != ""
 		}
 	}
 	turnPass := strings.TrimSpace(envOrDefault("LABTETHER_WEBRTC_TURN_PASS", ""))
@@ -141,6 +146,7 @@ func LoadConfig(defaultName, defaultPort, defaultSource string) RuntimeConfig {
 		LogStreamEnabled:                     logStreamEnabled,
 		EnrollmentToken:                      enrollmentToken,
 		EnrollmentTokenFilePath:              enrollmentTokenFile,
+		EnrollmentTokenFromFile:              enrollmentTokenFromFile,
 		TokenFilePath:                        tokenFile,
 		AgentSettingsPath:                    settingsFile,
 		DeviceKeyPath:                        deviceKeyFile,
@@ -430,6 +436,17 @@ func LoadConfig(defaultName, defaultPort, defaultSource string) RuntimeConfig {
 	cfg.APIBaseURL = normalizeAPIBaseURL(cfg.APIBaseURL)
 	cfg.WSBaseURL = normalizeWSBaseURL(cfg.WSBaseURL)
 	cfg.AutoUpdateCheckURL = normalizeHTTPSURL(cfg.AutoUpdateCheckURL)
+	if apiTokenFromFile {
+		// Restore the token-bound canonical identity and enrollment-returned
+		// endpoints during initial configuration load. Run's later ResolveToken
+		// call sees APIToken already populated, so waiting until then is too late.
+		if err := restoreEnrollmentState(&cfg); err != nil {
+			log.Printf("agent: warning: could not restore enrollment state: %v", err)
+		}
+	}
+	if cfg.APIBaseURL == "" {
+		cfg.APIBaseURL = apiBaseURLFromWS(cfg.WSBaseURL)
+	}
 
 	return cfg
 }
@@ -438,7 +455,7 @@ func loadSecretFromFile(path string) (string, error) {
 	if strings.TrimSpace(path) == "" {
 		return "", nil
 	}
-	data, err := os.ReadFile(path) // #nosec G304,G703 -- Config path is runtime configuration/default state, not untrusted user input.
+	data, err := readBoundedRegularFile(path, maxLocalSecretFileBytes)
 	if err != nil {
 		return "", err
 	}

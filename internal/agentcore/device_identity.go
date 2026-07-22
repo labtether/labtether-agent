@@ -53,7 +53,7 @@ func ensureDeviceIdentity(cfg RuntimeConfig) (*deviceIdentity, error) {
 
 func loadDeviceIdentity(cfg RuntimeConfig) (*deviceIdentity, error) {
 	privateKeyPath := resolveDeviceKeyPath(cfg.DeviceKeyPath, defaultDeviceKeyFile)
-	raw, err := os.ReadFile(privateKeyPath) // #nosec G304 -- Device identity key path is runtime configuration/default state, not user input.
+	raw, err := readBoundedRegularFile(privateKeyPath, maxDeviceKeyFileBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -128,7 +128,7 @@ func writeTextFile(path, value string, mode os.FileMode) error {
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return fmt.Errorf("create %s: %w", dir, err)
 	}
-	if err := os.WriteFile(path, []byte(value), mode); err != nil {
+	if err := writeManagedFileAtomic(path, []byte(value), mode, mode.Perm()&0o077 == 0); err != nil {
 		return fmt.Errorf("write %s: %w", path, err)
 	}
 	return nil

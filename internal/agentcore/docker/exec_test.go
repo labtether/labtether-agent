@@ -66,6 +66,31 @@ func TestDockerExecManagerCloseAll(t *testing.T) {
 	}
 }
 
+func TestDockerExecManagerCloseAllMarksIntentionalStreamClosure(t *testing.T) {
+	client := NewDockerClient("http://localhost:1")
+	em := NewDockerExecManager(client)
+	local, remote := net.Pipe()
+	defer remote.Close()
+	sess := &dockerExecSession{
+		sessionID: "sess-close-all",
+		conn:      local,
+		cancel:    func() {},
+		done:      make(chan struct{}),
+	}
+	em.sessions[sess.sessionID] = sess
+
+	go em.streamExecOutput(newRecordingCollectorTransport(true), sess)
+	em.CloseAll()
+	select {
+	case <-sess.done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("exec output reader did not stop after CloseAll")
+	}
+	if got := sess.reasonOr("exec ended"); got != "agent shutting down" {
+		t.Fatalf("close reason = %q, want intentional shutdown", got)
+	}
+}
+
 func TestExecConnWriteForwardsBytes(t *testing.T) {
 	stream := &mockReadWriteCloser{
 		reader: bytes.NewReader(nil),

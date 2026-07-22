@@ -1,10 +1,63 @@
 package backends
 
 import (
+	"bytes"
+	"context"
 	"os"
 	"path/filepath"
+	"reflect"
+	"strings"
 	"testing"
 )
+
+func TestWindowsPackageActionAggregateOutputIsBounded(t *testing.T) {
+	originalRun := RunWindowsPackageCommand
+	t.Cleanup(func() { RunWindowsPackageCommand = originalRun })
+
+	RunWindowsPackageCommand = func(context.Context, string, ...string) ([]byte, error) {
+		return bytes.Repeat([]byte("w"), MaxCommandOutputBytes*4), nil
+	}
+
+	result, err := (WindowsPackageBackend{backend: "winget"}).PerformAction("install", []string{"Microsoft.PowerShell"})
+	if err != nil {
+		t.Fatalf("PerformAction: %v", err)
+	}
+	if len(result.Output) > MaxCommandOutputBytes+len("\n...output truncated") {
+		t.Fatalf("result output length = %d, expected bounded output", len(result.Output))
+	}
+	if !strings.HasSuffix(result.Output, "...output truncated") {
+		t.Fatalf("result output did not report truncation (length %d)", len(result.Output))
+	}
+}
+
+func TestBuildWindowsPackageActionArgsValidatesPackageID(t *testing.T) {
+	t.Parallel()
+
+	got, err := buildWindowsPackageActionArgs("winget", "install", " Microsoft.PowerShell ")
+	if err != nil {
+		t.Fatalf("valid WinGet package: %v", err)
+	}
+	want := []string{
+		"install", "--id", "Microsoft.PowerShell",
+		"--accept-package-agreements", "--accept-source-agreements", "--silent",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("WinGet args = %#v, want %#v", got, want)
+	}
+
+	for _, pkg := range []string{"--source", "-y", "bad\nname", ""} {
+		pkg := pkg
+		t.Run(pkg, func(t *testing.T) {
+			t.Parallel()
+			if _, err := buildWindowsPackageActionArgs("winget", "install", pkg); err == nil {
+				t.Fatalf("unsafe WinGet package %q was accepted", pkg)
+			}
+			if _, err := buildWindowsPackageActionArgs("choco", "install", pkg); err == nil {
+				t.Fatalf("unsafe Chocolatey package %q was accepted", pkg)
+			}
+		})
+	}
+}
 
 func TestParseWinGetListOutput(t *testing.T) {
 	t.Parallel()

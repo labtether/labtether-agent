@@ -124,7 +124,7 @@ func handleAgentSettingsApply(transport *wsTransport, msg protocol.Message, runt
 
 	response.Applied = true
 	response.RestartRequired = restartRequired
-	response.AppliedValues = applied
+	response.AppliedValues = redactSensitiveAgentSettingValues(applied)
 	response.AppliedAt = time.Now().UTC().Format(time.RFC3339)
 	sendAgentSettingsApplied(transport, runtime, response)
 	sendAgentSettingsState(transport, runtime, req.Revision)

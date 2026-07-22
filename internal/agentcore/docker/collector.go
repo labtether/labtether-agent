@@ -54,25 +54,55 @@ type dockerStatsSchedule struct {
 
 // DockerCollector manages Docker discovery and stats collection on the agent side.
 type DockerCollector struct {
-	client     *dockerClient
-	transport  Transport
-	socketPath string
-	assetID    string // agent's own asset ID, used as host_id
-	interval   time.Duration
+	client            *dockerClient
+	transport         Transport
+	socketPath        string
+	assetID           string // agent's own asset ID, used as host_id
+	assetIDProviderMu sync.RWMutex
+	assetIDProvider   func() string
+	interval          time.Duration
 
 	fullReconcileInterval time.Duration
 	discoveryTriggerCh    chan dockerDiscoveryTrigger
 	statsTriggerCh        chan struct{}
 
-	inventoryMu         sync.RWMutex
-	inventory           dockerInventorySnapshot
-	runningContainerIDs map[string]struct{}
-	hasPublishedFull    bool
+	inventoryMu          sync.RWMutex
+	inventory            dockerInventorySnapshot
+	runningContainerIDs  map[string]struct{}
+	hasPublishedFull     bool
+	lastPublishedAssetID string
 
 	statsMu            sync.Mutex
 	statsSchedule      map[string]*dockerStatsSchedule
 	lastRunningSetHash string
 	lastStatsPublish   time.Time
+}
+
+// SetAssetIDProvider installs the authoritative runtime asset-ID reader. The
+// provider is invoked immediately before outbound payloads are marshaled so a
+// credential rotation cannot leave Docker messages pinned to startup identity.
+func (dc *DockerCollector) SetAssetIDProvider(provider func() string) {
+	if dc == nil {
+		return
+	}
+	dc.assetIDProviderMu.Lock()
+	dc.assetIDProvider = provider
+	dc.assetIDProviderMu.Unlock()
+}
+
+func (dc *DockerCollector) currentAssetID() string {
+	if dc == nil {
+		return ""
+	}
+	dc.assetIDProviderMu.RLock()
+	provider := dc.assetIDProvider
+	dc.assetIDProviderMu.RUnlock()
+	if provider != nil {
+		if assetID := strings.TrimSpace(provider()); assetID != "" {
+			return assetID
+		}
+	}
+	return strings.TrimSpace(dc.assetID)
 }
 
 // NewDockerCollector creates a collector. socketPath is the Docker socket path.
@@ -148,6 +178,7 @@ func (dc *DockerCollector) IsAvailable() bool {
 func (dc *DockerCollector) ResetPublishedState() {
 	dc.inventoryMu.Lock()
 	dc.hasPublishedFull = false
+	dc.lastPublishedAssetID = ""
 	dc.inventoryMu.Unlock()
 }
 
@@ -292,7 +323,9 @@ func (dc *DockerCollector) refreshAndPublishFull(ctx context.Context, forcePubli
 	}
 
 	dc.inventoryMu.RLock()
-	changed := !dockerInventorySnapshotsEqual(dc.inventory, snapshot)
+	currentAssetID := dc.currentAssetID()
+	identityChanged := dc.lastPublishedAssetID != "" && dc.lastPublishedAssetID != currentAssetID
+	changed := identityChanged || !dockerInventorySnapshotsEqual(dc.inventory, snapshot)
 	hasPublished := dc.hasPublishedFull
 	dc.inventoryMu.RUnlock()
 
@@ -301,6 +334,7 @@ func (dc *DockerCollector) refreshAndPublishFull(ctx context.Context, forcePubli
 		return false, nil
 	}
 
+	discovery.HostID = currentAssetID
 	if err := dc.sendDockerMessage(protocol.MsgDockerDiscovery, discovery); err != nil {
 		dc.updateRunningContainerIDs(runningIDs)
 		return false, err
@@ -308,6 +342,7 @@ func (dc *DockerCollector) refreshAndPublishFull(ctx context.Context, forcePubli
 	dc.replaceInventory(snapshot, runningIDs)
 	dc.inventoryMu.Lock()
 	dc.hasPublishedFull = true
+	dc.lastPublishedAssetID = currentAssetID
 	dc.inventoryMu.Unlock()
 	return true, nil
 }
@@ -319,11 +354,15 @@ func (dc *DockerCollector) refreshAndPublishContainerDelta(ctx context.Context) 
 
 	dc.inventoryMu.RLock()
 	hasPublished := dc.hasPublishedFull
+	lastPublishedAssetID := dc.lastPublishedAssetID
 	previousContainers := cloneDockerContainerInfoMap(dc.inventory.Containers)
 	previousCompose := cloneComposeStacks(dc.inventory.ComposeStacks)
 	dc.inventoryMu.RUnlock()
 
 	if !hasPublished {
+		return dc.refreshAndPublishFull(ctx, true)
+	}
+	if lastPublishedAssetID != "" && lastPublishedAssetID != dc.currentAssetID() {
 		return dc.refreshAndPublishFull(ctx, true)
 	}
 
@@ -349,7 +388,7 @@ func (dc *DockerCollector) refreshAndPublishContainerDelta(ctx context.Context) 
 	}
 
 	delta := protocol.DockerDiscoveryDeltaData{
-		HostID:             dc.assetID,
+		HostID:             dc.currentAssetID(),
 		UpsertContainers:   upserts,
 		RemoveContainerIDs: removals,
 	}
@@ -392,6 +431,7 @@ func (dc *DockerCollector) sendDockerMessage(messageType string, payload any) er
 	if dc.transport == nil {
 		return fmt.Errorf("transport unavailable")
 	}
+	payload = dc.bindCurrentAssetID(messageType, payload)
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		return err
@@ -400,6 +440,42 @@ func (dc *DockerCollector) sendDockerMessage(messageType string, payload any) er
 		return err
 	}
 	return nil
+}
+
+func (dc *DockerCollector) bindCurrentAssetID(messageType string, payload any) any {
+	assetID := dc.currentAssetID()
+	switch value := payload.(type) {
+	case protocol.DockerDiscoveryData:
+		value.HostID = assetID
+		return value
+	case protocol.DockerDiscoveryDeltaData:
+		value.HostID = assetID
+		return value
+	case protocol.DockerStatsData:
+		value.HostID = assetID
+		return value
+	case protocol.DockerEventData:
+		value.HostID = assetID
+		return value
+	case *protocol.DockerDiscoveryData:
+		copyValue := *value
+		copyValue.HostID = assetID
+		return &copyValue
+	case *protocol.DockerDiscoveryDeltaData:
+		copyValue := *value
+		copyValue.HostID = assetID
+		return &copyValue
+	case *protocol.DockerStatsData:
+		copyValue := *value
+		copyValue.HostID = assetID
+		return &copyValue
+	case *protocol.DockerEventData:
+		copyValue := *value
+		copyValue.HostID = assetID
+		return &copyValue
+	default:
+		return payload
+	}
 }
 
 func (dc *DockerCollector) replaceInventory(snapshot dockerInventorySnapshot, runningIDs map[string]struct{}) {
@@ -427,7 +503,7 @@ func (dc *DockerCollector) currentRunningContainerIDs() []string {
 }
 
 func (dc *DockerCollector) collectFullDiscovery(ctx context.Context) (protocol.DockerDiscoveryData, dockerInventorySnapshot, map[string]struct{}, error) {
-	result := protocol.DockerDiscoveryData{HostID: dc.assetID}
+	result := protocol.DockerDiscoveryData{HostID: dc.currentAssetID()}
 	snapshot := dockerInventorySnapshot{
 		Containers: make(map[string]protocol.DockerContainerInfo),
 		Images:     make(map[string]protocol.DockerImageInfo),
@@ -576,7 +652,7 @@ func (dc *DockerCollector) collectAndSendStats(ctx context.Context) {
 		return
 	}
 
-	payload := protocol.DockerStatsData{HostID: dc.assetID, Containers: payloadStats}
+	payload := protocol.DockerStatsData{HostID: dc.currentAssetID(), Containers: payloadStats}
 	if err := dc.sendDockerMessage(protocol.MsgDockerStats, payload); err != nil {
 		log.Printf("docker: failed to send stats: %v", err)
 		return

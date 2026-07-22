@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/labtether/labtether-agent/internal/agentcore/backends"
 	"github.com/labtether/labtether-agent/internal/agentcore/docker"
 	"github.com/labtether/labtether-agent/internal/agentcore/files"
+	"github.com/labtether/labtether-agent/internal/agentcore/remoteaccess"
 	"github.com/labtether/labtether-agent/internal/agentcore/system"
 	"github.com/labtether/protocol"
 )
@@ -80,10 +82,27 @@ func receiveLoop(ctx context.Context, transport *wsTransport, cfg RuntimeConfig,
 	// go through the semaphore so panics are contained and WaitGroup tracked.
 	const maxConcurrentHandlers = 20
 	sem := make(chan struct{}, maxConcurrentHandlers)
+	// Host power transitions are serialized independently of the general
+	// handler pool so duplicate requests cannot race each other.
+	powerSem := make(chan struct{}, 1)
+	powerRuntime := newPlatformPowerBackend()
 
 	// handlerWG tracks all in-flight handler goroutines so receiveLoop can
 	// drain them gracefully on disconnect/shutdown.
 	var handlerWG sync.WaitGroup
+
+	// Upload chunks share a request ID and offsets, so they must be applied in
+	// WebSocket delivery order. Dispatching each file.write in an independent
+	// goroutine lets a later EOF marker overtake the data chunk and corrupts the
+	// upload state. A bounded worker preserves ordering and applies natural
+	// backpressure without serializing unrelated command handlers.
+	const maxQueuedFileWriteMessages = 64
+	fileWriteMessages := make(chan protocol.Message, maxQueuedFileWriteMessages)
+	handlerWG.Add(1)
+	go func() {
+		defer handlerWG.Done()
+		runOrderedFileWriteWorker(ctx, transport, fileMgr, fileWriteMessages)
+	}()
 
 	for {
 		select {
@@ -100,7 +119,10 @@ func receiveLoop(ctx context.Context, transport *wsTransport, cfg RuntimeConfig,
 		default:
 		}
 
-		if !transport.Connected() {
+		// Pending-enrollment sockets are deliberately not product-ready, but the
+		// receive loop must keep reading them so it can process the Hub challenge
+		// and approval/rejection control messages.
+		if !transport.socketOpen() {
 			select {
 			case <-ctx.Done():
 				return
@@ -109,9 +131,9 @@ func receiveLoop(ctx context.Context, transport *wsTransport, cfg RuntimeConfig,
 			}
 		}
 
-		msg, err := transport.Receive()
+		msg, enrollmentPending, err := transport.receiveWithEnrollmentState()
 		if err != nil {
-			if transport.Connected() {
+			if transport.socketOpen() {
 				if websocket.IsCloseError(err, websocket.CloseGoingAway) {
 					log.Printf("agentws: hub shutting down, will reconnect immediately")
 				} else {
@@ -120,6 +142,25 @@ func receiveLoop(ctx context.Context, transport *wsTransport, cfg RuntimeConfig,
 				transport.markDisconnected()
 			}
 			continue
+		}
+		if !inboundMessageAllowed(enrollmentPending, msg.Type) {
+			log.Printf("agentws: ignored inbound %q on pending enrollment socket", msg.Type)
+			continue
+		}
+		if required := requiredCapabilitiesForMessage(msg.Type); len(required) > 0 {
+			currentBearer := transport.identitySource().Snapshot().BearerToken
+			if checked, allowed := remoteaccess.TokenAllowsAnyCapability(currentBearer, required...); checked && !allowed {
+				log.Printf("agentws: rejected %s: token lacks required capability", msg.Type)
+				if msg.Type == msgPowerAction {
+					sendPowerRejectionForMessage(
+						transport,
+						msg,
+						powerResultCodeCapabilityDenied,
+						"agent token does not allow power actions",
+					)
+				}
+				continue
+			}
 		}
 
 		switch msg.Type {
@@ -130,9 +171,35 @@ func receiveLoop(ctx context.Context, transport *wsTransport, cfg RuntimeConfig,
 				defer handlerWG.Done()
 				defer func() { <-sem }()
 				safeHandler("command-request", func() {
-					handleCommandRequest(transport, msg, cfg)
+					handleCommandRequest(transport, msg, runtimeConfigWithCurrentIdentity(cfg, transport))
 				})
 			}()
+		case msgPowerAction:
+			select {
+			case powerSem <- struct{}{}:
+				select {
+				case sem <- struct{}{}:
+				case <-ctx.Done():
+					<-powerSem
+					return
+				}
+				handlerWG.Add(1)
+				go func() {
+					defer handlerWG.Done()
+					defer func() { <-sem }()
+					defer func() { <-powerSem }()
+					safeHandler("power-action", func() {
+						handlePowerAction(ctx, transport, msg, powerRuntime)
+					})
+				}()
+			default:
+				sendPowerRejectionForMessage(
+					transport,
+					msg,
+					powerResultCodeBusy,
+					"another power action is already in progress",
+				)
+			}
 		case protocol.MsgPing:
 			sem <- struct{}{}
 			handlerWG.Add(1)
@@ -170,7 +237,7 @@ func receiveLoop(ctx context.Context, transport *wsTransport, cfg RuntimeConfig,
 				defer handlerWG.Done()
 				defer func() { <-sem }()
 				safeHandler("update-request", func() {
-					handleUpdateRequest(transport, msg, cfg)
+					handleUpdateRequest(transport, msg, runtimeConfigWithCurrentIdentity(cfg, transport))
 				})
 			}()
 		case protocol.MsgTerminalProbe:
@@ -384,25 +451,15 @@ func receiveLoop(ctx context.Context, transport *wsTransport, cfg RuntimeConfig,
 				})
 			}()
 		case protocol.MsgFileRead:
-			sem <- struct{}{}
-			handlerWG.Add(1)
-			go func() {
-				defer handlerWG.Done()
-				defer func() { <-sem }()
-				safeHandler("file-read", func() {
-					fileMgr.HandleFileRead(transport, msg)
-				})
-			}()
+			if !startFileReadHandler(ctx, transport, fileMgr, msg, sem, &handlerWG) {
+				return
+			}
 		case protocol.MsgFileWrite:
-			sem <- struct{}{}
-			handlerWG.Add(1)
-			go func() {
-				defer handlerWG.Done()
-				defer func() { <-sem }()
-				safeHandler("file-write", func() {
-					fileMgr.HandleFileWrite(transport, msg)
-				})
-			}()
+			select {
+			case fileWriteMessages <- msg:
+			case <-ctx.Done():
+				return
+			}
 		case protocol.MsgFileMkdir:
 			sem <- struct{}{}
 			handlerWG.Add(1)
@@ -440,7 +497,7 @@ func receiveLoop(ctx context.Context, transport *wsTransport, cfg RuntimeConfig,
 				defer handlerWG.Done()
 				defer func() { <-sem }()
 				safeHandler("file-copy", func() {
-					fileMgr.HandleFileCopy(transport, msg)
+					fileMgr.HandleFileCopyContext(ctx, transport, msg)
 				})
 			}()
 		case protocol.MsgFileSearch:
@@ -802,6 +859,107 @@ func receiveLoop(ctx context.Context, transport *wsTransport, cfg RuntimeConfig,
 	}
 }
 
+// inboundMessageAllowed limits tokenless WebSockets to the three hub-to-agent
+// enrollment control messages required to complete or reject enrollment.
+// Operational messages must never reach their handlers until a subsequent
+// WebSocket has authenticated with the approved bearer token.
+func inboundMessageAllowed(enrollmentPending bool, messageType string) bool {
+	if !enrollmentPending {
+		return true
+	}
+	switch messageType {
+	case protocol.MsgEnrollmentChallenge, protocol.MsgEnrollmentApproved, protocol.MsgEnrollmentRejected:
+		return true
+	default:
+		return false
+	}
+}
+
+func runtimeConfigWithCurrentIdentity(cfg RuntimeConfig, transport *wsTransport) RuntimeConfig {
+	if transport == nil {
+		return cfg
+	}
+	identity := transport.identitySource().Snapshot()
+	cfg.APIToken = identity.BearerToken
+	cfg.AssetID = identity.AssetID
+	cfg.WSBaseURL = identity.WSBaseURL
+	cfg.APIBaseURL = identity.APIBaseURL
+	return cfg
+}
+
+func startFileReadHandler(ctx context.Context, transport files.MessageSender, fileMgr *files.Manager, msg protocol.Message, sem chan struct{}, handlerWG *sync.WaitGroup) bool {
+	select {
+	case sem <- struct{}{}:
+	case <-ctx.Done():
+		return false
+	}
+
+	handlerWG.Add(1)
+	go func() {
+		defer handlerWG.Done()
+		defer func() { <-sem }()
+		safeHandler("file-read", func() {
+			fileMgr.HandleFileReadContext(ctx, transport, msg)
+		})
+	}()
+	return true
+}
+
+func runOrderedFileWriteWorker(ctx context.Context, transport *wsTransport, fileMgr *files.Manager, messages <-chan protocol.Message) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case msg, ok := <-messages:
+			if !ok {
+				return
+			}
+			safeHandler("file-write", func() {
+				fileMgr.HandleFileWrite(transport, msg)
+			})
+		}
+	}
+}
+
+// requiredCapabilitiesForMessage maps privileged hub-to-agent operations to
+// token claims. Opaque legacy agent tokens continue to be authenticated by the
+// hub, while capability-bearing JWTs are constrained at the endpoint as a
+// second authorization boundary.
+func requiredCapabilitiesForMessage(messageType string) []string {
+	switch {
+	case messageType == protocol.MsgConfigUpdate || messageType == protocol.MsgAgentSettingsApply:
+		return []string{"agent.settings.apply", "agent.settings", "settings.apply"}
+	case strings.HasPrefix(messageType, "terminal."):
+		return []string{"agent.terminal", "terminal.connect", "terminal"}
+	case strings.HasPrefix(messageType, "desktop.") || strings.HasPrefix(messageType, "webrtc.") || strings.HasPrefix(messageType, "clipboard."):
+		return []string{"agent.desktop", "desktop.connect", "desktop"}
+	case strings.HasPrefix(messageType, "file."):
+		return []string{"agent.files", "files.manage", "files"}
+	case strings.HasPrefix(messageType, "ssh_key."):
+		return []string{"agent.ssh_keys", "ssh_keys.manage", "ssh_keys"}
+	case messageType == protocol.MsgWoLSend:
+		return []string{"agent.network.manage", "network.manage", "agent.operations"}
+	case messageType == msgPowerAction:
+		return []string{"agent.power", "power.manage", "agent.operations"}
+	case strings.HasPrefix(messageType, "process."):
+		return []string{"agent.processes", "processes.manage", "agent.operations"}
+	case strings.HasPrefix(messageType, "service."):
+		return []string{"agent.services", "services.manage", "agent.operations"}
+	case strings.HasPrefix(messageType, "network."):
+		return []string{"agent.network", "network.manage", "agent.operations"}
+	case strings.HasPrefix(messageType, "package.") || strings.HasPrefix(messageType, "update."):
+		return []string{"agent.update.apply", "update.apply", "agent.update"}
+	case strings.HasPrefix(messageType, "cron.") || strings.HasPrefix(messageType, "users.") || strings.HasPrefix(messageType, "disk.") || strings.HasPrefix(messageType, "journal."):
+		return []string{"agent.inspect", "agent.operations", "operations.read"}
+	case strings.HasPrefix(messageType, "docker."):
+		return []string{"agent.docker", "docker.manage", "agent.operations"}
+	case messageType == protocol.MsgWebServiceSync:
+		return []string{"agent.services", "services.manage", "agent.operations"}
+	default:
+		return nil
+	}
+}
+
 // handleAlertNotify processes an alert notification from the hub and caches it locally.
 func handleAlertNotify(msg protocol.Message, runtime *Runtime) {
 	var data protocol.AlertNotifyData
@@ -826,8 +984,14 @@ func handleAlertNotify(msg protocol.Message, runtime *Runtime) {
 // sendTelemetrySample sends a TelemetrySample as a telemetry message over
 // the WebSocket transport.
 func sendTelemetrySample(transport *wsTransport, sample TelemetrySample) {
+	assetID := transport.AssetID()
+	if assetID == "" {
+		// Compatibility for isolated transport tests. Production transports are
+		// always wired to the shared runtime identity source.
+		assetID = sample.AssetID
+	}
 	td := protocol.TelemetryData{
-		AssetID:          sample.AssetID,
+		AssetID:          assetID,
 		CPUPercent:       sample.CPUPercent,
 		MemoryPercent:    sample.MemoryPercent,
 		DiskPercent:      sample.DiskPercent,

@@ -11,6 +11,12 @@ import (
 
 type DarwinNetworkBackend struct{}
 
+// DarwinNetworkRunCommandWithTimeout and DarwinNetworkHasCommand are the
+// platform command dependencies used by the networksetup backend. Tests replace
+// them to prove fail-closed behavior without mutating the host network.
+var DarwinNetworkRunCommandWithTimeout = RunCommandWithTimeout
+var DarwinNetworkHasCommand = HasCommand
+
 type DarwinNetworkSnapshot struct {
 	Service         string
 	DNSServers      []string
@@ -60,7 +66,7 @@ func (nm *NetworkManager) applyActionDarwin(req protocol.NetworkActionData) prot
 	nm.LastNMConnections = nil
 	nm.mu.Unlock()
 
-	out, runErr := RunCommandWithTimeout(NetworkActionCommandTimeout, "networksetup", "-setnetworkserviceenabled", service, "on")
+	out, runErr := DarwinNetworkRunCommandWithTimeout(NetworkActionCommandTimeout, "networksetup", "-setnetworkserviceenabled", service, "on")
 	result.Output = TruncateCommandOutput(out, MaxCommandOutputBytes)
 	if runErr != nil {
 		result.Error = fmt.Sprintf("networksetup apply failed: %v", runErr)
@@ -127,31 +133,32 @@ func (nm *NetworkManager) rollbackDarwinNetworkSetup() (string, error) {
 	if snapshot == nil {
 		return "", errors.New("no networksetup snapshot is available")
 	}
+	if !snapshot.HasEnabledState {
+		return "", errors.New("networksetup snapshot is missing the service enabled state")
+	}
 
 	parts := make([]string, 0, 2)
 	var firstErr error
 
-	if snapshot.HasEnabledState {
-		state := "off"
-		if snapshot.Enabled {
-			state = "on"
-		}
-		out, err := RunCommandWithTimeout(NetworkActionCommandTimeout, "networksetup", "-setnetworkserviceenabled", snapshot.Service, state)
-		trimmed := TruncateCommandOutput(out, MaxCommandOutputBytes)
-		if trimmed != "" {
-			parts = append(parts, trimmed)
-		}
-		if err != nil && firstErr == nil {
-			firstErr = fmt.Errorf("restore network service enabled state: %w", err)
-		}
+	state := "off"
+	if snapshot.Enabled {
+		state = "on"
+	}
+	out, err := DarwinNetworkRunCommandWithTimeout(NetworkActionCommandTimeout, "networksetup", "-setnetworkserviceenabled", snapshot.Service, state)
+	trimmed := TruncateCommandOutput(out, MaxCommandOutputBytes)
+	if trimmed != "" {
+		parts = append(parts, trimmed)
+	}
+	if err != nil && firstErr == nil {
+		firstErr = fmt.Errorf("restore network service enabled state: %w", err)
 	}
 
 	dnsArgs := []string{"-setdnsservers", snapshot.Service, "empty"}
 	if snapshot.HasDNSServers && len(snapshot.DNSServers) > 0 {
 		dnsArgs = append([]string{"-setdnsservers", snapshot.Service}, snapshot.DNSServers...)
 	}
-	out, err := RunCommandWithTimeout(NetworkActionCommandTimeout, "networksetup", dnsArgs...)
-	trimmed := TruncateCommandOutput(out, MaxCommandOutputBytes)
+	out, err = DarwinNetworkRunCommandWithTimeout(NetworkActionCommandTimeout, "networksetup", dnsArgs...)
+	trimmed = TruncateCommandOutput(out, MaxCommandOutputBytes)
 	if trimmed != "" {
 		parts = append(parts, trimmed)
 	}
@@ -163,7 +170,7 @@ func (nm *NetworkManager) rollbackDarwinNetworkSetup() (string, error) {
 }
 
 func ResolveDarwinNetworkMethod(raw string) (string, error) {
-	return ResolveDarwinNetworkMethodWith(raw, HasCommand)
+	return ResolveDarwinNetworkMethodWith(raw, DarwinNetworkHasCommand)
 }
 
 func ResolveDarwinNetworkMethodWith(raw string, commandExists func(string) bool) (string, error) {
@@ -213,7 +220,7 @@ func ResolveDarwinNetworkService(raw string) (string, error) {
 }
 
 func ListDarwinNetworkServices() ([]DarwinNetworkService, error) {
-	out, err := RunCommandWithTimeout(10*time.Second, "networksetup", "-listallnetworkservices")
+	out, err := DarwinNetworkRunCommandWithTimeout(10*time.Second, "networksetup", "-listallnetworkservices")
 	if err != nil {
 		trimmed := TruncateCommandOutput(out, MaxCommandOutputBytes)
 		if trimmed == "" {
@@ -254,7 +261,7 @@ func ParseDarwinNetworkServicesOutput(raw string) []DarwinNetworkService {
 }
 
 func CaptureDarwinNetworkSetupSnapshot(service string) (*DarwinNetworkSnapshot, error) {
-	dnsOut, dnsErr := RunCommandWithTimeout(10*time.Second, "networksetup", "-getdnsservers", service)
+	dnsOut, dnsErr := DarwinNetworkRunCommandWithTimeout(10*time.Second, "networksetup", "-getdnsservers", service)
 	if dnsErr != nil {
 		trimmed := TruncateCommandOutput(dnsOut, MaxCommandOutputBytes)
 		if trimmed == "" {
@@ -264,11 +271,17 @@ func CaptureDarwinNetworkSetupSnapshot(service string) (*DarwinNetworkSnapshot, 
 	}
 	dnsServers, hasDNS := ParseDarwinDNSServersOutput(string(dnsOut))
 
-	enabledOut, enabledErr := RunCommandWithTimeout(10*time.Second, "networksetup", "-getnetworkserviceenabled", service)
-	enabled := false
-	hasEnabledState := false
-	if enabledErr == nil {
-		enabled, hasEnabledState = ParseDarwinNetworkServiceEnabledOutput(string(enabledOut))
+	enabledOut, enabledErr := DarwinNetworkRunCommandWithTimeout(10*time.Second, "networksetup", "-getnetworkserviceenabled", service)
+	if enabledErr != nil {
+		trimmed := TruncateCommandOutput(enabledOut, MaxCommandOutputBytes)
+		if trimmed == "" {
+			return nil, fmt.Errorf("capture network service enabled state: %w", enabledErr)
+		}
+		return nil, fmt.Errorf("capture network service enabled state: %w: %s", enabledErr, trimmed)
+	}
+	enabled, hasEnabledState := ParseDarwinNetworkServiceEnabledOutput(string(enabledOut))
+	if !hasEnabledState {
+		return nil, fmt.Errorf("capture network service enabled state: unrecognized networksetup response for %q", service)
 	}
 
 	return &DarwinNetworkSnapshot{
@@ -317,10 +330,10 @@ func VerifyDarwinConnectivity(rawTarget string) error {
 		target = DefaultConnectivityProbeHost
 	}
 
-	if !HasCommand("ping") {
+	if !DarwinNetworkHasCommand("ping") {
 		return nil
 	}
-	pingOut, pingErr := RunCommandWithTimeout(NetworkConnectivityTimeout, "ping", "-c", "1", "-W", "2000", target)
+	pingOut, pingErr := DarwinNetworkRunCommandWithTimeout(NetworkConnectivityTimeout, "ping", "-c", "1", "-W", "2000", target)
 	if pingErr != nil {
 		trimmed := TruncateCommandOutput(pingOut, MaxCommandOutputBytes)
 		if trimmed == "" {

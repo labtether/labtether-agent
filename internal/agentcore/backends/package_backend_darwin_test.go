@@ -1,7 +1,10 @@
 package backends
 
 import (
+	"context"
+	"errors"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -83,6 +86,62 @@ func TestParseBrewInstalledPackagesInvalidJSON(t *testing.T) {
 	}
 }
 
+func TestParseBrewUpgradablePackages(t *testing.T) {
+	raw := []byte(`{
+		"formulae": [{"name":"wget","installed_versions":["1.24.0"],"current_version":"1.25.0"}],
+		"casks": [{"name":"iterm2","installed_versions":["3.5.0"],"current_version":"3.6.0"}]
+	}`)
+	got, err := ParseBrewUpgradablePackages(raw)
+	if err != nil {
+		t.Fatalf("ParseBrewUpgradablePackages: %v", err)
+	}
+	want := []UpgradablePackageInfo{
+		{Name: "wget", Version: "1.24.0", AvailableVersion: "1.25.0"},
+		{Name: "iterm2", Version: "3.5.0", AvailableVersion: "3.6.0"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("packages = %#v, want %#v", got, want)
+	}
+}
+
+func TestDarwinUpgradableInventoryTimeoutAndMalformedOutput(t *testing.T) {
+	originalLookPath := DarwinPackageLookPath
+	originalRun := RunDarwinPackageInventoryCommand
+	t.Cleanup(func() {
+		DarwinPackageLookPath = originalLookPath
+		RunDarwinPackageInventoryCommand = originalRun
+	})
+	DarwinPackageLookPath = func(string) (string, error) { return "/opt/homebrew/bin/brew", nil }
+
+	t.Run("timeout", func(t *testing.T) {
+		RunDarwinPackageInventoryCommand = func(context.Context, string, ...string) ([]byte, error) {
+			return nil, context.DeadlineExceeded
+		}
+		_, err := (DarwinPackageBackend{}).ListUpgradablePackages()
+		if err == nil || !strings.Contains(err.Error(), "timed out") {
+			t.Fatalf("timeout error = %v", err)
+		}
+	})
+
+	t.Run("malformed", func(t *testing.T) {
+		RunDarwinPackageInventoryCommand = func(context.Context, string, ...string) ([]byte, error) {
+			return []byte(`{"formulae":[{"name":"wget","installed_versions":[],"current_version":"1.25.0"}]}`), nil
+		}
+		_, err := (DarwinPackageBackend{}).ListUpgradablePackages()
+		if err == nil || !strings.Contains(err.Error(), "missing") {
+			t.Fatalf("malformed error = %v", err)
+		}
+	})
+
+	t.Run("look path", func(t *testing.T) {
+		DarwinPackageLookPath = func(string) (string, error) { return "", errors.New("missing") }
+		_, err := (DarwinPackageBackend{}).ListUpgradablePackages()
+		if err == nil || !strings.Contains(err.Error(), "not available") {
+			t.Fatalf("look path error = %v", err)
+		}
+	})
+}
+
 func TestBuildDarwinPackageActionArgs(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -95,13 +154,13 @@ func TestBuildDarwinPackageActionArgs(t *testing.T) {
 			name:     "install",
 			action:   "install",
 			packages: []string{"wget", "jq"},
-			want:     []string{"install", "wget", "jq"},
+			want:     []string{"install", "--", "wget", "jq"},
 		},
 		{
 			name:     "remove",
 			action:   "remove",
 			packages: []string{"wget"},
-			want:     []string{"uninstall", "wget"},
+			want:     []string{"uninstall", "--", "wget"},
 		},
 		{
 			name:   "upgrade-all",
@@ -112,7 +171,13 @@ func TestBuildDarwinPackageActionArgs(t *testing.T) {
 			name:     "upgrade-specific",
 			action:   "upgrade",
 			packages: []string{"wget"},
-			want:     []string{"upgrade", "wget"},
+			want:     []string{"upgrade", "--", "wget"},
+		},
+		{
+			name:     "rejects brew option injection",
+			action:   "install",
+			packages: []string{"--formula", "wget"},
+			wantErr:  true,
 		},
 		{
 			name:    "invalid",

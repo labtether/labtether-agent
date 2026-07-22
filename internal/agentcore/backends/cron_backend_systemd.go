@@ -12,21 +12,19 @@ type LinuxCronBackend struct{}
 // ListEntries lists systemd timers and crontab entries.
 func (LinuxCronBackend) ListEntries() ([]protocol.CronEntry, error) {
 	var entries []protocol.CronEntry
+	var collectionErrors []error
 
 	timers, timerErr := CollectSystemdTimers()
 	if timerErr != nil {
-		return nil, fmt.Errorf("systemd timers: %w", timerErr)
+		collectionErrors = append(collectionErrors, fmt.Errorf("systemd timers: %w", timerErr))
 	}
 	entries = append(entries, timers...)
 
 	crontabs, crontabErr := CollectCrontabs()
 	if crontabErr != nil {
-		if len(entries) == 0 {
-			return nil, fmt.Errorf("crontabs: %w", crontabErr)
-		}
-		return entries, nil
+		collectionErrors = append(collectionErrors, fmt.Errorf("crontabs: %w", crontabErr))
 	}
 	entries = append(entries, crontabs...)
 
-	return entries, nil
+	return entries, combineScheduleErrors(collectionErrors...)
 }

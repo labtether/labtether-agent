@@ -3,6 +3,7 @@ package agentcore
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -50,8 +51,16 @@ func Run(ctx context.Context, cfg RuntimeConfig, provider TelemetryProvider) err
 	}
 
 	// Resolve API token: explicit env → persisted file → enrollment
-	if err := ResolveToken(ctx, &cfg); err != nil {
+	credentialWarning := ""
+	credentialError := ""
+	if err := resolveTokenWithIdentity(ctx, &cfg, identity); err != nil {
 		log.Printf("%s: token resolution failed: %v", cfg.Name, err)
+		if errors.Is(err, errAgentTokenPersistence) {
+			credentialWarning = agentTokenPersistenceFailed
+		}
+		if isEnrollmentCredentialRejected(err) {
+			credentialError = enrollmentTokenRejected
+		}
 	}
 
 	if cfg.TLSSkipVerify {
@@ -67,6 +76,10 @@ func Run(ctx context.Context, cfg RuntimeConfig, provider TelemetryProvider) err
 	}
 	webrtcCaps := detectWebRTCCapabilitiesForConfig(cfg)
 	capabilities := []string{"terminal", "desktop", "files"}
+	if powerRuntime := newPlatformPowerBackend(); powerRuntime.Supported(powerActionReboot) && powerRuntime.Supported(powerActionShutdown) {
+		capabilities = append(capabilities, "power")
+		staticMeta["power_actions"] = "reboot,shutdown"
+	}
 	if sessionType := strings.TrimSpace(webrtcCaps.DesktopSessionType); sessionType != "" {
 		staticMeta["desktop_session_type"] = sessionType
 	}
@@ -98,7 +111,12 @@ func Run(ctx context.Context, cfg RuntimeConfig, provider TelemetryProvider) err
 		staticMeta["agent_device_fingerprint"] = identity.Fingerprint
 		staticMeta["agent_device_key_alg"] = identity.KeyAlgorithm
 	}
-	httpPublisher := NewHeartbeatPublisher(cfg, staticMeta)
+	runtimeIdentity := newRuntimeIdentitySource(cfg)
+	// From this point onward the shared runtime identity source is the only
+	// long-lived bearer owner. Config copies retain static behavior settings but
+	// must not pin a credential that enrollment or recovery can replace.
+	cfg.APIToken = ""
+	httpPublisher := newHeartbeatPublisherWithRuntimeIdentity(cfg, staticMeta, runtimeIdentity)
 
 	var publisher HeartbeatPublisher
 	var transport *wsTransport
@@ -109,26 +127,14 @@ func Run(ctx context.Context, cfg RuntimeConfig, provider TelemetryProvider) err
 			platform = meta["platform"]
 		}
 
-		transport = newWSTransport(cfg.WSBaseURL, cfg.APIToken, cfg.AssetID, platform, cfg.Version, buildTLSConfig(&cfg), cfg.TokenFilePath, identity)
+		transport = newWSTransportWithRuntimeIdentity(runtimeIdentity, platform, cfg.Version, buildTLSConfig(&cfg), cfg.TokenFilePath, identity)
+		transport.setCredentialPersistenceError(credentialWarning)
+		transport.setCredentialError(credentialError)
 
 		// Set re-enrollment callback if enrollment token is configured.
 		if cfg.EnrollmentToken != "" {
 			transport.reEnrollFn = func() (string, error) {
-				cfgCopy := cfg
-				cfgCopy.APIToken = "" // force re-enrollment path
-				if err := ResolveToken(ctx, &cfgCopy); err != nil {
-					return "", err
-				}
-				if cfgCopy.APIToken == "" {
-					return "", fmt.Errorf("re-enrollment returned empty token")
-				}
-				// Persist the new token to disk for next startup.
-				if cfg.TokenFilePath != "" {
-					_ = saveTokenToFile(cfg.TokenFilePath, cfgCopy.APIToken)
-				}
-				// Note: transport.updateToken() is called by the reconnect loop
-				// after this returns; no need to mutate the outer cfg.
-				return cfgCopy.APIToken, nil
+				return reEnrollAgainstActiveHub(ctx, cfg, transport)
 			}
 		}
 
@@ -144,7 +150,7 @@ func Run(ctx context.Context, cfg RuntimeConfig, provider TelemetryProvider) err
 		publisher = newWSHeartbeatPublisher(transport, httpPublisher, cfg, staticMeta, capabilities)
 
 		// Store buffer reference in runtime for telemetry buffering during disconnect.
-		runtime := NewRuntime(cfg, provider, publisher)
+		runtime := newRuntimeWithIdentity(cfg, provider, publisher, runtimeIdentity)
 		runtime.transport = transport
 		runtime.telemetryBuf = telemetryBuf
 		runtime.deviceIdentity = identity
@@ -207,6 +213,7 @@ func Run(ctx context.Context, cfg RuntimeConfig, provider TelemetryProvider) err
 			log.Printf("%s: Docker collector disabled by configuration", cfg.Name)
 		} else {
 			dockerCollector = dockerpkg.NewDockerCollector(cfg.DockerSocket, transport, cfg.AssetID, cfg.DockerDiscoveryInterval)
+			dockerCollector.SetAssetIDProvider(runtimeIdentity.AssetID)
 			if dockerCollector.IsAvailable() {
 				execMgr = dockerCollector.NewExecManager()
 				dockerLogMgr = dockerCollector.NewLogManager()
@@ -238,6 +245,7 @@ func Run(ctx context.Context, cfg RuntimeConfig, provider TelemetryProvider) err
 			LANScanPorts:             cfg.ServicesDiscoveryLANScanPorts,
 			LANScanMaxHosts:          cfg.ServicesDiscoveryLANScanMaxHosts,
 		})
+		webServiceCollector.SetAssetIDProvider(runtimeIdentity.AssetID)
 		go webServiceCollector.Run(ctx)
 		log.Printf("%s: Web service collector enabled (host IP: %s)", cfg.Name, hostIP)
 
@@ -259,13 +267,112 @@ func Run(ctx context.Context, cfg RuntimeConfig, provider TelemetryProvider) err
 	}
 
 	publisher = httpPublisher
-	runtime := NewRuntime(cfg, provider, publisher)
+	runtime := newRuntimeWithIdentity(cfg, provider, publisher, runtimeIdentity)
 	runtime.deviceIdentity = identity
 	go RunWatchdog(ctx, WatchdogConfig{
 		HeartbeatCounter: &runtime.HeartbeatCounter,
 		ExitFunc:         os.Exit,
 	})
 	return runtime.Run(ctx)
+}
+
+// reEnrollAgainstActiveHub performs a real enrollment request against the
+// origin of the WebSocket connection that just rejected the current token.
+// It deliberately bypasses ResolveToken: that resolver prefers the persisted
+// token file, which is exactly the stale credential re-enrollment must replace.
+func reEnrollAgainstActiveHub(ctx context.Context, cfg RuntimeConfig, transport *wsTransport) (string, error) {
+	if transport == nil {
+		return "", fmt.Errorf("re-enrollment transport is unavailable")
+	}
+	if strings.TrimSpace(cfg.EnrollmentToken) == "" {
+		return "", fmt.Errorf("re-enrollment token is unavailable")
+	}
+
+	currentIdentity := transport.identitySource().Snapshot()
+	activeWSURL := currentIdentity.WSBaseURL
+	canonicalAssetID := currentIdentity.AssetID
+	if strings.TrimSpace(activeWSURL) == "" {
+		return "", fmt.Errorf("re-enrollment websocket URL is unavailable")
+	}
+
+	cfgCopy := cfg
+	cfgCopy.APIToken = ""
+	// APIBaseURL may still name a previous hub. Derive the enrollment endpoint
+	// from the active, failed WebSocket origin so the returned token is valid for
+	// the connection that will be retried.
+	cfgCopy.APIBaseURL = ""
+	cfgCopy.WSBaseURL = activeWSURL
+	resp, err := enrollWithHubWithContinuityIdentity(ctx, &cfgCopy, transport.deviceIdentity, canonicalAssetID)
+	if err != nil {
+		return "", err
+	}
+	resp.AgentToken = strings.TrimSpace(resp.AgentToken)
+	resp.AssetID = strings.TrimSpace(resp.AssetID)
+	if resp.AgentToken == "" {
+		return "", fmt.Errorf("re-enrollment returned empty token")
+	}
+	if resp.AssetID == "" {
+		return "", fmt.Errorf("re-enrollment returned empty asset id")
+	}
+
+	// Adopt the complete token-bound identity before reconnecting. This single
+	// update also moves HTTP fallback to the active/reported API origin.
+	responseWSURL := normalizeWSBaseURL(resp.HubWSURL)
+	if responseWSURL == "" {
+		responseWSURL = activeWSURL
+	}
+	adoptedIdentity, err := transport.identitySource().AdoptCredential(
+		resp.AgentToken,
+		resp.AssetID,
+		responseWSURL,
+		normalizeAPIBaseURL(resp.HubAPIURL),
+	)
+	if err != nil {
+		return "", err
+	}
+
+	// A persistence error must not discard the in-memory token the hub has
+	// already issued. Remove any stale on-disk credential, keep the replacement
+	// for this runtime, and surface a durable local-status warning.
+	credentialWarning := ""
+	if cfg.TokenFilePath != "" {
+		if err := saveTokenToFile(cfg.TokenFilePath, resp.AgentToken); err != nil {
+			credentialWarning = agentTokenPersistenceFailed
+			if removeErr := removePersistedAgentToken(cfg.TokenFilePath); removeErr != nil {
+				log.Printf("agentws: ERROR: replacement token is memory-only and stale token removal also failed: persist=%v remove=%v", err, removeErr)
+			} else {
+				log.Printf("agentws: ERROR: replacement token is memory-only; stale token file removed after persistence failure: %v", err)
+			}
+		} else {
+			if err := saveEnrollmentState(cfg.TokenFilePath, enrollmentState{
+				AssetID:   adoptedIdentity.AssetID,
+				HubWSURL:  adoptedIdentity.WSBaseURL,
+				HubAPIURL: adoptedIdentity.APIBaseURL,
+			}); err != nil {
+				log.Printf("agentws: warning: failed to persist re-enrollment state: %v", err)
+			}
+		}
+	}
+
+	// The one-time token has been consumed by the hub. Remove its file/env
+	// source and disarm further retries even if persisting the replacement
+	// credential failed; retrying a consumed bearer can never recover.
+	if err := discardConsumedEnrollmentToken(&cfgCopy); err != nil {
+		if credentialWarning == "" {
+			credentialWarning = "consumed_enrollment_token_cleanup_failed"
+		} else {
+			credentialWarning += ",consumed_enrollment_token_cleanup_failed"
+		}
+		log.Printf("agentws: ERROR: consumed re-enrollment token cleanup failed: %v", err)
+	}
+	transport.mu.Lock()
+	transport.reEnrollFn = nil
+	transport.mu.Unlock()
+	transport.setCredentialPersistenceError(credentialWarning)
+
+	// transport.updateToken() is called by the reconnect loop after this
+	// returns, resetting the auth-failure state atomically with token adoption.
+	return resp.AgentToken, nil
 }
 
 func replayBufferedTelemetry(transport *wsTransport, telemetryBuf *RingBuffer[TelemetrySample]) {

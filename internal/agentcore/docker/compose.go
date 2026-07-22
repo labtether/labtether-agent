@@ -20,7 +20,10 @@ var (
 	dockerComposeNewCommandContext = securityruntime.NewCommandContext
 )
 
-const composeActionTimeout = 5 * time.Minute
+const (
+	composeActionTimeout     = 5 * time.Minute
+	composeActionOutputLimit = 64 * 1024
+)
 
 // isDockerComposeCLIAvailable checks if docker compose (v2) or docker-compose (v1) is available.
 func isDockerComposeCLIAvailable() (version int, available bool) {
@@ -132,8 +135,15 @@ func (dc *DockerCollector) HandleComposeAction(transport Transport, msg protocol
 		return
 	}
 	cmd.Dir = configDir
-	output, err := cmd.CombinedOutput()
+	outputCapture := securityruntime.NewCappedRetainingWriter(composeActionOutputLimit)
+	cmd.Stdout = outputCapture
+	cmd.Stderr = outputCapture
+	err = cmd.Run()
+	output := outputCapture.Bytes()
 	outputStr := strings.TrimSpace(string(output))
+	if outputCapture.Truncated() {
+		outputStr += "\n...output truncated"
+	}
 
 	if err != nil {
 		sendComposeResult(transport, req.RequestID, false, outputStr, err.Error())

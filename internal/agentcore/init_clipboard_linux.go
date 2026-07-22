@@ -20,4 +20,15 @@ func init() {
 			XDGRuntimeDir:  session.XDGRuntimeDir,
 		}
 	}
+
+	// Display enumeration lives in sysconfig to avoid a package cycle, while
+	// desktop-session and X11-auth discovery live in remoteaccess. Wire those
+	// hooks here so xrandr targets the detected session with its real
+	// XAUTHORITY instead of falling back to an unauthenticated DISPLAY=:0.
+	sysconfig.DetectDesktopSessionTypeFn = func() string {
+		return detectDesktopSessionFn().Type
+	}
+	sysconfig.PreferredX11DisplayFn = preferredX11Display
+	sysconfig.WakeX11DisplayFn = wakeX11Display
+	sysconfig.BuildX11ClientEnvFn = buildX11ClientEnv
 }

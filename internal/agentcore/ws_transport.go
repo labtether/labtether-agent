@@ -4,6 +4,7 @@ import (
 	"context"
 	cryptorand "crypto/rand"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"log"
 	"math"
@@ -72,9 +73,11 @@ func jitterDuration(max time.Duration) time.Duration {
 
 // Reconnect backoff constants.
 const (
-	maxBackoff           = 60 * time.Second
-	authBackoff          = 5 * time.Minute
-	authFailureThreshold = 3
+	maxBackoff                  = 60 * time.Second
+	authBackoff                 = 5 * time.Minute
+	authFailureThreshold        = 3
+	agentTokenPersistenceFailed = "agent_token_persistence_failed"
+	enrollmentTokenRejected     = "enrollment_token_rejected"
 )
 
 // Client-side keepalive constants. The agent client pings every 25s
@@ -87,17 +90,21 @@ const (
 const (
 	clientPingInterval = 25 * time.Second
 	clientReadDeadline = 60 * time.Second
+	// Agent control messages are JSON envelopes containing bounded chunks. A
+	// 16 MiB ceiling leaves ample room for desktop/file payloads while ensuring
+	// a compromised or malfunctioning hub cannot force unbounded allocation in
+	// gorilla/websocket's JSON decoder.
+	maxAgentControlMessageBytes int64 = 16 * 1024 * 1024
 )
 
 type wsTransport struct {
-	url            string
-	token          string
-	assetID        string
-	platform       string
-	agentVersion   string
-	tlsConfig      *tls.Config
-	tokenFilePath  string
-	deviceIdentity *deviceIdentity
+	runtimeIdentity *runtimeIdentitySource
+	identityOnce    sync.Once
+	platform        string
+	agentVersion    string
+	tlsConfig       *tls.Config
+	tokenFilePath   string
+	deviceIdentity  *deviceIdentity
 
 	// Diagnostic counters — accessed with sync/atomic.
 	messagesSent     int64
@@ -106,14 +113,17 @@ type wsTransport struct {
 
 	startedAt time.Time
 
-	mu                      sync.Mutex
-	conn                    *websocket.Conn
-	connected               bool
-	pingDone                chan struct{} // closed to stop ping goroutine
-	consecutiveAuthFailures int
-	lastError               string
-	lastErrorAt             time.Time
-	disconnectedAt          time.Time
+	mu                         sync.Mutex
+	conn                       *websocket.Conn
+	connected                  bool          // true while any WebSocket (pending or authenticated) is open
+	pendingEnrollment          bool          // true until the open socket has an authenticated bearer
+	pingDone                   chan struct{} // closed to stop ping goroutine
+	consecutiveAuthFailures    int
+	lastError                  string
+	lastErrorAt                time.Time
+	disconnectedAt             time.Time
+	credentialPersistenceError string
+	credentialError            string
 
 	networkChanged <-chan struct{} // signaled when local IPs change
 
@@ -128,35 +138,67 @@ type wsTransport struct {
 
 // updateToken updates the bearer token and resets auth failure state.
 func (t *wsTransport) updateToken(token string) {
+	identity := t.identitySource()
+	_ = identity.UpdateToken(token)
 	t.mu.Lock()
-	t.token = token
 	t.consecutiveAuthFailures = 0
 	t.lastError = ""
+	t.credentialError = ""
+	t.mu.Unlock()
+}
+
+func (t *wsTransport) setCredentialPersistenceError(message string) {
+	t.mu.Lock()
+	t.credentialPersistenceError = strings.TrimSpace(message)
+	t.mu.Unlock()
+}
+
+func (t *wsTransport) setCredentialError(message string) {
+	t.mu.Lock()
+	t.credentialError = strings.TrimSpace(message)
 	t.mu.Unlock()
 }
 
 // AssetID returns the asset ID associated with this transport.
 func (t *wsTransport) AssetID() string {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return t.assetID
+	return t.identitySource().AssetID()
 }
 
 func newWSTransport(url, token, assetID, platform, agentVersion string, tlsConfig *tls.Config, tokenFilePath string, identity *deviceIdentity) *wsTransport {
-	return &wsTransport{
-		url:            normalizeWSBaseURL(url),
-		token:          token,
-		assetID:        assetID,
-		platform:       platform,
-		agentVersion:   strings.TrimSpace(agentVersion),
-		tlsConfig:      tlsConfig,
-		tokenFilePath:  tokenFilePath,
-		deviceIdentity: identity,
-		startedAt:      time.Now(),
-		timeAfter:      time.After,
-		now:            time.Now,
-		jitter:         jitterDuration,
+	runtimeIdentity := newRuntimeIdentitySource(RuntimeConfig{
+		WSBaseURL:  url,
+		APIBaseURL: apiBaseURLFromWS(url),
+		APIToken:   token,
+		AssetID:    assetID,
+	})
+	return newWSTransportWithRuntimeIdentity(runtimeIdentity, platform, agentVersion, tlsConfig, tokenFilePath, identity)
+}
+
+func newWSTransportWithRuntimeIdentity(runtimeIdentity *runtimeIdentitySource, platform, agentVersion string, tlsConfig *tls.Config, tokenFilePath string, identity *deviceIdentity) *wsTransport {
+	if runtimeIdentity == nil {
+		runtimeIdentity = newRuntimeIdentitySource(RuntimeConfig{})
 	}
+	return &wsTransport{
+		runtimeIdentity: runtimeIdentity,
+		platform:        platform,
+		agentVersion:    strings.TrimSpace(agentVersion),
+		tlsConfig:       tlsConfig,
+		tokenFilePath:   tokenFilePath,
+		deviceIdentity:  identity,
+		startedAt:       time.Now(),
+		timeAfter:       time.After,
+		now:             time.Now,
+		jitter:          jitterDuration,
+	}
+}
+
+func (t *wsTransport) identitySource() *runtimeIdentitySource {
+	t.identityOnce.Do(func() {
+		if t.runtimeIdentity == nil {
+			t.runtimeIdentity = newRuntimeIdentitySource(RuntimeConfig{})
+		}
+	})
+	return t.runtimeIdentity
 }
 
 func (t *wsTransport) connectAttempt(ctx context.Context) (*http.Response, error) {
@@ -190,12 +232,13 @@ func (t *wsTransport) jitterDuration(max time.Duration) time.Duration {
 // connectWithResponse dials the hub and returns the HTTP response alongside the
 // error so callers can inspect the status code for error classification.
 func (t *wsTransport) connectWithResponse(ctx context.Context) (*http.Response, error) {
-	if err := validateWebSocketTransportURL(t.url); err != nil {
+	identity := t.identitySource()
+	identitySnapshot := identity.Snapshot()
+	if err := validateWebSocketTransportURL(identitySnapshot.WSBaseURL); err != nil {
 		return nil, err
 	}
-	t.mu.Lock()
-	token := t.token
-	t.mu.Unlock()
+	token := identitySnapshot.BearerToken
+	assetID := identitySnapshot.AssetID
 
 	header := http.Header{}
 	if token != "" {
@@ -210,7 +253,7 @@ func (t *wsTransport) connectWithResponse(ctx context.Context) (*http.Response, 
 			header.Set("X-Device-Public-Key", t.deviceIdentity.PublicKeyBase64)
 		}
 	}
-	header.Set("X-Asset-ID", t.assetID)
+	header.Set("X-Asset-ID", assetID)
 	header.Set("X-Platform", t.platform)
 	if t.agentVersion != "" {
 		header.Set("X-Agent-Version", t.agentVersion)
@@ -221,12 +264,47 @@ func (t *wsTransport) connectWithResponse(ctx context.Context) (*http.Response, 
 		TLSClientConfig:  t.tlsConfig,
 	}
 
-	conn, resp, err := dialer.DialContext(ctx, t.url, header)
+	conn, resp, err := dialer.DialContext(ctx, identitySnapshot.WSBaseURL, header)
 	if err != nil {
 		if resp != nil && resp.Body != nil {
 			_ = resp.Body.Close()
 		}
 		return resp, err
+	}
+	conn.SetReadLimit(maxAgentControlMessageBytes)
+
+	// Newer hubs return the token-bound canonical asset ID in the successful
+	// upgrade response. Adopt and persist it so agents enrolled by an older
+	// build can self-heal a stale pre-enrollment asset ID on their next connect.
+	canonicalAssetID := ""
+	connectionIdentity := identitySnapshot
+	if resp != nil {
+		canonicalAssetID = strings.TrimSpace(resp.Header.Get("X-LabTether-Asset-ID"))
+	}
+	if token != "" && canonicalAssetID != "" {
+		if !validPersistedAssetID(canonicalAssetID) {
+			_ = conn.Close()
+			return resp, fmt.Errorf("hub returned an invalid canonical asset ID")
+		}
+		adopted, applied, adoptErr := identity.AdoptCanonicalAsset(identitySnapshot, canonicalAssetID)
+		if adoptErr != nil {
+			_ = conn.Close()
+			return resp, adoptErr
+		}
+		if applied {
+			connectionIdentity = adopted
+			if err := saveEnrollmentState(t.tokenFilePath, enrollmentState{
+				AssetID:   adopted.AssetID,
+				HubWSURL:  adopted.WSBaseURL,
+				HubAPIURL: adopted.APIBaseURL,
+			}); err != nil {
+				log.Printf("agentws: warning: failed to persist canonical asset ID: %v", err)
+			}
+		}
+	}
+	if !identity.MatchesConnection(connectionIdentity) {
+		_ = conn.Close()
+		return resp, errRuntimeIdentityChanged
 	}
 
 	// Set initial read deadline; the pong handler resets it on each pong.
@@ -247,6 +325,7 @@ func (t *wsTransport) connectWithResponse(ctx context.Context) (*http.Response, 
 	t.pingDone = pingDone
 	t.conn = conn
 	t.connected = true
+	t.pendingEnrollment = token == ""
 	t.consecutiveAuthFailures = 0
 	t.lastError = ""
 	t.disconnectedAt = time.Time{}
@@ -254,7 +333,11 @@ func (t *wsTransport) connectWithResponse(ctx context.Context) (*http.Response, 
 
 	go t.pingLoop(conn, pingDone)
 
-	log.Printf("agentws: connected to %s", t.url)
+	if token == "" {
+		log.Printf("agentws: pending enrollment socket connected to %s", websocketOriginForLog(identitySnapshot.WSBaseURL))
+	} else {
+		log.Printf("agentws: connected to %s", websocketOriginForLog(identitySnapshot.WSBaseURL))
+	}
 	return resp, nil
 }
 
@@ -305,6 +388,13 @@ func (t *wsTransport) Send(msg protocol.Message) error {
 	if t.conn == nil {
 		return errNotConnected
 	}
+	// A tokenless socket is an enrollment-only control channel. The hub's
+	// pending-enrollment state machine accepts exactly enrollment.proof; sending
+	// heartbeat, telemetry, capabilities, or settings before approval is both a
+	// protocol violation and an opportunity for unauthenticated data injection.
+	if t.pendingEnrollment && msg.Type != protocol.MsgEnrollmentProof {
+		return errEnrollmentPending
+	}
 	// Apply a write deadline so that a slow or unresponsive hub cannot block
 	// Send indefinitely while holding t.mu. Without this, heartbeat, telemetry,
 	// VNC, terminal, and Docker-event goroutines would all serialize and stall
@@ -318,11 +408,22 @@ func (t *wsTransport) Send(msg protocol.Message) error {
 }
 
 func (t *wsTransport) Receive() (protocol.Message, error) {
+	msg, _, err := t.receiveWithEnrollmentState()
+	return msg, err
+}
+
+// receiveWithEnrollmentState binds the authentication state to the exact
+// socket a message was read from. A pending socket can be disconnected while
+// its final messages are being drained, so consulting the transport's current
+// state after ReadJSON would create a race where an unauthenticated message
+// could be dispatched as ordinary hub traffic.
+func (t *wsTransport) receiveWithEnrollmentState() (protocol.Message, bool, error) {
 	t.mu.Lock()
 	conn := t.conn
+	pendingEnrollment := t.pendingEnrollment
 	t.mu.Unlock()
 	if conn == nil {
-		return protocol.Message{}, errNotConnected
+		return protocol.Message{}, pendingEnrollment, errNotConnected
 	}
 
 	var msg protocol.Message
@@ -330,7 +431,7 @@ func (t *wsTransport) Receive() (protocol.Message, error) {
 	if err == nil {
 		atomic.AddInt64(&t.messagesReceived, 1)
 	}
-	return msg, err
+	return msg, pendingEnrollment, err
 }
 
 func (t *wsTransport) Close() {
@@ -345,12 +446,31 @@ func (t *wsTransport) Close() {
 		t.conn = nil
 	}
 	t.connected = false
+	t.pendingEnrollment = false
+}
+
+// socketOpen reports whether a pending or authenticated WebSocket is open.
+// It is intentionally internal to transport lifecycle/read loops; product
+// readiness and publishers must use Connected, which is authenticated-only.
+func (t *wsTransport) socketOpen() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.connected
+}
+
+// EnrollmentPending reports whether the transport is holding a tokenless
+// enrollment-control socket. Such a socket remains readable for challenge and
+// approval messages, but is not ordinary product connectivity.
+func (t *wsTransport) EnrollmentPending() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.connected && t.pendingEnrollment
 }
 
 func (t *wsTransport) Connected() bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	return t.connected
+	return t.connected && !t.pendingEnrollment
 }
 
 // ConnectionState returns a human-readable connection state plus the last error
@@ -358,8 +478,17 @@ func (t *wsTransport) Connected() bool {
 func (t *wsTransport) ConnectionState() (state string, lastErr string, disconnectedAt time.Time) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	// A token explicitly rejected by the enrollment endpoint is terminal for
+	// this setup attempt. Do not let the fallback pending socket make local UI
+	// report an indefinite generic "connecting" state.
+	if t.credentialError != "" {
+		return "auth_failed", t.credentialError, t.disconnectedAt
+	}
 	if t.connected {
-		return "connected", "", time.Time{}
+		if t.pendingEnrollment {
+			return "connecting", enrollmentPendingState, time.Time{}
+		}
+		return "connected", t.credentialPersistenceError, time.Time{}
 	}
 	if t.lastError == "auth_failed" {
 		return "auth_failed", t.lastError, t.disconnectedAt
@@ -367,12 +496,16 @@ func (t *wsTransport) ConnectionState() (state string, lastErr string, disconnec
 	if t.lastError != "" {
 		return "connecting", t.lastError, t.disconnectedAt
 	}
+	if t.credentialPersistenceError != "" {
+		return "connecting", t.credentialPersistenceError, t.disconnectedAt
+	}
 	return "disconnected", "", t.disconnectedAt
 }
 
 func (t *wsTransport) markDisconnected() {
 	t.mu.Lock()
 	t.connected = false
+	t.pendingEnrollment = false
 	if t.pingDone != nil {
 		close(t.pingDone)
 		t.pingDone = nil
@@ -409,7 +542,7 @@ func (t *wsTransport) reconnectLoop(ctx context.Context, onConnect func()) {
 		default:
 		}
 
-		if t.Connected() {
+		if t.socketOpen() {
 			// Wait a bit before checking again.
 			select {
 			case <-ctx.Done():
@@ -491,7 +624,7 @@ func (t *wsTransport) reconnectLoop(ctx context.Context, onConnect func()) {
 		// Connected — reset backoff, record the reconnect, and notify.
 		backoff = time.Second
 		atomic.AddInt64(&t.reconnectCount, 1)
-		if onConnect != nil {
+		if onConnect != nil && t.Connected() {
 			onConnect()
 		}
 
@@ -502,7 +635,7 @@ func (t *wsTransport) reconnectLoop(ctx context.Context, onConnect func()) {
 		if netCh == nil {
 			netCh = make(chan struct{}) // never fires
 		}
-		for t.Connected() {
+		for t.socketOpen() {
 			select {
 			case <-ctx.Done():
 				return
@@ -530,6 +663,16 @@ func (errNotConnectedType) Error() string { return "websocket not connected" }
 
 var errNotConnected error = errNotConnectedType{}
 
+type errEnrollmentPendingType struct{}
+
+func (errEnrollmentPendingType) Error() string { return enrollmentPendingState }
+
+const enrollmentPendingState = "enrollment_pending"
+
+var errEnrollmentPending error = errEnrollmentPendingType{}
+
+var errRuntimeIdentityChanged = errors.New("runtime identity changed during websocket connection")
+
 func validateWebSocketTransportURL(raw string) error {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
@@ -537,7 +680,10 @@ func validateWebSocketTransportURL(raw string) error {
 	}
 	parsed, err := url.Parse(trimmed)
 	if err != nil || strings.TrimSpace(parsed.Host) == "" {
-		return fmt.Errorf("invalid websocket url %q", raw)
+		return fmt.Errorf("invalid websocket url")
+	}
+	if parsed.User != nil {
+		return fmt.Errorf("websocket url must not contain user info")
 	}
 	switch strings.ToLower(strings.TrimSpace(parsed.Scheme)) {
 	case "wss":
@@ -550,6 +696,14 @@ func validateWebSocketTransportURL(raw string) error {
 	default:
 		return fmt.Errorf("unsupported websocket scheme %q", parsed.Scheme)
 	}
+}
+
+func websocketOriginForLog(raw string) string {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || strings.TrimSpace(parsed.Scheme) == "" || strings.TrimSpace(parsed.Host) == "" {
+		return "configured hub"
+	}
+	return strings.ToLower(parsed.Scheme) + "://" + parsed.Host
 }
 
 func isTLSTrustError(err error) bool {

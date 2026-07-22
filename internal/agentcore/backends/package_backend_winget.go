@@ -5,14 +5,20 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"runtime"
 	"strings"
 
+	"github.com/labtether/labtether-agent/internal/agentcore/packagepolicy"
 	"github.com/labtether/labtether-agent/internal/securityruntime"
 	"github.com/labtether/protocol"
 )
 
 // RunWindowsPackageCommand is the function used to run WinGet/choco commands. Overridable for tests.
 var RunWindowsPackageCommand = securityruntime.CommandContextCombinedOutput
+
+// RunWindowsPackageInventoryCommand runs read-only update inventory commands
+// with the package inventory's tighter output ceiling. Overridable for tests.
+var RunWindowsPackageInventoryCommand = RunPackageInventoryCommand
 
 // WindowsPackageBackend implements PackageBackend using WinGet with Chocolatey fallback.
 type WindowsPackageBackend struct {
@@ -30,6 +36,15 @@ type wingetPackageRow struct {
 
 // ListPackages lists installed packages via WinGet or Chocolatey.
 func (b WindowsPackageBackend) ListPackages() ([]protocol.PackageInfo, error) {
+	// WinGet is normally installed as a per-user app execution alias and is
+	// therefore absent from the PATH and package state of a LocalSystem service.
+	// The machine uninstall registry is the authoritative, non-interactive
+	// inventory source for the Windows agent service. Package actions continue
+	// to use the explicitly selected package manager below.
+	if runtime.GOOS == "windows" {
+		return listWindowsRegistryPackages()
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), PackageActionCommandTimeout)
 	defer cancel()
 
@@ -77,8 +92,68 @@ func (b WindowsPackageBackend) ListPackages() ([]protocol.PackageInfo, error) {
 	}
 }
 
+// ListUpgradablePackages lists explicitly available WinGet or Chocolatey
+// updates, including current and available versions.
+func (b WindowsPackageBackend) ListUpgradablePackages() ([]UpgradablePackageInfo, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), PackageInventoryCommandTimeout)
+	defer cancel()
+
+	var packages []UpgradablePackageInfo
+	switch b.backend {
+	case "choco":
+		out, runErr := RunWindowsPackageInventoryCommand(ctx, "choco", "outdated", "--limit-output")
+		// Chocolatey enhanced exit code 2 means outdated packages were found.
+		if err := packageInventoryCommandError(ctx, "choco", "upgradable package listing", out, runErr, 2); err != nil {
+			return nil, err
+		}
+		parsed, err := ParseChocoUpgradablePackages(out)
+		if err != nil {
+			return nil, err
+		}
+		packages = parsed
+	default:
+		out, runErr := RunWindowsPackageInventoryCommand(ctx, "winget", "upgrade",
+			"--accept-source-agreements", "--disable-interactivity")
+		if err := packageInventoryCommandError(ctx, "winget", "upgradable package listing", out, runErr); err != nil {
+			return nil, err
+		}
+		rows, err := parseWinGetListOutput(out)
+		if err != nil {
+			return nil, err
+		}
+		lowerOutput := strings.ToLower(string(out))
+		if len(rows) == 0 && len(bytes.TrimSpace(out)) > 0 &&
+			!strings.Contains(lowerOutput, "no applicable upgrade") &&
+			!strings.Contains(lowerOutput, "no installed package found") &&
+			!(bytes.Contains(out, []byte("Name")) && bytes.Contains(out, []byte("Id")) && bytes.Contains(out, []byte("Version"))) {
+			return nil, fmt.Errorf("unrecognized winget upgradable package output")
+		}
+		packages = make([]UpgradablePackageInfo, 0, len(rows))
+		for _, row := range rows {
+			name := strings.TrimSpace(row.id)
+			if name == "" {
+				name = strings.TrimSpace(row.name)
+			}
+			if name == "" || strings.TrimSpace(row.version) == "" || strings.TrimSpace(row.available) == "" {
+				continue
+			}
+			packages = append(packages, UpgradablePackageInfo{
+				Name:             name,
+				Version:          row.version,
+				AvailableVersion: row.available,
+			})
+		}
+	}
+	return normalizeUpgradablePackages(packages)
+}
+
 // PerformAction performs a package action (install, upgrade, uninstall) via WinGet or Chocolatey.
 func (b WindowsPackageBackend) PerformAction(action string, packages []string) (PackageActionResult, error) {
+	normalizedPackages, err := packagepolicy.NormalizeAndValidate(packages)
+	if err != nil {
+		return PackageActionResult{}, err
+	}
+	packages = normalizedPackages
 	if len(packages) == 0 {
 		return PackageActionResult{}, fmt.Errorf("no packages specified")
 	}
@@ -86,7 +161,9 @@ func (b WindowsPackageBackend) PerformAction(action string, packages []string) (
 	ctx, cancel := context.WithTimeout(context.Background(), PackageActionCommandTimeout)
 	defer cancel()
 
-	var combined bytes.Buffer
+	// A request may run one command per package. Keep the aggregate bounded
+	// while continuing to drain every individual command result.
+	combined := securityruntime.NewCappedRetainingWriter(MaxCommandOutputBytes + 1)
 
 	for _, pkg := range packages {
 		args, err := buildWindowsPackageActionArgs(b.backend, action, pkg)
@@ -104,9 +181,13 @@ func (b WindowsPackageBackend) PerformAction(action string, packages []string) (
 
 		out, runErr := RunWindowsPackageCommand(ctx, cmd, args...)
 		if combined.Len() > 0 && len(out) > 0 {
-			combined.WriteByte('\n')
+			if err := combined.WriteByte('\n'); err != nil {
+				return PackageActionResult{}, fmt.Errorf("buffer package output: %w", err)
+			}
 		}
-		combined.Write(out)
+		if _, err := combined.Write(out); err != nil {
+			return PackageActionResult{}, fmt.Errorf("buffer package output: %w", err)
+		}
 
 		result := PackageActionResult{
 			Output:         TruncateCommandOutput(combined.Bytes(), MaxCommandOutputBytes),
@@ -127,6 +208,12 @@ func (b WindowsPackageBackend) PerformAction(action string, packages []string) (
 }
 
 func buildWindowsPackageActionArgs(backend, action, pkg string) ([]string, error) {
+	packages, err := packagepolicy.NormalizeAndValidate([]string{pkg})
+	if err != nil {
+		return nil, err
+	}
+	pkg = packages[0]
+
 	switch backend {
 	case "choco":
 		switch action {
@@ -304,4 +391,42 @@ func parseChocoListOutput(raw []byte) ([]protocol.PackageInfo, error) {
 		})
 	}
 	return pkgs, nil
+}
+
+// ParseChocoUpgradablePackages parses `choco outdated --limit-output` rows:
+// package|current|available|pinned.
+func ParseChocoUpgradablePackages(raw []byte) ([]UpgradablePackageInfo, error) {
+	packages := make([]UpgradablePackageInfo, 0)
+	recognized := len(bytes.TrimSpace(raw)) == 0
+	scanner := bufio.NewScanner(bytes.NewReader(raw))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		lower := strings.ToLower(line)
+		if line == "" || strings.HasPrefix(lower, "chocolatey ") || (strings.Contains(lower, "has determined") && strings.Contains(lower, "outdated")) {
+			recognized = true
+			continue
+		}
+		fields := strings.Split(line, "|")
+		if len(fields) < 3 {
+			return nil, fmt.Errorf("unrecognized choco outdated output")
+		}
+		recognized = true
+		name := strings.TrimSpace(fields[0])
+		current := strings.TrimSpace(fields[1])
+		available := strings.TrimSpace(fields[2])
+		if name == "" || current == "" || available == "" {
+			return nil, fmt.Errorf("malformed choco outdated entry")
+		}
+		packages = append(packages, UpgradablePackageInfo{Name: name, Version: current, AvailableVersion: available})
+		if len(packages) > MaxPackageInventoryItems {
+			return nil, fmt.Errorf("upgradable package inventory exceeds %d entries", MaxPackageInventoryItems)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("parse choco outdated output: %w", err)
+	}
+	if !recognized {
+		return nil, fmt.Errorf("unrecognized choco outdated output")
+	}
+	return packages, nil
 }

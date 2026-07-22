@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log"
 	"os"
 	"os/exec"
@@ -11,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/labtether/labtether-agent/internal/securityruntime"
 	"github.com/labtether/protocol"
 )
 
@@ -44,7 +47,7 @@ func (cm *CronManager) HandleCronList(transport MessageSender, msg protocol.Mess
 	}
 
 	var errMsg string
-	if collectErr != nil && len(entries) == 0 {
+	if collectErr != nil {
 		errMsg = collectErr.Error()
 	}
 
@@ -74,7 +77,10 @@ func CollectSystemdTimers() ([]protocol.CronEntry, error) {
 		return nil, nil // systemd not available, skip silently
 	}
 
-	out, err := exec.Command("systemctl", "list-timers", "--all", "--no-pager", "--plain").CombinedOutput()
+	out, err := securityruntime.CaptureCombinedOutput(
+		exec.Command("systemctl", "list-timers", "--all", "--no-pager", "--plain"),
+		securityruntime.DefaultCommandOutputLimit,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -166,53 +172,132 @@ func CollectCrontabs() ([]protocol.CronEntry, error) {
 
 // CollectCrontabsFromPaths reads crontab files from the given paths.
 func CollectCrontabsFromPaths(userDirs []string, cronDDir, systemCrontabPath string) ([]protocol.CronEntry, error) {
+	return collectCrontabsFromPathsWithFS(userDirs, cronDDir, systemCrontabPath, os.ReadDir, os.ReadFile)
+}
+
+type cronReadDirFunc func(string) ([]os.DirEntry, error)
+type cronReadFileFunc func(string) ([]byte, error)
+
+func collectCrontabsFromPathsWithFS(
+	userDirs []string,
+	cronDDir,
+	systemCrontabPath string,
+	readDir cronReadDirFunc,
+	readFile cronReadFileFunc,
+) ([]protocol.CronEntry, error) {
 	var entries []protocol.CronEntry
+	configuredSources := 0
+	readableSources := 0
+	var sourceFailures []error
+	var missingSources []error
+
+	recordSourceFailure := func(kind, path string, err error) {
+		wrapped := fmt.Errorf("%s %s: %w", kind, path, err)
+		if os.IsNotExist(err) {
+			missingSources = append(missingSources, wrapped)
+			return
+		}
+		sourceFailures = append(sourceFailures, wrapped)
+	}
 
 	// User crontabs from /var/spool/cron/crontabs/ (Debian/Ubuntu)
 	// or /var/spool/cron/ (RHEL/CentOS).
 	for _, dir := range userDirs {
-		dirEntries, err := os.ReadDir(dir)
-		if err != nil {
-			continue // permission denied or doesn't exist — skip
+		dir = strings.TrimSpace(dir)
+		if dir == "" {
+			continue
 		}
+		configuredSources++
+		dirEntries, err := readDir(dir)
+		if err != nil {
+			recordSourceFailure("read user crontab directory", dir, err)
+			continue
+		}
+		readableSources++
 		for _, de := range dirEntries {
 			if de.IsDir() {
 				continue
 			}
 			user := de.Name()
-			parsed := ParseCrontabFile(filepath.Join(dir, user), user, false)
+			path := filepath.Join(dir, user)
+			parsed, parseErr := parseCrontabFileWithReader(path, user, false, readFile)
+			if parseErr != nil {
+				sourceFailures = append(sourceFailures, fmt.Errorf("read user crontab %s: %w", path, parseErr))
+				continue
+			}
 			entries = append(entries, parsed...)
 		}
 	}
 
 	// System crontabs from /etc/cron.d/
-	dirEntries, err := os.ReadDir(cronDDir)
-	if err == nil {
-		for _, de := range dirEntries {
-			if de.IsDir() {
-				continue
+	cronDDir = strings.TrimSpace(cronDDir)
+	if cronDDir != "" {
+		configuredSources++
+		dirEntries, err := readDir(cronDDir)
+		if err != nil {
+			recordSourceFailure("read system crontab directory", cronDDir, err)
+		} else {
+			readableSources++
+			for _, de := range dirEntries {
+				if de.IsDir() {
+					continue
+				}
+				path := filepath.Join(cronDDir, de.Name())
+				parsed, parseErr := parseCrontabFileWithReader(path, "", true, readFile)
+				if parseErr != nil {
+					sourceFailures = append(sourceFailures, fmt.Errorf("read system crontab %s: %w", path, parseErr))
+					continue
+				}
+				entries = append(entries, parsed...)
 			}
-			parsed := ParseCrontabFile(filepath.Join(cronDDir, de.Name()), "", true)
-			entries = append(entries, parsed...)
 		}
 	}
 
 	// System crontab from /etc/crontab
-	if strings.TrimSpace(systemCrontabPath) != "" {
-		entries = append(entries, ParseCrontabFile(systemCrontabPath, "", true)...)
+	systemCrontabPath = strings.TrimSpace(systemCrontabPath)
+	if systemCrontabPath != "" {
+		configuredSources++
+		parsed, parseErr := parseCrontabFileWithReader(systemCrontabPath, "", true, readFile)
+		if parseErr != nil {
+			recordSourceFailure("read system crontab", systemCrontabPath, parseErr)
+		} else {
+			readableSources++
+			entries = append(entries, parsed...)
+		}
 	}
 
+	if configuredSources == 0 {
+		return entries, errors.New("no crontab sources are configured")
+	}
+	if readableSources == 0 {
+		allFailures := append(append([]error{}, sourceFailures...), missingSources...)
+		if len(allFailures) == 0 {
+			return entries, errors.New("no configured crontab source is readable")
+		}
+		return entries, fmt.Errorf("no configured crontab source is readable: %w", combineScheduleErrors(allFailures...))
+	}
+	if len(sourceFailures) > 0 {
+		return entries, fmt.Errorf("some crontab sources could not be read: %w", combineScheduleErrors(sourceFailures...))
+	}
 	return entries, nil
 }
 
 // ParseCrontabFile reads a crontab file and extracts cron entries.
 // If systemStyle is true, the 6th field is the user (as in /etc/cron.d/* files).
 func ParseCrontabFile(path, defaultUser string, systemStyle bool) []protocol.CronEntry {
-	data, err := os.ReadFile(path) // #nosec G304 -- Path comes from enumerated cron directories under controlled system locations.
-	if err != nil {
-		return nil // permission denied — skip
-	}
+	entries, _ := parseCrontabFileWithReader(path, defaultUser, systemStyle, os.ReadFile)
+	return entries
+}
 
+func parseCrontabFileWithReader(path, defaultUser string, systemStyle bool, readFile cronReadFileFunc) ([]protocol.CronEntry, error) {
+	data, err := readFile(path) // #nosec G304 -- Path comes from enumerated cron directories under controlled system locations.
+	if err != nil {
+		return nil, err
+	}
+	return parseCrontabData(data, defaultUser, systemStyle), nil
+}
+
+func parseCrontabData(data []byte, defaultUser string, systemStyle bool) []protocol.CronEntry {
 	var entries []protocol.CronEntry
 	scanner := bufio.NewScanner(bytes.NewReader(data))
 	for scanner.Scan() {
@@ -280,4 +365,21 @@ func ParseCrontabFile(path, defaultUser string, systemStyle bool) []protocol.Cro
 		})
 	}
 	return entries
+}
+
+func combineScheduleErrors(errs ...error) error {
+	messages := make([]string, 0, len(errs))
+	for _, err := range errs {
+		if err == nil {
+			continue
+		}
+		message := strings.TrimSpace(err.Error())
+		if message != "" {
+			messages = append(messages, message)
+		}
+	}
+	if len(messages) == 0 {
+		return nil
+	}
+	return errors.New(strings.Join(messages, "; "))
 }

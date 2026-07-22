@@ -1,0 +1,7 @@
+# gosec allowlist
+# format: rule_id<TAB>path<TAB>line<TAB>justification
+# policy: entries must be explicitly reviewed; new findings fail CI until added with rationale.
+G101	internal/agentcore/ws_transport.go	79	Machine-readable token persistence status code; not a credential or secret.
+G703	internal/agentcore/managed_file.go	24	Managed configuration path is checked with Lstat, restricted to a regular file, and matched to the opened inode before bounded reading.
+G703	internal/agentcore/managed_file.go	32	Managed configuration path is checked with Lstat, restricted to a regular file, and matched to the opened inode before bounded reading.
+G706	cmd/labtether-agent/parent_lifetime.go	37	Parent PID is parsed as a bounded unsigned integer and logged with the numeric percent-d formatter.

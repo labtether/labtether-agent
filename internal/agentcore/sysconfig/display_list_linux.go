@@ -27,18 +27,34 @@ var (
 // DesktopSessionTypeWayland is the session type constant for Wayland sessions.
 const DesktopSessionTypeWayland = "wayland"
 
+const DesktopSessionTypeX11 = "x11"
+
 func PlatformListDisplays() ([]protocol.DisplayInfo, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if DetectDesktopSessionTypeFn != nil && DetectDesktopSessionTypeFn() == DesktopSessionTypeWayland {
+	if DetectDesktopSessionTypeFn == nil {
+		log.Printf("display: desktop session detection unavailable; returning no displays")
+		return nil, nil
+	}
+	sessionType := strings.ToLower(strings.TrimSpace(DetectDesktopSessionTypeFn()))
+	if sessionType == DesktopSessionTypeWayland {
 		log.Printf("display: skipping xrandr monitor enumeration for Wayland desktop backend")
 		return nil, nil
 	}
+	if sessionType != DesktopSessionTypeX11 {
+		log.Printf("display: no active X11 desktop session; returning no displays")
+		return nil, nil
+	}
 
-	display := ":0"
-	if PreferredX11DisplayFn != nil {
-		display = PreferredX11DisplayFn()
+	if PreferredX11DisplayFn == nil {
+		log.Printf("display: preferred X11 display detection unavailable; returning no displays")
+		return nil, nil
+	}
+	display := strings.TrimSpace(PreferredX11DisplayFn())
+	if display == "" {
+		log.Printf("display: active X11 session has no usable display; returning no displays")
+		return nil, nil
 	}
 	if WakeX11DisplayFn != nil {
 		WakeX11DisplayFn(display, "")
@@ -49,10 +65,12 @@ func PlatformListDisplays() ([]protocol.DisplayInfo, error) {
 		log.Printf("display: failed to build xrandr command for %s: %v", display, err)
 		return nil, err
 	}
-	if BuildX11ClientEnvFn != nil {
-		cmd.Env = BuildX11ClientEnvFn(display, "")
+	if BuildX11ClientEnvFn == nil {
+		log.Printf("display: X11 client environment builder unavailable for %s", display)
+		return nil, nil
 	}
-	out, err := cmd.CombinedOutput()
+	cmd.Env = BuildX11ClientEnvFn(display, "")
+	out, err := securityruntime.CaptureCombinedOutput(cmd, securityruntime.DefaultCommandOutputLimit)
 	if err != nil {
 		log.Printf("display: xrandr --listmonitors failed on %s: %v (%s)", display, err, strings.TrimSpace(string(out)))
 		return nil, err

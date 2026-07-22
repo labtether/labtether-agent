@@ -83,6 +83,39 @@ func TestCronManagerHandleCronListReportsCollectionError(t *testing.T) {
 	}
 }
 
+func TestCronManagerHandleCronListReportsPartialCollectionError(t *testing.T) {
+	transport, messages, cleanup := newAgentcoreCapturedTransport(t)
+	defer cleanup()
+
+	manager := &backends.CronManager{Backend: staticCronBackend{
+		entries: []protocol.CronEntry{{
+			Source:   "crontab",
+			Schedule: "*/5 * * * *",
+			Command:  "/usr/local/bin/backup",
+			User:     "root",
+		}},
+		err: errors.New("one source was unreadable"),
+	}}
+
+	raw, err := json.Marshal(protocol.CronListData{RequestID: "req-cron-partial"})
+	if err != nil {
+		t.Fatalf("marshal cron list request: %v", err)
+	}
+	manager.HandleCronList(transport, protocol.Message{Data: raw})
+
+	msg := waitForCapturedAgentMessage(t, messages, protocol.MsgCronListed, 2*time.Second)
+	var listed protocol.CronListedData
+	if err := json.Unmarshal(msg.Data, &listed); err != nil {
+		t.Fatalf("decode cron listed payload: %v", err)
+	}
+	if listed.Error != "one source was unreadable" {
+		t.Fatalf("error=%q, want partial collection error", listed.Error)
+	}
+	if len(listed.Entries) != 1 || listed.Entries[0].Command != "/usr/local/bin/backup" {
+		t.Fatalf("partial entries were not preserved: %+v", listed.Entries)
+	}
+}
+
 func TestCollectCrontabsFromPathsIncludesSystemCrontabAndCronDEntries(t *testing.T) {
 	root := t.TempDir()
 	userDir := filepath.Join(root, "spool")

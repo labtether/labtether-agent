@@ -95,34 +95,42 @@ func ParseLaunchctlListOutput(raw string) []protocol.ServiceInfo {
 	return services
 }
 
+// LaunchctlActionSequence is one candidate sequence of launchctl commands.
+// Candidates are alternatives, while every command within a sequence must
+// succeed before that candidate is considered successful.
+type LaunchctlActionSequence [][]string
+
 // BuildLaunchctlActionCandidates builds the launchctl command candidates.
-func BuildLaunchctlActionCandidates(action, service string) [][]string {
+func BuildLaunchctlActionCandidates(action, service string) []LaunchctlActionSequence {
 	targets := launchdTargets(service)
-	candidates := make([][]string, 0, len(targets)+1)
+	candidates := make([]LaunchctlActionSequence, 0, len(targets)+1)
 
 	switch action {
 	case "start":
 		for _, target := range targets {
-			candidates = append(candidates, []string{"kickstart", "-k", target})
+			candidates = append(candidates, LaunchctlActionSequence{{"kickstart", "-k", target}})
 		}
-		candidates = append(candidates, []string{"start", service})
+		candidates = append(candidates, LaunchctlActionSequence{{"start", service}})
 	case "restart":
 		for _, target := range targets {
-			candidates = append(candidates, []string{"kickstart", "-k", target})
+			candidates = append(candidates, LaunchctlActionSequence{{"kickstart", "-k", target}})
 		}
-		candidates = append(candidates, []string{"stop", service}, []string{"start", service})
+		candidates = append(candidates, LaunchctlActionSequence{
+			{"stop", service},
+			{"start", service},
+		})
 	case "stop":
-		candidates = append(candidates, []string{"stop", service})
+		candidates = append(candidates, LaunchctlActionSequence{{"stop", service}})
 		for _, target := range targets {
-			candidates = append(candidates, []string{"kill", "SIGTERM", target})
+			candidates = append(candidates, LaunchctlActionSequence{{"kill", "SIGTERM", target}})
 		}
 	case "enable":
 		for _, target := range targets {
-			candidates = append(candidates, []string{"enable", target})
+			candidates = append(candidates, LaunchctlActionSequence{{"enable", target}})
 		}
 	case "disable":
 		for _, target := range targets {
-			candidates = append(candidates, []string{"disable", target})
+			candidates = append(candidates, LaunchctlActionSequence{{"disable", target}})
 		}
 	}
 
@@ -138,22 +146,40 @@ func launchdTargets(service string) []string {
 	}
 }
 
-func runLaunchctlActionCandidates(candidates [][]string) (string, error) {
+func runLaunchctlActionCandidates(candidates []LaunchctlActionSequence) (string, error) {
+	return runLaunchctlActionCandidatesWithRunner(candidates, runLaunchctl)
+}
+
+func runLaunchctlActionCandidatesWithRunner(candidates []LaunchctlActionSequence, runner func(...string) (string, error)) (string, error) {
 	if len(candidates) == 0 {
 		return "", fmt.Errorf("no launchctl command candidates available")
 	}
 
 	failures := make([]string, 0, len(candidates))
 	lastOutput := ""
-	for _, args := range candidates {
-		output, err := runLaunchctl(args...)
-		if strings.TrimSpace(output) != "" {
-			lastOutput = output
+	for _, sequence := range candidates {
+		if len(sequence) == 0 {
+			failures = append(failures, "empty launchctl command sequence")
+			continue
 		}
-		if err == nil {
-			return output, nil
+
+		sequenceOutput := ""
+		sequenceSucceeded := true
+		for _, args := range sequence {
+			output, err := runner(args...)
+			if strings.TrimSpace(output) != "" {
+				lastOutput = output
+				sequenceOutput = output
+			}
+			if err != nil {
+				failures = append(failures, fmt.Sprintf("launchctl %s: %v", strings.Join(args, " "), err))
+				sequenceSucceeded = false
+				break
+			}
 		}
-		failures = append(failures, fmt.Sprintf("launchctl %s: %v", strings.Join(args, " "), err))
+		if sequenceSucceeded {
+			return sequenceOutput, nil
+		}
 	}
 
 	return lastOutput, errors.New(strings.Join(failures, "; "))

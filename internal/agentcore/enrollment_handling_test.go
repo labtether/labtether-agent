@@ -37,8 +37,8 @@ func TestEnrollmentHeadersWhenNoToken(t *testing.T) {
 	transport := newWSTransport("ws://localhost:8080/ws/agent", "", "test-host", "linux", "dev", nil, "/tmp/test-token", nil)
 
 	// Verify the transport was created with empty token.
-	if transport.token != "" {
-		t.Fatalf("expected empty token, got %q", transport.token)
+	if got := transport.identitySource().Snapshot().BearerToken; got != "" {
+		t.Fatalf("expected empty token, got %q", got)
 	}
 	if transport.tokenFilePath != "/tmp/test-token" {
 		t.Fatalf("expected tokenFilePath '/tmp/test-token', got %q", transport.tokenFilePath)
@@ -52,8 +52,8 @@ func TestUpdateTokenResetsAuthFailures(t *testing.T) {
 
 	transport.updateToken("new-token")
 
-	if transport.token != "new-token" {
-		t.Fatalf("expected 'new-token', got %q", transport.token)
+	if got := transport.identitySource().Snapshot().BearerToken; got != "new-token" {
+		t.Fatalf("expected 'new-token', got %q", got)
 	}
 	if transport.consecutiveAuthFailures != 0 {
 		t.Fatalf("expected 0 auth failures after updateToken, got %d", transport.consecutiveAuthFailures)
