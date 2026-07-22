@@ -260,10 +260,25 @@ func ParsePacmanUpgradablePackages(out []byte) ([]UpgradablePackageInfo, error) 
 // ParseAPKUpgradablePackages parses `apk version -l '<'` output.
 func ParseAPKUpgradablePackages(out []byte) ([]UpgradablePackageInfo, error) {
 	packages := make([]UpgradablePackageInfo, 0)
+	headingSeen := false
 	scanner := bufio.NewScanner(bytes.NewReader(out))
 	for scanner.Scan() {
-		fields := strings.Fields(strings.TrimSpace(scanner.Text()))
-		if len(fields) < 3 || fields[1] != "<" {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		fields := strings.Fields(line)
+		// apk-tools v3 writes this heading before the package rows. The command
+		// runner intentionally captures stderr with stdout, so accept only the
+		// exact heading rather than treating arbitrary non-package text as empty.
+		isHeading := len(fields) == 2 && fields[0] == "Installed:" && fields[1] == "Available:"
+		if !headingSeen && isHeading {
+			headingSeen = true
+			continue
+		}
+		validTaggedRow := len(fields) == 4 && len(fields[3]) >= 2 && fields[3][0] == '@'
+		validRowWidth := len(fields) == 3 || validTaggedRow
+		if !headingSeen || !validRowWidth || fields[1] != "<" {
 			return nil, fmt.Errorf("unrecognized apk upgradable package output")
 		}
 		matches := apkPackageVersionPattern.FindStringSubmatch(fields[0])
@@ -277,6 +292,9 @@ func ParseAPKUpgradablePackages(out []byte) ([]UpgradablePackageInfo, error) {
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, fmt.Errorf("parse apk upgradable packages: %w", err)
+	}
+	if !headingSeen {
+		return nil, fmt.Errorf("unrecognized apk upgradable package output")
 	}
 	return packages, nil
 }
