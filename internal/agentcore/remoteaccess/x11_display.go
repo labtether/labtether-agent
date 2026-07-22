@@ -45,7 +45,7 @@ func WakeX11Display(display, xauthPath string) {
 			return
 		}
 		cmd.Env = BuildX11ClientEnv(display, xauthPath)
-		if output, runErr := cmd.CombinedOutput(); runErr != nil {
+		if output, runErr := securityruntime.CaptureCombinedOutput(cmd, securityruntime.DefaultCommandOutputLimit); runErr != nil {
 			log.Printf(
 				"desktop: %s wake command failed for %s: %v (%s)",
 				name,

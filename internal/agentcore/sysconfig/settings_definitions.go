@@ -393,6 +393,7 @@ func NormalizeAgentSettingValue(key, raw string) (string, error) {
 		if definition.Key == SettingKeyWebRTCTURNURL ||
 			definition.Key == SettingKeyWebRTCTURNUser ||
 			definition.Key == SettingKeyWebRTCTURNPass ||
+			definition.Key == SettingKeyWebRTCWaylandPipeWireNodeID ||
 			definition.Key == SettingKeyTLSCAFile {
 			return value, nil
 		}

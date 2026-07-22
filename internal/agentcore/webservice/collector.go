@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -68,21 +69,50 @@ type WebServiceDiscoveryConfig struct {
 // WebServiceCollector discovers web services from Docker containers and health-checks them.
 // It follows the same Run() pattern as DockerCollector.
 type WebServiceCollector struct {
-	mu               sync.Mutex
-	transport        Transport
-	assetID          string
-	hostIP           string
-	interval         time.Duration
-	docker           *dockerpkg.DockerCollector // optional, reuse Docker API access
-	client           *http.Client               // for health checks
-	insecureClient   *http.Client               // reserved for explicit secure test injection
-	discoveryCfg     WebServiceDiscoveryConfig
-	proxyProviders   []proxypkg.Provider
-	lastServices     []protocol.DiscoveredWebService
-	compatCache      map[string]compatCacheEntry
-	fingerprintCache map[string]fingerprintCacheEntry
-	healthCache      map[string]healthCacheEntry
-	nowFn            func() time.Time
+	mu                sync.Mutex
+	transport         Transport
+	assetID           string
+	assetIDProviderMu sync.RWMutex
+	assetIDProvider   func() string
+	hostIP            string
+	interval          time.Duration
+	docker            *dockerpkg.DockerCollector // optional, reuse Docker API access
+	client            *http.Client               // for health checks
+	insecureClient    *http.Client               // reserved for explicit secure test injection
+	discoveryCfg      WebServiceDiscoveryConfig
+	proxyProviders    []proxypkg.Provider
+	lastServices      []protocol.DiscoveredWebService
+	compatCache       map[string]compatCacheEntry
+	fingerprintCache  map[string]fingerprintCacheEntry
+	healthCache       map[string]healthCacheEntry
+	nowFn             func() time.Time
+}
+
+// SetAssetIDProvider installs the authoritative runtime asset-ID reader.
+// Reports invoke it at marshal time so pending approval, canonical handshake,
+// and recovery rotations immediately flow into web-service discovery.
+func (wsc *WebServiceCollector) SetAssetIDProvider(provider func() string) {
+	if wsc == nil {
+		return
+	}
+	wsc.assetIDProviderMu.Lock()
+	wsc.assetIDProvider = provider
+	wsc.assetIDProviderMu.Unlock()
+}
+
+func (wsc *WebServiceCollector) currentAssetID() string {
+	if wsc == nil {
+		return ""
+	}
+	wsc.assetIDProviderMu.RLock()
+	provider := wsc.assetIDProvider
+	wsc.assetIDProviderMu.RUnlock()
+	if provider != nil {
+		if assetID := strings.TrimSpace(provider()); assetID != "" {
+			return assetID
+		}
+	}
+	return strings.TrimSpace(wsc.assetID)
 }
 
 type healthCacheEntry struct {
@@ -119,11 +149,22 @@ func NewWebServiceCollector(transport Transport, assetID string, hostIP string, 
 		return http.ErrUseLastResponse // don't follow redirects
 	}
 	secureTransport := http.DefaultTransport.(*http.Transport).Clone()
+	if secureTransport.TLSClientConfig == nil {
+		secureTransport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12}
+	} else {
+		secureTransport.TLSClientConfig = secureTransport.TLSClientConfig.Clone()
+		if secureTransport.TLSClientConfig.MinVersion < tls.VersionTLS12 {
+			secureTransport.TLSClientConfig.MinVersion = tls.VersionTLS12
+		}
+	}
 	insecureTransport := http.DefaultTransport.(*http.Transport).Clone()
 	if insecureTransport.TLSClientConfig == nil {
-		insecureTransport.TLSClientConfig = &tls.Config{} // #nosec G402 -- discovery probe client only.
+		insecureTransport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12} // #nosec G402 -- discovery probe client only.
 	} else {
 		insecureTransport.TLSClientConfig = insecureTransport.TLSClientConfig.Clone()
+		if insecureTransport.TLSClientConfig.MinVersion < tls.VersionTLS12 {
+			insecureTransport.TLSClientConfig.MinVersion = tls.VersionTLS12
+		}
 	}
 	insecureTransport.TLSClientConfig.InsecureSkipVerify = true // #nosec G402 -- discovery probe client only.
 
@@ -353,19 +394,11 @@ func (wsc *WebServiceCollector) RunCycle(ctx context.Context) {
 		FinalSourceCount: countDiscoveredServicesBySource(services),
 	}
 	report := protocol.WebServiceReportData{
-		HostAssetID: wsc.assetID,
+		HostAssetID: wsc.currentAssetID(),
 		Services:    services,
 		Discovery:   discoveryStats,
 	}
-	data, err := json.Marshal(report)
-	if err != nil {
-		log.Printf("webservices: failed to marshal report: %v", err)
-		return
-	}
-	if err := wsc.transport.Send(protocol.Message{
-		Type: protocol.MsgWebServiceReport,
-		Data: data,
-	}); err != nil {
+	if err := wsc.sendReport(report); err != nil {
 		log.Printf("webservices: failed to send report: %v", err)
 		return
 	}
@@ -385,6 +418,25 @@ func (wsc *WebServiceCollector) RunCycle(ctx context.Context) {
 	)
 
 	wsc.lastServices = cloneDiscoveredServices(services)
+}
+
+func (wsc *WebServiceCollector) sendReport(report protocol.WebServiceReportData) error {
+	if wsc.transport == nil {
+		return fmt.Errorf("transport unavailable")
+	}
+	assetID := wsc.currentAssetID()
+	report.HostAssetID = assetID
+	for i := range report.Services {
+		report.Services[i].HostAssetID = assetID
+	}
+	data, err := json.Marshal(report)
+	if err != nil {
+		return fmt.Errorf("marshal report: %w", err)
+	}
+	return wsc.transport.Send(protocol.Message{
+		Type: protocol.MsgWebServiceReport,
+		Data: data,
+	})
 }
 
 // ResetPublishedState clears cached service state so the next cycle sends a
@@ -641,7 +693,7 @@ func (wsc *WebServiceCollector) enrichFromProxies(containers []dockerpkg.DockerC
 		}
 		if len(result.routes) > 0 {
 			log.Printf("webservices: proxy/%s discovered %d routes", result.name, len(result.routes))
-			services = enrichServicesWithRoutes(services, result.routes, result.name, wsc.assetID, wsc.hostIP, containers)
+			services = enrichServicesWithRoutes(services, result.routes, result.name, wsc.currentAssetID(), wsc.hostIP, containers)
 		}
 	}
 

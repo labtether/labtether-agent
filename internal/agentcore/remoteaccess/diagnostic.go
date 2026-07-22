@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/labtether/labtether-agent/internal/securityruntime"
 	"github.com/labtether/protocol"
 )
 
@@ -30,7 +31,7 @@ func CollectDesktopDiagnostic(deskMgr *DesktopManager, webrtcMgr *WebRTCManager)
 	d.ActiveDisplays = AppendDetectedActiveDisplays(d.ActiveDisplays)
 
 	// --- Xvfb state ---
-	if out, err := exec.Command("pgrep", "-a", "Xvfb").Output(); err == nil {
+	if out, err := securityruntime.CaptureOutput(exec.Command("pgrep", "-a", "Xvfb"), securityruntime.DefaultCommandOutputLimit); err == nil {
 		lines := strings.Split(strings.TrimSpace(string(out)), "\n")
 		for _, line := range lines {
 			line = strings.TrimSpace(line)
@@ -56,7 +57,7 @@ func CollectDesktopDiagnostic(deskMgr *DesktopManager, webrtcMgr *WebRTCManager)
 	}
 
 	// --- x11vnc state ---
-	if out, err := exec.Command("pgrep", "-a", "x11vnc").Output(); err == nil {
+	if out, err := securityruntime.CaptureOutput(exec.Command("pgrep", "-a", "x11vnc"), securityruntime.DefaultCommandOutputLimit); err == nil {
 		lines := strings.Split(strings.TrimSpace(string(out)), "\n")
 		for _, line := range lines {
 			line = strings.TrimSpace(line)
@@ -84,7 +85,7 @@ func CollectDesktopDiagnostic(deskMgr *DesktopManager, webrtcMgr *WebRTCManager)
 	}
 
 	// --- Bootstrap shell ---
-	if out, err := exec.Command("pgrep", "-f", "LabTether Desktop").Output(); err == nil {
+	if out, err := securityruntime.CaptureOutput(exec.Command("pgrep", "-f", "LabTether Desktop"), securityruntime.DefaultCommandOutputLimit); err == nil {
 		if strings.TrimSpace(string(out)) != "" {
 			d.BootstrapRunning = true
 		}
@@ -138,7 +139,11 @@ func CollectDesktopDiagnostic(deskMgr *DesktopManager, webrtcMgr *WebRTCManager)
 		d.FramebufferError = "unsupported X11 display identifier"
 	}
 	if display != "" && strictLocalX11DisplayPattern.MatchString(display) {
-		out, err := exec.Command("xdpyinfo", "-display", display).Output() // #nosec G204,G702 -- Invokes a fixed local diagnostic binary with a normalized, strictly local X11 display identifier.
+		// #nosec G204,G702 -- Invokes a fixed local diagnostic binary with a normalized, strictly local X11 display identifier.
+		out, err := securityruntime.CaptureOutput(
+			exec.Command("xdpyinfo", "-display", display),
+			securityruntime.DefaultCommandOutputLimit,
+		)
 		if err != nil {
 			d.FramebufferError = err.Error()
 		} else if strings.Contains(string(out), "dimensions:") {

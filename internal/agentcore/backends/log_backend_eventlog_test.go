@@ -1,10 +1,12 @@
 package backends
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/labtether/protocol"
 )
@@ -146,6 +148,26 @@ func TestParseWevtutilOutputEmpty(t *testing.T) {
 	}
 }
 
+func TestParseWevtutilRenderedXML(t *testing.T) {
+	t.Parallel()
+
+	raw := []byte(`<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'><System><Provider Name='Service Control Manager'/><Level>4</Level><TimeCreated SystemTime='2026-07-14T00:14:46.1362000Z'/></System><RenderingInfo Culture='en-AU'><Message>The LabTether QA service entered the running state.</Message></RenderingInfo></Event>
+<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'><System><Provider Name='Microsoft-Windows-Kernel-Power'/><Level>2</Level><TimeCreated SystemTime='2026-07-14T00:13:00.0000000Z'/></System><RenderingInfo Culture='en-AU'><Message>Fixture error.</Message></RenderingInfo></Event>`)
+	entries, err := parseWevtutilOutput(raw)
+	if err != nil {
+		t.Fatalf("parseWevtutilOutput: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("len(entries) = %d, want 2", len(entries))
+	}
+	if entries[0].Source != "Service Control Manager" || entries[0].Level != "info" {
+		t.Fatalf("first entry = %+v", entries[0])
+	}
+	if entries[1].Source != "Microsoft-Windows-Kernel-Power" || entries[1].Level != "error" {
+		t.Fatalf("second entry = %+v", entries[1])
+	}
+}
+
 func TestParseWevtutilOutputSkipsInvalidLines(t *testing.T) {
 	t.Parallel()
 
@@ -192,25 +214,34 @@ func TestBuildWevtutilQueryArgs(t *testing.T) {
 			name:     "basic-system-channel",
 			req:      protocol.JournalQueryData{Limit: 50},
 			channel:  "System",
-			wantArgs: []string{"qe", "System", "/f:json", "/c:50"},
+			wantArgs: []string{"qe", "System", "/f:RenderedXml", "/rd:true", "/c:50"},
 		},
 		{
 			name:     "with-since",
 			req:      protocol.JournalQueryData{Limit: 10, Since: "2026-03-21T00:00:00Z"},
 			channel:  "Application",
-			wantArgs: []string{"qe", "Application", "/f:json", "/c:10", "/q:*[System[TimeCreated[@SystemTime>='2026-03-21T00:00:00Z']]]"},
+			wantArgs: []string{"qe", "Application", "/f:RenderedXml", "/rd:true", "/c:10", "/q:*[System[TimeCreated[@SystemTime>='2026-03-21T00:00:00Z']]]"},
+		},
+		{
+			name:    "with-time-range",
+			req:     protocol.JournalQueryData{Limit: 10, Since: "2026-03-21T00:00:00Z", Until: "2026-03-21T01:00:00Z"},
+			channel: "System",
+			wantArgs: []string{
+				"qe", "System", "/f:RenderedXml", "/rd:true", "/c:10",
+				"/q:*[System[TimeCreated[@SystemTime>='2026-03-21T00:00:00Z' and @SystemTime<='2026-03-21T01:00:00Z']]]",
+			},
 		},
 		{
 			name:     "default-limit",
 			req:      protocol.JournalQueryData{Limit: 0},
 			channel:  "System",
-			wantArgs: []string{"qe", "System", "/f:json", "/c:200"},
+			wantArgs: []string{"qe", "System", "/f:RenderedXml", "/rd:true", "/c:200"},
 		},
 		{
 			name:     "clamped-limit",
 			req:      protocol.JournalQueryData{Limit: 9999},
 			channel:  "System",
-			wantArgs: []string{"qe", "System", "/f:json", "/c:1000"},
+			wantArgs: []string{"qe", "System", "/f:RenderedXml", "/rd:true", "/c:1000"},
 		},
 	}
 
@@ -228,6 +259,61 @@ func TestBuildWevtutilQueryArgs(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestNormalizeWindowsJournalQueryTimes(t *testing.T) {
+	now := time.Date(2026, 7, 14, 1, 0, 0, 0, time.UTC)
+
+	got, err := normalizeWindowsJournalQueryTimes(protocol.JournalQueryData{
+		Since: "1h ago",
+		Until: "now",
+	}, now)
+	if err != nil {
+		t.Fatalf("normalizeWindowsJournalQueryTimes: %v", err)
+	}
+	if got.Since != "2026-07-14T00:00:00Z" || got.Until != "2026-07-14T01:00:00Z" {
+		t.Fatalf("normalized range = (%q, %q)", got.Since, got.Until)
+	}
+
+	if _, err := normalizeWindowsJournalQueryTimes(protocol.JournalQueryData{Since: "tomorrow-ish"}, now); err == nil {
+		t.Fatal("expected an unsupported time to be rejected")
+	}
+	if _, err := normalizeWindowsJournalQueryTimes(protocol.JournalQueryData{
+		Since: "2026-07-14T02:00:00Z",
+		Until: "2026-07-14T01:00:00Z",
+	}, now); err == nil {
+		t.Fatal("expected a reversed time range to be rejected")
+	}
+}
+
+func TestWindowsLogBackendReturnsErrorWhenEveryChannelFails(t *testing.T) {
+	original := RunWevtutilCommand
+	t.Cleanup(func() { RunWevtutilCommand = original })
+	RunWevtutilCommand = func(context.Context, string, ...string) ([]byte, error) {
+		return []byte("Invalid value for option f."), nil
+	}
+
+	entries, err := (WindowsLogBackend{}).QueryEntries(protocol.JournalQueryData{Limit: 5})
+	if err == nil {
+		t.Fatalf("QueryEntries returned entries=%v without reporting total channel failure", entries)
+	}
+	if !strings.Contains(err.Error(), "all Windows Event Log channel queries failed") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestResolveWindowsLogUnitFilter(t *testing.T) {
+	channels := []string{"System", "Application"}
+
+	channel, source := resolveWindowsLogUnitFilter(channels, "system")
+	if channel != "System" || source != "" {
+		t.Fatalf("channel filter = (%q, %q), want (System, empty)", channel, source)
+	}
+
+	channel, source = resolveWindowsLogUnitFilter(channels, "Service Control Manager")
+	if channel != "" || source != "Service Control Manager" {
+		t.Fatalf("source filter = (%q, %q), want (empty, Service Control Manager)", channel, source)
 	}
 }
 

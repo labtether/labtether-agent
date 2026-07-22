@@ -342,10 +342,10 @@ func readDiskCapacityBytes(path string) (totalBytes uint64, availableBytes uint6
 		return 0, 0
 	}
 
-	blockSize := uint64(stats.Bsize)
-	if blockSize == 0 {
+	if stats.Bsize <= 0 {
 		return 0, 0
 	}
+	blockSize := uint64(stats.Bsize)
 
 	return stats.Blocks * blockSize, stats.Bavail * blockSize
 }

@@ -22,16 +22,19 @@ type DBPinger interface {
 
 // Config defines shared HTTP settings for LabTether services.
 type Config struct {
-	Name             string
-	Port             string
-	BindAddress      string // optional: listener bind address (default 0.0.0.0)
-	AuthToken        string // #nosec G117 -- Runtime auth token config, not a hardcoded secret.
-	ExtraHandlers    map[string]http.HandlerFunc
-	TLSCertFile      string   // optional: path to TLS certificate file
-	TLSKeyFile       string   // optional: path to TLS private key file
-	DBPool           DBPinger // optional: if set, /healthz pings the DB
-	RedirectHTTPPort string   // if set, start an HTTP redirect listener on this port
-	HTTPSPort        int      // the HTTPS port to redirect to
+	Name        string
+	Port        string
+	BindAddress string // optional: listener bind address (default 0.0.0.0)
+	AuthToken   string // #nosec G117 -- Runtime auth token config, not a hardcoded secret.
+	// AuthTokenProvider is an optional per-request bearer-token source. When set,
+	// it takes precedence over AuthToken and fails closed while it returns empty.
+	AuthTokenProvider func() string
+	ExtraHandlers     map[string]http.HandlerFunc
+	TLSCertFile       string   // optional: path to TLS certificate file
+	TLSKeyFile        string   // optional: path to TLS private key file
+	DBPool            DBPinger // optional: if set, /healthz pings the DB
+	RedirectHTTPPort  string   // if set, start an HTTP redirect listener on this port
+	HTTPSPort         int      // the HTTPS port to redirect to
 	// GetCertificate is an optional TLS callback for dynamic certificate serving.
 	// When set alongside TLSCertFile/TLSKeyFile, it is assigned to
 	// tls.Config.GetCertificate so the server can hot-swap certs without restart.
@@ -97,14 +100,13 @@ func Run(ctx context.Context, cfg Config) error {
 
 	// When TLS is active, wrap the main handler with security headers.
 	var handler http.Handler = mux
-	if strings.TrimSpace(cfg.AuthToken) != "" {
-		handler = BearerAuth(handler, cfg.AuthToken)
-	}
 	if useTLS {
 		handler = SecurityHeaders(mux)
-		if strings.TrimSpace(cfg.AuthToken) != "" {
-			handler = BearerAuth(handler, cfg.AuthToken)
-		}
+	}
+	if cfg.AuthTokenProvider != nil {
+		handler = BearerAuthProvider(handler, cfg.AuthTokenProvider)
+	} else if strings.TrimSpace(cfg.AuthToken) != "" {
+		handler = BearerAuth(handler, cfg.AuthToken)
 	}
 
 	addr := net.JoinHostPort(cfg.BindAddress, cfg.Port)
@@ -190,9 +192,24 @@ func BearerAuth(next http.Handler, token string) http.Handler {
 	if required == "" {
 		return next
 	}
+	return BearerAuthProvider(next, func() string { return required })
+}
+
+// BearerAuthProvider enforces the bearer token returned by provider at request
+// time. A configured provider that temporarily has no token fails closed for
+// protected endpoints; health/readiness/version probes remain available.
+func BearerAuthProvider(next http.Handler, provider func() string) http.Handler {
+	if provider == nil {
+		return next
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if isUnauthenticatedProbePath(r.URL.Path) {
 			next.ServeHTTP(w, r)
+			return
+		}
+		required := strings.TrimSpace(provider())
+		if required == "" {
+			WriteError(w, http.StatusUnauthorized, "bearer token unavailable")
 			return
 		}
 		authHeader := strings.TrimSpace(r.Header.Get("Authorization"))

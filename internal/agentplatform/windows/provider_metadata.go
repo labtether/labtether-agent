@@ -16,24 +16,25 @@ func readCapabilityMetadata() map[string]string {
 
 func readCapabilityMetadataWith(lookPath func(string) (string, error)) map[string]string {
 	metadata := map[string]string{
-		"cap_services":    "list,action",
-		"service_backend": "scm",
-		"cap_logs":        "stored,query,stream",
-		"log_backend":     "eventlog",
-		"cap_schedules":   "list",
-		"cron_backend":    "taskscheduler",
-		"cap_network":     "list,action",
-		"network_backend": "netsh",
-		"cap_packages":    "",
-		"package_backend": "none",
+		"cap_services":           "list,action",
+		"service_backend":        "scm",
+		"cap_logs":               "stored,query,stream",
+		"log_backend":            "eventlog",
+		"cap_schedules":          "list",
+		"cron_backend":           "taskscheduler",
+		"cap_network":            "list,action",
+		"network_backend":        "netsh",
+		"cap_packages":           "list",
+		"package_backend":        "registry",
+		"package_action_backend": "none",
 	}
 
 	if commandExists(lookPath, "winget") || commandExists(lookPath, "winget.exe") {
 		metadata["cap_packages"] = "list,action"
-		metadata["package_backend"] = "winget"
+		metadata["package_action_backend"] = "winget"
 	} else if commandExists(lookPath, "choco") || commandExists(lookPath, "choco.exe") {
 		metadata["cap_packages"] = "list,action"
-		metadata["package_backend"] = "choco"
+		metadata["package_action_backend"] = "choco"
 	}
 
 	return metadata

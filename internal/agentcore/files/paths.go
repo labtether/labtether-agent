@@ -242,6 +242,45 @@ func (fm *Manager) ValidatePathNoFollowFinal(rawPath string) (string, error) {
 	return cleaned, nil
 }
 
+// OpenRootPath converts an operator path to a lexical path beneath BaseDir and
+// opens an os.Root for race-safe filesystem access. os.Root resolves every
+// component relative to an open directory handle and refuses symlink targets
+// outside the root, closing the validation/open TOCTOU window present in plain
+// filepath.EvalSymlinks followed by os.Open.
+func (fm *Manager) OpenRootPath(rawPath string) (*os.Root, string, string, error) {
+	if rawPath == "" {
+		rawPath = fm.BaseDir
+	}
+	if strings.HasPrefix(rawPath, "~/") || rawPath == "~" {
+		home := strings.TrimSpace(fm.HomeDir)
+		if home == "" {
+			home = strings.TrimSpace(ResolveAgentFileHomeDir())
+		}
+		if home == "" {
+			return nil, "", "", fmt.Errorf("cannot resolve home directory")
+		}
+		rawPath = filepath.Join(home, strings.TrimPrefix(rawPath, "~"))
+	}
+	if !filepath.IsAbs(rawPath) {
+		rawPath = filepath.Join(fm.BaseDir, rawPath)
+	}
+
+	base := filepath.Clean(fm.BaseDir)
+	displayPath := filepath.Clean(rawPath)
+	rel, err := filepath.Rel(base, displayPath)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return nil, "", "", fmt.Errorf("path %q is outside the allowed base directory", rawPath)
+	}
+	if rel == "" {
+		rel = "."
+	}
+	root, err := os.OpenRoot(base)
+	if err != nil {
+		return nil, "", "", fmt.Errorf("open file root: %w", err)
+	}
+	return root, rel, displayPath, nil
+}
+
 func resolveParentForContainment(cleaned string) (string, error) {
 	return resolveExistingPathForContainment(filepath.Dir(cleaned))
 }

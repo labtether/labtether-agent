@@ -11,6 +11,8 @@ import (
 	"github.com/labtether/protocol"
 )
 
+var savePendingEnrollmentToken = saveTokenToFile
+
 // handleEnrollmentChallenge signs the hub-issued enrollment challenge with the
 // agent device private key and sends enrollment.proof back to the hub.
 func handleEnrollmentChallenge(transport *wsTransport, msg protocol.Message, cfg RuntimeConfig) {
@@ -75,29 +77,60 @@ func handleEnrollmentApproved(transport *wsTransport, msg protocol.Message, cfg 
 		log.Printf("agentws: invalid enrollment.approved payload: %v", err)
 		return
 	}
+	data.Token = strings.TrimSpace(data.Token)
+	data.AssetID = strings.TrimSpace(data.AssetID)
 	if data.Token == "" {
 		log.Printf("agentws: enrollment.approved received but token is empty \u2014 ignoring")
 		return
 	}
+	if !validPersistedAssetID(data.AssetID) {
+		log.Printf("agentws: enrollment.approved received an invalid canonical asset id \u2014 ignoring")
+		return
+	}
 
 	log.Printf("agentws: enrollment APPROVED! asset_id=%s", data.AssetID)
+	currentIdentity := transport.identitySource().Snapshot()
+	currentAPIOrigin := apiBaseURLFromWS(currentIdentity.WSBaseURL)
+	if currentAPIOrigin == "" {
+		currentAPIOrigin = currentIdentity.APIBaseURL
+	}
+	adoptedIdentity, err := transport.identitySource().AdoptCredential(
+		data.Token,
+		data.AssetID,
+		currentIdentity.WSBaseURL,
+		currentAPIOrigin,
+	)
+	if err != nil {
+		log.Printf("agentws: enrollment.approved identity update failed: %v", err)
+		return
+	}
 
 	// Persist token to disk so it survives restarts.
+	credentialWarning := ""
 	if cfg.TokenFilePath != "" {
-		if err := saveTokenToFile(cfg.TokenFilePath, data.Token); err != nil {
-			log.Printf("agentws: warning: failed to save enrollment token: %v", err)
+		if err := savePendingEnrollmentToken(cfg.TokenFilePath, data.Token); err != nil {
+			credentialWarning = agentTokenPersistenceFailed
+			if removeErr := removePersistedAgentToken(cfg.TokenFilePath); removeErr != nil {
+				log.Printf("agentws: ERROR: approved token is memory-only and stale token removal also failed: persist=%v remove=%v", err, removeErr)
+			} else {
+				log.Printf("agentws: ERROR: approved token is memory-only; stale token file removed after persistence failure: %v", err)
+			}
 		} else {
 			log.Printf("agentws: token saved to %s", cfg.TokenFilePath)
+			if err := saveEnrollmentState(cfg.TokenFilePath, enrollmentState{
+				AssetID:   adoptedIdentity.AssetID,
+				HubWSURL:  adoptedIdentity.WSBaseURL,
+				HubAPIURL: adoptedIdentity.APIBaseURL,
+			}); err != nil {
+				log.Printf("agentws: warning: failed to save enrollment state: %v", err)
+			}
 		}
 	}
 
-	// Update transport credentials before disconnecting so the next dial uses the token.
-	transport.updateToken(data.Token)
-	if data.AssetID != "" {
-		transport.mu.Lock()
-		transport.assetID = data.AssetID
-		transport.mu.Unlock()
-	}
+	// The atomic source was updated before persistence so even a memory-only
+	// approved credential immediately activates HTTP fallback and the next dial.
+	transport.setCredentialPersistenceError(credentialWarning)
+	transport.setCredentialError("")
 
 	// Close current connection - the reconnect loop will re-dial using the new token.
 	transport.markDisconnected()

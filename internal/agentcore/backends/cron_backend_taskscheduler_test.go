@@ -1,10 +1,85 @@
 package backends
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+func TestWindowsCronBackendUsesPowerShellTaskSchedulerInventory(t *testing.T) {
+	original := RunSchtasksCommand
+	t.Cleanup(func() { RunSchtasksCommand = original })
+
+	var calls [][]string
+	RunSchtasksCommand = func(_ context.Context, name string, args ...string) ([]byte, error) {
+		calls = append(calls, append([]string{name}, args...))
+		return []byte(`[{"source":"task-scheduler","schedule":"daily at 2026-07-15T02:00:00","command":"\\BackupJob","user":"SYSTEM","next_run":"2026-07-15T02:00:00.0000000+10:00","last_run":"2026-07-14T02:00:00.0000000+10:00"}]`), nil
+	}
+
+	entries, err := (WindowsCronBackend{}).ListEntries()
+	if err != nil {
+		t.Fatalf("ListEntries: %v", err)
+	}
+	if len(calls) != 1 || calls[0][0] != "powershell.exe" {
+		t.Fatalf("expected one PowerShell call, got %v", calls)
+	}
+	if len(entries) != 1 || entries[0].Command != `\BackupJob` {
+		t.Fatalf("unexpected entries: %+v", entries)
+	}
+	if entries[0].NextRun != "2026-07-14T16:00:00Z" {
+		t.Fatalf("NextRun=%q, want normalized UTC", entries[0].NextRun)
+	}
+}
+
+func TestWindowsCronBackendFallsBackToFastSchtasksSummary(t *testing.T) {
+	original := RunSchtasksCommand
+	t.Cleanup(func() { RunSchtasksCommand = original })
+
+	var calls [][]string
+	RunSchtasksCommand = func(_ context.Context, name string, args ...string) ([]byte, error) {
+		calls = append(calls, append([]string{name}, args...))
+		if len(calls) == 1 {
+			return []byte("Get-ScheduledTask unavailable"), errors.New("exit status 1")
+		}
+		return []byte("\"\\BackupJob\",\"14/07/2026 9:04:23 PM\",\"Ready\"\n" +
+			"\"\\BackupJob\",\"14/07/2026 9:04:23 PM\",\"Ready\"\n" +
+			"\"\\Microsoft\\Windows\\Internal\",\"N/A\",\"Ready\"\n"), nil
+	}
+
+	entries, err := (WindowsCronBackend{}).ListEntries()
+	if err != nil {
+		t.Fatalf("ListEntries fallback: %v", err)
+	}
+	if len(calls) != 2 {
+		t.Fatalf("expected primary and fallback calls, got %v", calls)
+	}
+	joined := strings.Join(calls[1], " ")
+	if calls[1][0] != "schtasks.exe" || strings.Contains(joined, "/V") || !strings.Contains(joined, "/NH") {
+		t.Fatalf("expected non-verbose schtasks summary fallback, got %v", calls[1])
+	}
+	if len(entries) != 1 || entries[0].Command != `\BackupJob` {
+		t.Fatalf("expected one deduplicated non-Microsoft entry, got %+v", entries)
+	}
+	if entries[0].NextRun == "" {
+		t.Fatal("expected unambiguous Australian timestamp to be parsed")
+	}
+}
+
+func TestParsePowerShellTaskInventoryRejectsIncompleteEntries(t *testing.T) {
+	_, err := parsePowerShellTaskInventory([]byte(`[{"source":"task-scheduler","schedule":"","command":"\\Task"}]`))
+	if err == nil || !strings.Contains(err.Error(), "missing schedule or command") {
+		t.Fatalf("expected incomplete entry error, got %v", err)
+	}
+}
+
+func TestParseUnambiguousSchtasksSummaryTimeRejectsAmbiguousDate(t *testing.T) {
+	if got := parseUnambiguousSchtasksSummaryTime("7/8/2026 9:04:23 PM"); got != "" {
+		t.Fatalf("ambiguous locale timestamp parsed as %q", got)
+	}
+}
 
 func TestParseSchtasksCSVCount(t *testing.T) {
 	t.Parallel()

@@ -8,13 +8,16 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 
+	"github.com/labtether/labtether-agent/internal/agentcore/packagepolicy"
 	"github.com/labtether/labtether-agent/internal/securityruntime"
 	"github.com/labtether/protocol"
 )
 
-// LinuxPackageBackend implements PackageBackend using dpkg/rpm and apt/dnf/yum/etc.
+// LinuxPackageBackend implements inventory and actions for supported native
+// Linux package managers.
 type LinuxPackageBackend struct{}
 
 // PackageActionCommand represents a single package manager command to run.
@@ -30,6 +33,10 @@ var (
 	LinuxPackageDpkgLister = collectLinuxPackagesDpkg
 	// LinuxPackageRPMLister collects packages via rpm. Overridable for tests.
 	LinuxPackageRPMLister = collectLinuxPackagesRPM
+	// LinuxPackagePacmanLister collects packages via pacman. Overridable for tests.
+	LinuxPackagePacmanLister = collectLinuxPackagesPacman
+	// LinuxPackageAPKLister collects packages via apk. Overridable for tests.
+	LinuxPackageAPKLister = collectLinuxPackagesAPK
 	// DetectLinuxPackageManagerFn detects the available package manager. Overridable for tests.
 	DetectLinuxPackageManagerFn = DetectLinuxPackageManager
 	// BuildLinuxPackageActionCommandsFn builds the command list for a package action. Overridable for tests.
@@ -44,13 +51,41 @@ var (
 	NewLinuxPackageCommand = securityruntime.NewCommand
 )
 
-// ListPackages lists installed Linux packages using dpkg or rpm.
+// ListPackages lists installed Linux packages using the native package database.
 func (LinuxPackageBackend) ListPackages() ([]protocol.PackageInfo, error) {
+	// Prefer the inventory database associated with the detected action manager.
+	// This avoids reporting a secondary RPM database on Arch/Alpine hosts where
+	// the rpm utility happens to be installed alongside pacman/apk.
+	if manager, err := DetectLinuxPackageManagerFn(); err == nil {
+		switch manager {
+		case "apt-get":
+			if path, lookErr := LinuxPackageLookPath("dpkg-query"); lookErr == nil && path != "" {
+				return LinuxPackageDpkgLister()
+			}
+		case "dnf", "yum", "zypper":
+			if path, lookErr := LinuxPackageLookPath("rpm"); lookErr == nil && path != "" {
+				return LinuxPackageRPMLister()
+			}
+		case "pacman":
+			return LinuxPackagePacmanLister()
+		case "apk":
+			return LinuxPackageAPKLister()
+		}
+	}
+
+	// Retain direct database fallbacks for minimal systems where only the query
+	// utility is present.
 	if path, err := LinuxPackageLookPath("dpkg-query"); err == nil && path != "" {
 		return LinuxPackageDpkgLister()
 	}
 	if path, err := LinuxPackageLookPath("rpm"); err == nil && path != "" {
 		return LinuxPackageRPMLister()
+	}
+	if path, err := LinuxPackageLookPath("pacman"); err == nil && path != "" {
+		return LinuxPackagePacmanLister()
+	}
+	if path, err := LinuxPackageLookPath("apk"); err == nil && path != "" {
+		return LinuxPackageAPKLister()
 	}
 	return nil, ErrNoLinuxPackageManager
 }
@@ -69,13 +104,19 @@ func (LinuxPackageBackend) PerformAction(action string, packages []string) (Pack
 	ctx, cancel := context.WithTimeout(context.Background(), PackageActionCommandTimeout)
 	defer cancel()
 
-	var combined bytes.Buffer
+	// Retain one byte past the result limit so the existing formatter can add
+	// its truncation marker, while draining all package-manager output.
+	combined := securityruntime.NewCappedRetainingWriter(MaxCommandOutputBytes + 1)
 	for _, command := range commands {
 		out, runErr := RunLinuxPackageCommand(ctx, command.Name, command.Args...)
 		if combined.Len() > 0 && len(out) > 0 {
-			combined.WriteByte('\n')
+			if err := combined.WriteByte('\n'); err != nil {
+				return PackageActionResult{}, fmt.Errorf("buffer package output: %w", err)
+			}
 		}
-		combined.Write(out)
+		if _, err := combined.Write(out); err != nil {
+			return PackageActionResult{}, fmt.Errorf("buffer package output: %w", err)
+		}
 		result := PackageActionResult{
 			Output:         TruncateCommandOutput(combined.Bytes(), MaxCommandOutputBytes),
 			RebootRequired: DetectLinuxRebootRequiredFn(),
@@ -125,16 +166,22 @@ func DetectLinuxPackageManager() (string, error) {
 }
 
 func buildLinuxPackageActionArgs(manager, action string, packages []string) ([]string, error) {
+	normalizedPackages, err := packagepolicy.NormalizeAndValidate(packages)
+	if err != nil {
+		return nil, err
+	}
+	packages = normalizedPackages
+
 	switch manager {
 	case "apt-get":
 		switch action {
 		case "install":
-			return append([]string{"-y", "install"}, packages...), nil
+			return append([]string{"-y", "install", "--"}, packages...), nil
 		case "remove":
-			return append([]string{"-y", "remove"}, packages...), nil
+			return append([]string{"-y", "remove", "--"}, packages...), nil
 		case "upgrade":
 			if len(packages) > 0 {
-				return append([]string{"-y", "install", "--only-upgrade"}, packages...), nil
+				return append([]string{"-y", "install", "--only-upgrade", "--"}, packages...), nil
 			}
 			return []string{"-y", "upgrade"}, nil
 		}
@@ -165,12 +212,12 @@ func buildLinuxPackageActionArgs(manager, action string, packages []string) ([]s
 	case "pacman":
 		switch action {
 		case "install":
-			return append([]string{"--noconfirm", "-S"}, packages...), nil
+			return append([]string{"--noconfirm", "-S", "--"}, packages...), nil
 		case "remove":
-			return append([]string{"--noconfirm", "-R"}, packages...), nil
+			return append([]string{"--noconfirm", "-R", "--"}, packages...), nil
 		case "upgrade":
 			if len(packages) > 0 {
-				return append([]string{"--noconfirm", "-S"}, packages...), nil
+				return append([]string{"--noconfirm", "-S", "--"}, packages...), nil
 			}
 			return []string{"--noconfirm", "-Syu"}, nil
 		}
@@ -285,5 +332,68 @@ func collectLinuxPackagesRPM() ([]protocol.PackageInfo, error) {
 		})
 	}
 
+	return pkgs, nil
+}
+
+func collectLinuxPackagesPacman() ([]protocol.PackageInfo, error) {
+	out, err := securityruntime.CommandCombinedOutput("pacman", "-Q")
+	if err != nil {
+		return nil, err
+	}
+	return ParsePacmanPackageList(out)
+}
+
+// ParsePacmanPackageList parses `pacman -Q` output ("name version" per line).
+func ParsePacmanPackageList(out []byte) ([]protocol.PackageInfo, error) {
+	var pkgs []protocol.PackageInfo
+	scanner := bufio.NewScanner(bytes.NewReader(out))
+	for scanner.Scan() {
+		fields := strings.Fields(scanner.Text())
+		if len(fields) != 2 {
+			continue
+		}
+		pkgs = append(pkgs, protocol.PackageInfo{
+			Name:    fields[0],
+			Version: fields[1],
+			Status:  "installed",
+		})
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("parse pacman package list: %w", err)
+	}
+	return pkgs, nil
+}
+
+func collectLinuxPackagesAPK() ([]protocol.PackageInfo, error) {
+	out, err := securityruntime.CommandCombinedOutput("apk", "info", "-v")
+	if err != nil {
+		return nil, err
+	}
+	return ParseAPKPackageList(out)
+}
+
+var apkPackageVersionPattern = regexp.MustCompile(`^(.+)-([0-9][0-9A-Za-z._+~:-]*(?:-r[0-9]+)?)$`)
+
+// ParseAPKPackageList parses `apk info -v` output ("name-version" per line).
+// Alpine package versions begin with a digit, which disambiguates the final
+// package-name/version boundary even when the package name itself has dashes.
+func ParseAPKPackageList(out []byte) ([]protocol.PackageInfo, error) {
+	var pkgs []protocol.PackageInfo
+	scanner := bufio.NewScanner(bytes.NewReader(out))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		matches := apkPackageVersionPattern.FindStringSubmatch(line)
+		if len(matches) != 3 {
+			continue
+		}
+		pkgs = append(pkgs, protocol.PackageInfo{
+			Name:    matches[1],
+			Version: matches[2],
+			Status:  "installed",
+		})
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("parse apk package list: %w", err)
+	}
 	return pkgs, nil
 }

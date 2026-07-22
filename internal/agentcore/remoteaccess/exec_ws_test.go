@@ -2,9 +2,12 @@ package remoteaccess
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"math"
 	"testing"
 	"time"
+
+	"github.com/labtether/protocol"
 )
 
 func TestTokenAllowsAnyCapability(t *testing.T) {
@@ -37,11 +40,46 @@ func TestTokenAllowsAnyCapabilityUnknownTokenFormat(t *testing.T) {
 }
 
 func TestValidateUpdatePackages(t *testing.T) {
-	if err := ValidateUpdatePackages([]string{"curl", "openssl-dev"}); err != nil {
+	if err := ValidateUpdatePackages([]string{"curl", "openssl-dev", "@scope/package@1.2.3", "libssl3:amd64=2:3.0.2-1~deb12u1"}); err != nil {
 		t.Fatalf("expected valid package names, got %v", err)
 	}
 	if err := ValidateUpdatePackages([]string{"bad;rm -rf /"}); err == nil {
 		t.Fatalf("expected invalid package name to be rejected")
+	}
+	if err := ValidateUpdatePackages([]string{"-o", "APT::Update::Pre-Invoke::=/bin/sh"}); err == nil {
+		t.Fatalf("expected option-shaped package name to be rejected")
+	}
+}
+
+func TestHandleUpdateRequestRejectsUnsupportedMode(t *testing.T) {
+	transport := newMockTransport()
+	data, err := json.Marshal(protocol.UpdateRequestData{
+		JobID: "unsupported-update-mode",
+		Mode:  "docker_images",
+	})
+	if err != nil {
+		t.Fatalf("marshal update request: %v", err)
+	}
+
+	HandleUpdateRequest(transport, protocol.Message{Type: protocol.MsgUpdateRequest, Data: data}, ExecConfig{APIToken: "opaque-token"})
+
+	select {
+	case msg := <-transport.messages:
+		if msg.Type != protocol.MsgUpdateResult {
+			t.Fatalf("message type = %q, want %q", msg.Type, protocol.MsgUpdateResult)
+		}
+		var result protocol.UpdateResultData
+		if err := json.Unmarshal(msg.Data, &result); err != nil {
+			t.Fatalf("decode update result: %v", err)
+		}
+		if result.Status != "failed" {
+			t.Fatalf("status = %q, want failed", result.Status)
+		}
+		if result.Error != `unsupported update mode "docker_images"` {
+			t.Fatalf("error = %q", result.Error)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for rejected update result")
 	}
 }
 

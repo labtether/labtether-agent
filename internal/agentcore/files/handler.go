@@ -5,7 +5,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
@@ -17,12 +19,29 @@ import (
 )
 
 const (
-	FileChunkSize           = 64 * 1024         // 64KB per chunk
-	MaxFileSize             = 512 * 1024 * 1024 // 512MB max file transfer
-	maxWritePending         = 64
-	orphanCleanupScanBudget = 2 * time.Second
-	orphanCleanupMaxEntries = 20000
+	FileChunkSize            = 64 * 1024         // 64KB per chunk
+	MaxFileSize              = 512 * 1024 * 1024 // 512MB max file transfer
+	maxFileListEntries       = 5000
+	maxFileListScanned       = 20000
+	maxFileListReadBatch     = 256
+	maxFileListResponseSize  = 4 * 1024 * 1024
+	maxFileListRequestIDLen  = 256
+	maxWritePending          = 64
+	maxFileWriteRequestIDLen = 256
+	pendingWriteIdleTTL      = 5 * time.Minute
+	orphanCleanupScanBudget  = 2 * time.Second
+	orphanCleanupMaxEntries  = 20000
 )
+
+var (
+	errFileListLimitExceeded = errors.New("directory listing exceeds safe limits")
+	errFileReadLimitExceeded = errors.New("file too large")
+	errFileReadSendFailed    = errors.New("file read transport send failed")
+)
+
+type fileListDirReader interface {
+	ReadDir(n int) ([]fs.DirEntry, error)
+}
 
 // MessageSender abstracts the agent-to-hub send capability so this package
 // does not depend on the concrete wsTransport type in the parent agentcore package.
@@ -32,20 +51,27 @@ type MessageSender interface {
 
 // Manager manages file operations on the agent.
 type Manager struct {
-	mu      sync.Mutex
-	writers map[string]*PendingWrite // request_id -> pending write
-	BaseDir string                   // restricted base directory (empty = home dir)
-	HomeDir string                   // resolved home directory for "~" expansion
+	mu                  sync.Mutex
+	writers             map[string]*PendingWrite // request_id -> pending write
+	pendingWriteNow     func() time.Time
+	pendingWriteIdleTTL time.Duration
+	BaseDir             string // restricted base directory (empty = home dir)
+	HomeDir             string // resolved home directory for "~" expansion
 }
 
 // PendingWrite tracks an in-progress file upload.
 type PendingWrite struct {
-	mu      sync.Mutex
-	File    *os.File
-	Path    string
-	TmpPath string
-	Written int64
-	Closed  bool
+	mu           sync.Mutex
+	File         *os.File
+	Root         *os.Root
+	Path         string
+	RelPath      string
+	TmpPath      string
+	TmpRelPath   string
+	Written      int64
+	Closed       bool
+	lastActivity time.Time
+	idleTimer    *time.Timer
 }
 
 // NewManager creates a new file Manager with the given file root mode.
@@ -56,7 +82,9 @@ func NewManager(fileRootMode string) *Manager {
 		BaseDir: ResolveFileBaseDirWithHome(fileRootMode, homeDir),
 		HomeDir: homeDir,
 	}
-	go fm.CleanupOrphanedTempFiles()
+	// Evaluate the immutable startup path before launching cleanup so callers
+	// that replace BaseDir for an isolated test/session cannot race the goroutine.
+	go fm.cleanupOrphanedTempFiles(fm.BaseDir)
 	return fm
 }
 
@@ -68,125 +96,295 @@ func (fm *Manager) HandleFileList(transport MessageSender, msg protocol.Message)
 		return
 	}
 
-	dirPath, err := fm.ValidatePath(req.Path)
+	root, relPath, dirPath, err := fm.OpenRootPath(req.Path)
 	if err != nil {
 		fm.sendFileListed(transport, req.RequestID, req.Path, nil, err.Error())
 		return
 	}
+	defer root.Close()
 
-	entries, err := os.ReadDir(dirPath)
+	dir, err := root.Open(relPath)
+	if err != nil {
+		fm.sendFileListed(transport, req.RequestID, dirPath, nil, err.Error())
+		return
+	}
+	defer dir.Close()
+	fileEntries, err := readBoundedFileEntries(dir, req.ShowHidden, req.RequestID, dirPath)
 	if err != nil {
 		fm.sendFileListed(transport, req.RequestID, dirPath, nil, err.Error())
 		return
 	}
 
-	var fileEntries []protocol.FileEntry
-	for _, entry := range entries {
-		if !req.ShowHidden && strings.HasPrefix(entry.Name(), ".") {
-			continue
-		}
-		info, infoErr := entry.Info()
-		if infoErr != nil {
-			continue
-		}
-		fileEntries = append(fileEntries, protocol.FileEntry{
-			Name:    entry.Name(),
-			Size:    info.Size(),
-			Mode:    info.Mode().String(),
-			ModTime: info.ModTime().UTC().Format(time.RFC3339),
-			IsDir:   entry.IsDir(),
-		})
+	fm.sendFileListed(transport, req.RequestID, dirPath, fileEntries, "")
+}
+
+func readBoundedFileEntries(dir fileListDirReader, showHidden bool, requestID, path string) ([]protocol.FileEntry, error) {
+	emptyPayload, err := json.Marshal(protocol.FileListedData{
+		RequestID: requestID,
+		Path:      path,
+		Entries:   []protocol.FileEntry{},
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(emptyPayload) > maxFileListResponseSize {
+		return nil, fmt.Errorf("%w: response metadata exceeds %d bytes", errFileListLimitExceeded, maxFileListResponseSize)
 	}
 
-	fm.sendFileListed(transport, req.RequestID, dirPath, fileEntries, "")
+	entries := make([]protocol.FileEntry, 0, min(maxFileListEntries, maxFileListReadBatch))
+	serializedSize := len(emptyPayload)
+	scanned := 0
+	for {
+		batch, readErr := dir.ReadDir(maxFileListReadBatch)
+		for _, entry := range batch {
+			scanned++
+			if scanned > maxFileListScanned {
+				return nil, fmt.Errorf("%w: more than %d directory entries", errFileListLimitExceeded, maxFileListScanned)
+			}
+			if !showHidden && strings.HasPrefix(entry.Name(), ".") {
+				continue
+			}
+			info, infoErr := entry.Info()
+			if infoErr != nil {
+				continue
+			}
+			if len(entries) >= maxFileListEntries {
+				return nil, fmt.Errorf("%w: more than %d visible entries", errFileListLimitExceeded, maxFileListEntries)
+			}
+
+			fileEntry := protocol.FileEntry{
+				Name:    entry.Name(),
+				Size:    info.Size(),
+				Mode:    info.Mode().String(),
+				ModTime: info.ModTime().UTC().Format(time.RFC3339),
+				IsDir:   entry.IsDir(),
+			}
+			encodedEntry, marshalErr := json.Marshal(fileEntry)
+			if marshalErr != nil {
+				return nil, marshalErr
+			}
+			nextSize := serializedSize + len(encodedEntry)
+			if len(entries) == 0 {
+				// Replace the empty array's two brackets with the first entry.
+				nextSize -= 2
+			} else {
+				// Account for the comma between array entries.
+				nextSize++
+			}
+			if nextSize > maxFileListResponseSize {
+				return nil, fmt.Errorf("%w: serialized response exceeds %d bytes", errFileListLimitExceeded, maxFileListResponseSize)
+			}
+			entries = append(entries, fileEntry)
+			serializedSize = nextSize
+		}
+
+		switch {
+		case errors.Is(readErr, io.EOF):
+			return entries, nil
+		case readErr != nil:
+			return nil, readErr
+		case len(batch) == 0:
+			return nil, io.ErrNoProgress
+		}
+	}
 }
 
 func (fm *Manager) sendFileListed(transport MessageSender, requestID, path string, entries []protocol.FileEntry, errMsg string) {
 	if entries == nil {
 		entries = []protocol.FileEntry{}
 	}
-	data, _ := json.Marshal(protocol.FileListedData{
+	data, err := json.Marshal(protocol.FileListedData{
 		RequestID: requestID,
 		Path:      path,
 		Entries:   entries,
 		Error:     errMsg,
 	})
-	_ = transport.Send(protocol.Message{
+	if err != nil {
+		log.Printf("file: failed to marshal list response: %v", err)
+		return
+	}
+	if len(data) > maxFileListResponseSize {
+		if len(requestID) > maxFileListRequestIDLen {
+			requestID = requestID[:maxFileListRequestIDLen]
+		}
+		data, err = json.Marshal(protocol.FileListedData{
+			RequestID: requestID,
+			Path:      "",
+			Entries:   []protocol.FileEntry{},
+			Error:     fmt.Sprintf("%s: serialized response exceeds %d bytes", errFileListLimitExceeded, maxFileListResponseSize),
+		})
+		if err != nil {
+			log.Printf("file: failed to marshal bounded list error response: %v", err)
+			return
+		}
+	}
+	if sendErr := transport.Send(protocol.Message{
 		Type: protocol.MsgFileListed,
 		ID:   requestID,
 		Data: data,
-	})
+	}); sendErr != nil {
+		log.Printf("file: failed to send list response request_id=%s: %v", requestID, sendErr)
+	}
 }
 
 // HandleFileRead handles a file read request from the hub.
 func (fm *Manager) HandleFileRead(transport MessageSender, msg protocol.Message) {
+	fm.HandleFileReadContext(context.Background(), transport, msg)
+}
+
+// HandleFileReadContext handles a file read request and stops streaming when
+// the caller's lifecycle ends. The non-context wrapper is retained for direct
+// callers outside the receive loop.
+func (fm *Manager) HandleFileReadContext(ctx context.Context, transport MessageSender, msg protocol.Message) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return
+	}
+
 	var req protocol.FileReadData
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		log.Printf("file: invalid read request: %v", err)
 		return
 	}
 
-	filePath, err := fm.ValidatePath(req.Path)
+	root, relPath, _, err := fm.OpenRootPath(req.Path)
 	if err != nil {
-		fm.sendFileData(transport, req.RequestID, "", 0, true, err.Error())
+		if ctx.Err() != nil {
+			return
+		}
+		_ = fm.sendFileData(transport, req.RequestID, "", 0, true, err.Error())
+		return
+	}
+	defer root.Close()
+	if ctx.Err() != nil {
 		return
 	}
 
-	info, err := os.Stat(filePath)
+	f, err := openRootFileForRead(root, relPath)
 	if err != nil {
-		fm.sendFileData(transport, req.RequestID, "", 0, true, err.Error())
-		return
-	}
-	if info.IsDir() {
-		fm.sendFileData(transport, req.RequestID, "", 0, true, "cannot read a directory")
-		return
-	}
-	if info.Size() > MaxFileSize {
-		fm.sendFileData(transport, req.RequestID, "", 0, true, "file too large")
-		return
-	}
-
-	f, err := os.Open(filePath) // #nosec G304 -- Agent file operations intentionally target operator-requested local paths after authz.
-	if err != nil {
-		fm.sendFileData(transport, req.RequestID, "", 0, true, err.Error())
+		if ctx.Err() != nil {
+			return
+		}
+		_ = fm.sendFileData(transport, req.RequestID, "", 0, true, err.Error())
 		return
 	}
 	defer f.Close()
+	if ctx.Err() != nil {
+		return
+	}
+	info, err := f.Stat()
+	if ctx.Err() != nil {
+		return
+	}
+	if err != nil {
+		_ = fm.sendFileData(transport, req.RequestID, "", 0, true, err.Error())
+		return
+	}
+	if info.IsDir() {
+		_ = fm.sendFileData(transport, req.RequestID, "", 0, true, "cannot read a directory")
+		return
+	}
+	if !info.Mode().IsRegular() {
+		_ = fm.sendFileData(transport, req.RequestID, "", 0, true, "cannot read a non-regular file")
+		return
+	}
+	if info.Size() > MaxFileSize {
+		_ = fm.sendFileData(transport, req.RequestID, "", 0, true, errFileReadLimitExceeded.Error())
+		return
+	}
 
-	buf := make([]byte, FileChunkSize)
-	var offset int64
-	for {
-		n, readErr := f.Read(buf)
-		if n > 0 {
-			encoded := base64.StdEncoding.EncodeToString(buf[:n])
-			done := readErr == io.EOF
-			fm.sendFileData(transport, req.RequestID, encoded, offset, done, "")
-			offset += int64(n)
-			if done {
-				return
+	offset, streamErr := fm.streamFileRead(ctx, transport, req.RequestID, f, MaxFileSize)
+	if streamErr != nil {
+		switch {
+		case errors.Is(streamErr, context.Canceled), errors.Is(streamErr, context.DeadlineExceeded):
+			log.Printf("file: read canceled request_id=%s: %v", req.RequestID, streamErr)
+		case errors.Is(streamErr, errFileReadSendFailed):
+			log.Printf("file: read transport failed request_id=%s: %v", req.RequestID, streamErr)
+		default:
+			if sendErr := fm.sendFileData(transport, req.RequestID, "", offset, true, streamErr.Error()); sendErr != nil {
+				log.Printf("file: failed to send read error request_id=%s: %v", req.RequestID, sendErr)
 			}
-		}
-		if readErr != nil {
-			if readErr != io.EOF {
-				fm.sendFileData(transport, req.RequestID, "", offset, true, readErr.Error())
-			} else {
-				// EOF with n==0 -- send final empty done marker.
-				fm.sendFileData(transport, req.RequestID, "", offset, true, "")
-			}
-			return
 		}
 	}
 }
 
-func (fm *Manager) sendFileData(transport MessageSender, requestID, data string, offset int64, done bool, errMsg string) {
-	payload, _ := json.Marshal(protocol.FileDataPayload{
+func (fm *Manager) streamFileRead(ctx context.Context, transport MessageSender, requestID string, reader io.Reader, maxBytes int64) (int64, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if maxBytes < 0 {
+		return 0, errFileReadLimitExceeded
+	}
+	buf := make([]byte, FileChunkSize)
+	var offset int64
+	emptyReads := 0
+	for {
+		if err := ctx.Err(); err != nil {
+			return offset, err
+		}
+		remaining := maxBytes - offset
+		readSize := int64(len(buf))
+		if remaining < readSize {
+			readSize = remaining + 1
+		}
+		if readSize < 1 {
+			readSize = 1
+		}
+
+		n, readErr := reader.Read(buf[:int(readSize)])
+		if n < 0 || n > int(readSize) {
+			return offset, fmt.Errorf("invalid read count %d", n)
+		}
+		if err := ctx.Err(); err != nil {
+			return offset, err
+		}
+		if n > 0 {
+			emptyReads = 0
+			if int64(n) > remaining {
+				return offset, errFileReadLimitExceeded
+			}
+			encoded := base64.StdEncoding.EncodeToString(buf[:n])
+			done := readErr == io.EOF
+			if sendErr := fm.sendFileData(transport, requestID, encoded, offset, done, ""); sendErr != nil {
+				return offset, fmt.Errorf("%w: %v", errFileReadSendFailed, sendErr)
+			}
+			offset += int64(n)
+			if done {
+				return offset, nil
+			}
+		} else if readErr == nil {
+			emptyReads++
+			if emptyReads >= 100 {
+				return offset, io.ErrNoProgress
+			}
+		}
+		if readErr != nil {
+			if readErr != io.EOF {
+				return offset, readErr
+			}
+			// EOF with n==0 -- send final empty done marker.
+			if sendErr := fm.sendFileData(transport, requestID, "", offset, true, ""); sendErr != nil {
+				return offset, fmt.Errorf("%w: %v", errFileReadSendFailed, sendErr)
+			}
+			return offset, nil
+		}
+	}
+}
+
+func (fm *Manager) sendFileData(transport MessageSender, requestID, data string, offset int64, done bool, errMsg string) error {
+	payload, err := json.Marshal(protocol.FileDataPayload{
 		RequestID: requestID,
 		Data:      data,
 		Offset:    offset,
 		Done:      done,
 		Error:     errMsg,
 	})
-	_ = transport.Send(protocol.Message{
+	if err != nil {
+		return err
+	}
+	return transport.Send(protocol.Message{
 		Type: protocol.MsgFileData,
 		ID:   requestID,
 		Data: payload,
@@ -215,13 +413,14 @@ func (fm *Manager) HandleFileMkdir(transport MessageSender, msg protocol.Message
 		return
 	}
 
-	dirPath, err := fm.ValidatePath(req.Path)
+	root, relPath, _, err := fm.OpenRootPath(req.Path)
 	if err != nil {
 		fm.SendFileResult(transport, req.RequestID, false, err.Error())
 		return
 	}
+	defer root.Close()
 
-	if err := os.MkdirAll(dirPath, 0o750); err != nil {
+	if err := root.MkdirAll(relPath, 0o750); err != nil {
 		fm.SendFileResult(transport, req.RequestID, false, err.Error())
 		return
 	}
@@ -237,27 +436,19 @@ func (fm *Manager) HandleFileDelete(transport MessageSender, msg protocol.Messag
 		return
 	}
 
-	filePath, err := fm.ValidatePathNoFollowFinal(req.Path)
+	root, relPath, filePath, err := fm.OpenRootPath(req.Path)
 	if err != nil {
 		fm.SendFileResult(transport, req.RequestID, false, err.Error())
 		return
 	}
+	defer root.Close()
 
 	// Safety: don't allow deleting the base directory itself.
 	if filepath.Clean(filePath) == filepath.Clean(fm.BaseDir) {
 		fm.SendFileResult(transport, req.RequestID, false, "cannot delete base directory")
 		return
 	}
-	if recheckedPath, err := fm.ValidatePathNoFollowFinal(req.Path); err != nil || recheckedPath != filePath {
-		if err != nil {
-			fm.SendFileResult(transport, req.RequestID, false, err.Error())
-		} else {
-			fm.SendFileResult(transport, req.RequestID, false, "path changed during validation")
-		}
-		return
-	}
-
-	if err := os.RemoveAll(filePath); err != nil {
+	if err := root.RemoveAll(relPath); err != nil {
 		fm.SendFileResult(transport, req.RequestID, false, err.Error())
 		return
 	}
@@ -273,17 +464,19 @@ func (fm *Manager) HandleFileRename(transport MessageSender, msg protocol.Messag
 		return
 	}
 
-	oldPath, err := fm.ValidatePathNoFollowFinal(req.OldPath)
+	root, oldRel, oldPath, err := fm.OpenRootPath(req.OldPath)
 	if err != nil {
 		fm.SendFileResult(transport, req.RequestID, false, err.Error())
 		return
 	}
+	defer root.Close()
 
-	newPath, err := fm.ValidatePathNoFollowFinal(req.NewPath)
+	newRoot, newRel, _, err := fm.OpenRootPath(req.NewPath)
 	if err != nil {
 		fm.SendFileResult(transport, req.RequestID, false, err.Error())
 		return
 	}
+	defer newRoot.Close()
 
 	if filepath.Clean(oldPath) == filepath.Clean(fm.BaseDir) {
 		fm.SendFileResult(transport, req.RequestID, false, "cannot rename base directory")
@@ -291,32 +484,11 @@ func (fm *Manager) HandleFileRename(transport MessageSender, msg protocol.Messag
 	}
 
 	// Ensure source exists.
-	if _, err := os.Lstat(oldPath); err != nil {
+	if _, err := root.Lstat(oldRel); err != nil {
 		fm.SendFileResult(transport, req.RequestID, false, err.Error())
 		return
 	}
-	if _, err := os.Lstat(newPath); err == nil {
-		fm.SendFileResult(transport, req.RequestID, false, "destination already exists")
-		return
-	} else if !errors.Is(err, os.ErrNotExist) {
-		fm.SendFileResult(transport, req.RequestID, false, err.Error())
-		return
-	}
-	recheckedOldPath, oldErr := fm.ValidatePathNoFollowFinal(req.OldPath)
-	recheckedNewPath, newErr := fm.ValidatePathNoFollowFinal(req.NewPath)
-	if oldErr != nil {
-		fm.SendFileResult(transport, req.RequestID, false, oldErr.Error())
-		return
-	}
-	if newErr != nil {
-		fm.SendFileResult(transport, req.RequestID, false, newErr.Error())
-		return
-	}
-	if recheckedOldPath != oldPath || recheckedNewPath != newPath {
-		fm.SendFileResult(transport, req.RequestID, false, "path changed during validation")
-		return
-	}
-	if _, err := os.Lstat(newPath); err == nil {
+	if _, err := newRoot.Lstat(newRel); err == nil {
 		fm.SendFileResult(transport, req.RequestID, false, "destination already exists")
 		return
 	} else if !errors.Is(err, os.ErrNotExist) {
@@ -324,7 +496,7 @@ func (fm *Manager) HandleFileRename(transport MessageSender, msg protocol.Messag
 		return
 	}
 
-	if err := os.Rename(oldPath, newPath); err != nil {
+	if err := root.Rename(oldRel, newRel); err != nil {
 		fm.SendFileResult(transport, req.RequestID, false, err.Error())
 		return
 	}
@@ -380,11 +552,12 @@ func (fm *Manager) HandleFileSearch(transport MessageSender, msg protocol.Messag
 		})
 	}
 
-	searchPath, err := fm.ValidatePath(req.Path)
+	root, searchRel, _, err := fm.OpenRootPath(req.Path)
 	if err != nil {
 		sendResult(nil, false, err.Error())
 		return
 	}
+	defer root.Close()
 
 	// Apply MaxResults bounds: default 100, cap at 500.
 	maxResults := req.MaxResults
@@ -407,10 +580,11 @@ func (fm *Manager) HandleFileSearch(transport MessageSender, msg protocol.Messag
 	var matches []protocol.FileEntry
 	truncated := false
 
-	walkErr := filepath.WalkDir(searchPath, func(path string, d os.DirEntry, err error) error {
+	searchRel = filepath.ToSlash(searchRel)
+	walkErr := fs.WalkDir(root.FS(), searchRel, func(relPath string, d fs.DirEntry, err error) error {
 		// Respect timeout.
 		if ctx.Err() != nil {
-			return filepath.SkipAll
+			return fs.SkipAll
 		}
 
 		if err != nil {
@@ -419,11 +593,11 @@ func (fm *Manager) HandleFileSearch(transport MessageSender, msg protocol.Messag
 
 		// Skip excluded directories in-place.
 		if d.IsDir() && SkipSearchDirs[d.Name()] {
-			return filepath.SkipDir
+			return fs.SkipDir
 		}
 
 		// Only match filenames (not the root search path itself).
-		if path == searchPath {
+		if relPath == searchRel {
 			return nil
 		}
 
@@ -441,9 +615,10 @@ func (fm *Manager) HandleFileSearch(transport MessageSender, msg protocol.Messag
 			return nil
 		}
 
+		displayPath := filepath.Join(fm.BaseDir, filepath.FromSlash(relPath))
 		matches = append(matches, protocol.FileEntry{
 			Name:    d.Name(),
-			Path:    path,
+			Path:    displayPath,
 			Size:    info.Size(),
 			Mode:    info.Mode().String(),
 			ModTime: info.ModTime().UTC().Format(time.RFC3339),
@@ -452,13 +627,13 @@ func (fm *Manager) HandleFileSearch(transport MessageSender, msg protocol.Messag
 
 		if len(matches) >= maxResults {
 			truncated = true
-			return filepath.SkipAll
+			return fs.SkipAll
 		}
 
 		return nil
 	})
 
-	if walkErr != nil && !errors.Is(walkErr, filepath.SkipAll) {
+	if walkErr != nil && !errors.Is(walkErr, fs.SkipAll) {
 		sendResult(matches, truncated, walkErr.Error())
 		return
 	}

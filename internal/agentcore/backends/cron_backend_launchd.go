@@ -23,25 +23,21 @@ type DarwinCronBackend struct{}
 // ListEntries lists launchd entries and crontab entries.
 func (DarwinCronBackend) ListEntries() ([]protocol.CronEntry, error) {
 	entries := make([]protocol.CronEntry, 0)
+	var collectionErrors []error
 
 	launchdEntries, launchdErr := collectLaunchdEntries()
 	entries = append(entries, launchdEntries...)
+	if launchdErr != nil {
+		collectionErrors = append(collectionErrors, fmt.Errorf("launchd: %w", launchdErr))
+	}
 
 	crontabEntries, crontabErr := CollectCrontabs()
-	if crontabErr == nil {
-		entries = append(entries, crontabEntries...)
+	entries = append(entries, crontabEntries...)
+	if crontabErr != nil {
+		collectionErrors = append(collectionErrors, fmt.Errorf("crontabs: %w", crontabErr))
 	}
 
-	if len(entries) == 0 {
-		if launchdErr != nil {
-			return nil, launchdErr
-		}
-		if crontabErr != nil {
-			return nil, fmt.Errorf("crontabs: %w", crontabErr)
-		}
-	}
-
-	return entries, nil
+	return entries, combineScheduleErrors(collectionErrors...)
 }
 
 func collectLaunchdEntries() ([]protocol.CronEntry, error) {
@@ -71,11 +67,21 @@ func collectLaunchdEntries() ([]protocol.CronEntry, error) {
 
 	entries := make([]protocol.CronEntry, 0)
 	var firstErr error
+	readableDirectories := 0
+	var directoryFailures []error
+	var missingDirectories []error
 	for _, directory := range directories {
 		dirEntries, err := os.ReadDir(directory.path)
 		if err != nil {
+			wrapped := fmt.Errorf("read launchd directory %s: %w", directory.path, err)
+			if os.IsNotExist(err) {
+				missingDirectories = append(missingDirectories, wrapped)
+			} else {
+				directoryFailures = append(directoryFailures, wrapped)
+			}
 			continue
 		}
+		readableDirectories++
 		for _, dirEntry := range dirEntries {
 			if dirEntry.IsDir() {
 				continue
@@ -99,8 +105,18 @@ func collectLaunchdEntries() ([]protocol.CronEntry, error) {
 		}
 	}
 
-	if len(entries) == 0 && firstErr != nil {
-		return nil, firstErr
+	if readableDirectories == 0 {
+		allFailures := append(append([]error{}, directoryFailures...), missingDirectories...)
+		if len(allFailures) == 0 {
+			return entries, fmt.Errorf("no configured launchd source is readable")
+		}
+		return entries, fmt.Errorf("no configured launchd source is readable: %w", combineScheduleErrors(allFailures...))
+	}
+	if firstErr != nil {
+		directoryFailures = append(directoryFailures, firstErr)
+	}
+	if len(directoryFailures) > 0 {
+		return entries, fmt.Errorf("some launchd sources could not be read: %w", combineScheduleErrors(directoryFailures...))
 	}
 
 	return entries, nil

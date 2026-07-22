@@ -351,6 +351,23 @@ func TestTopLevelHelpWithDoubleDashHelp(t *testing.T) {
 	}
 }
 
+func TestVersionFlagsPrintVersionAndExitSuccessfully(t *testing.T) {
+	for _, flag := range []string{"--version", "-v"} {
+		t.Run(flag, func(t *testing.T) {
+			handled, exitCode, output := runCLI(t, RuntimeConfig{Version: "qa-20260716-r24"}, []string{flag}, "")
+			if !handled {
+				t.Fatalf("expected %s to be handled", flag)
+			}
+			if exitCode != 0 {
+				t.Fatalf("exitCode=%d, want 0", exitCode)
+			}
+			if output != "labtether-agent qa-20260716-r24\n" {
+				t.Fatalf("output=%q, want exact version line", output)
+			}
+		})
+	}
+}
+
 func TestHelpSubcommandSettings(t *testing.T) {
 	cfg := RuntimeConfig{AgentSettingsPath: "/etc/labtether/agent-config.json"}
 	handled, exitCode, output := runCLI(t, cfg, []string{"help", "settings"}, "")

@@ -47,13 +47,18 @@ type GstAudioConfig struct {
 }
 
 const (
-	webrtcReasonUnsupportedPlatform        = "unsupported_platform"
-	webrtcReasonMissingGstLaunch           = "gst_launch_not_found"
-	webrtcReasonMissingGstInspect          = "gst_inspect_not_found"
-	webrtcReasonNoVideoEncoder             = "no_supported_video_encoder"
-	webrtcReasonWaylandDisabled            = "wayland_experimental_disabled"
-	webrtcReasonWaylandPipeWireMissing     = "wayland_pipewiresrc_not_found"
-	webrtcReasonWaylandPipeWireNodeMissing = "wayland_pipewire_node_missing"
+	webrtcReasonUnsupportedPlatform         = "unsupported_platform"
+	webrtcReasonMissingGstLaunch            = "gst_launch_not_found"
+	webrtcReasonMissingGstInspect           = "gst_inspect_not_found"
+	webrtcReasonNoVideoEncoder              = "no_supported_video_encoder"
+	webrtcReasonWaylandDisabled             = "wayland_experimental_disabled"
+	webrtcReasonWaylandPipeWireMissing      = "wayland_pipewiresrc_not_found"
+	webrtcReasonWaylandPipeWireNodeMissing  = "wayland_pipewire_node_missing"
+	webrtcReasonX11InputToolMissing         = "x11_input_xdotool_not_found"
+	webrtcReasonX11InputToolProbeFailed     = "x11_input_xdotool_probe_failed"
+	webrtcReasonWaylandInputDisabled        = "wayland_input_disabled"
+	webrtcReasonWaylandInputToolMissing     = "wayland_input_ydotool_not_found"
+	webrtcReasonWaylandInputToolProbeFailed = "wayland_input_ydotool_probe_failed"
 )
 
 func UnsupportedPlatformWebRTCReason(goos string) string {
@@ -98,6 +103,13 @@ func DetectWebRTCCapabilitiesWithConfig(cfg WebRTCConfig) protocol.WebRTCCapabil
 		// Phase 3 targets Linux first. Other platforms continue using non-WebRTC paths.
 		caps.UnavailableReason = UnsupportedPlatformWebRTCReason(WebRTCRuntimeGOOS)
 		return caps
+	}
+
+	// VNC's ability to attach to a real X11 desktop is independent of the
+	// GStreamer dependencies used by WebRTC. Preserve that capability even
+	// when WebRTC media probing exits early.
+	if session.Type == DesktopSessionTypeX11 {
+		caps.VNCRealDesktopSupported = true
 	}
 
 	if _, err := WebRTCLookPath("gst-launch-1.0"); err != nil {
@@ -148,6 +160,24 @@ func DetectWebRTCCapabilitiesWithConfig(cfg WebRTCConfig) protocol.WebRTCCapabil
 			caps.UnavailableReason = webrtcReasonWaylandPipeWireNodeMissing
 			return caps
 		}
+		inputBackend := strings.TrimSpace(strings.ToLower(cfg.WaylandInputBackend))
+		if inputBackend == "" {
+			inputBackend = "auto"
+		}
+		if inputBackend != "auto" && inputBackend != "ydotool" {
+			caps.UnavailableReason = webrtcReasonWaylandInputDisabled
+			return caps
+		}
+		missing, probeErr := ProbeWebRTCInputTool("ydotool", session)
+		if missing {
+			caps.UnavailableReason = webrtcReasonWaylandInputToolMissing
+			return caps
+		}
+		if probeErr != nil {
+			log.Printf("webrtc: Wayland input probe failed: %v", probeErr)
+			caps.UnavailableReason = webrtcReasonWaylandInputToolProbeFailed
+			return caps
+		}
 		caps.WebRTCRealDesktopSupported = true
 		caps.Available = true
 	case DesktopSessionTypeX11:
@@ -155,15 +185,67 @@ func DetectWebRTCCapabilitiesWithConfig(cfg WebRTCConfig) protocol.WebRTCCapabil
 		caps.Displays = DetectX11DisplayIdentifiers()
 		caps.VNCRealDesktopSupported = true
 		caps.WebRTCRealDesktopSupported = true
+		missing, probeErr := ProbeWebRTCInputTool("xdotool", session)
+		if missing {
+			caps.UnavailableReason = webrtcReasonX11InputToolMissing
+			return caps
+		}
+		if probeErr != nil {
+			log.Printf("webrtc: X11 input probe failed: %v", probeErr)
+			caps.UnavailableReason = webrtcReasonX11InputToolProbeFailed
+			return caps
+		}
 		caps.Available = true
 	default:
 		caps.CaptureBackend = "ximagesrc"
 		caps.Displays = DetectX11DisplayIdentifiers()
 		caps.VNCRealDesktopSupported = false
 		caps.WebRTCRealDesktopSupported = false
+		missing, probeErr := ProbeWebRTCInputTool("xdotool", session)
+		if missing {
+			caps.UnavailableReason = webrtcReasonX11InputToolMissing
+			return caps
+		}
+		if probeErr != nil {
+			log.Printf("webrtc: headless X11 input probe failed: %v", probeErr)
+			caps.UnavailableReason = webrtcReasonX11InputToolProbeFailed
+			return caps
+		}
 		caps.Available = true
 	}
 	return caps
+}
+
+// ProbeWebRTCInputTool verifies both executable discovery and a non-mutating
+// invocation. ydotool's debug command connects to ydotoold without emitting an
+// input event, while xdotool version validates the executable before a virtual
+// X11 display is created for a headless session.
+func ProbeWebRTCInputTool(tool string, session DesktopSessionInfo) (missing bool, err error) {
+	path, lookErr := WebRTCLookPath(tool)
+	if lookErr != nil || strings.TrimSpace(path) == "" {
+		return true, lookErr
+	}
+
+	args := []string{"--version"}
+	if tool == "ydotool" {
+		args = []string{"debug"}
+	}
+	cmd, cmdErr := NewWebRTCSecurityCommand(path, args...)
+	if cmdErr != nil {
+		return false, fmt.Errorf("build %s probe: %w", tool, cmdErr)
+	}
+	if tool == "ydotool" {
+		cmd.Env = BuildWaylandPipeWireEnv(session)
+	}
+	out, runErr := securityruntime.CaptureCombinedOutput(cmd, securityruntime.DefaultCommandOutputLimit)
+	if runErr != nil {
+		detail := TruncateCommandOutput(out, 1024)
+		if detail != "" {
+			return false, fmt.Errorf("run %s probe: %w: %s", tool, runErr, detail)
+		}
+		return false, fmt.Errorf("run %s probe: %w", tool, runErr)
+	}
+	return false, nil
 }
 
 func DetectX11DisplayIdentifiers() []string {

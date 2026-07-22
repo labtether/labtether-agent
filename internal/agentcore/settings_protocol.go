@@ -5,8 +5,20 @@ import (
 	"log"
 	"time"
 
+	"github.com/labtether/labtether-agent/internal/agentcore/sysconfig"
 	"github.com/labtether/protocol"
 )
+
+func redactSensitiveAgentSettingValues(values map[string]string) map[string]string {
+	out := make(map[string]string, len(values))
+	for key, value := range values {
+		if key == sysconfig.SettingKeyWebRTCTURNPass {
+			continue
+		}
+		out[key] = value
+	}
+	return out
+}
 
 func sendAgentSettingsState(transport *wsTransport, runtime *Runtime, revision string) {
 	if transport == nil || runtime == nil || !transport.Connected() {
@@ -20,7 +32,7 @@ func sendAgentSettingsState(transport *wsTransport, runtime *Runtime, revision s
 
 	payload := protocol.AgentSettingsStateData{
 		Revision:             revision,
-		Values:               runtime.ReportedAgentSettings(),
+		Values:               redactSensitiveAgentSettingValues(runtime.ReportedAgentSettings()),
 		Fingerprint:          fingerprint,
 		AllowRemoteOverrides: runtime.allowRemoteOverrides(),
 		ReportedAt:           time.Now().UTC().Format(time.RFC3339),

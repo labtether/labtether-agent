@@ -104,6 +104,7 @@ func (wsc *WebServiceCollector) discoverPortScannedServicesWithConfig(ctx contex
 
 	services := make([]protocol.DiscoveredWebService, 0, len(openPorts))
 	unknownAdded := 0
+	assetID := wsc.currentAssetID()
 
 	for _, port := range openPorts {
 		name, category, iconKey, serviceKey, healthPath, knownOK := scannedPortMetadata(port)
@@ -116,13 +117,13 @@ func (wsc *WebServiceCollector) discoverPortScannedServicesWithConfig(ctx contex
 		}
 
 		svc := protocol.DiscoveredWebService{
-			ID:          makeServiceID(wsc.assetID, "scan", strconv.Itoa(port)),
+			ID:          makeServiceID(assetID, "scan", strconv.Itoa(port)),
 			ServiceKey:  serviceKey,
 			Name:        name,
 			Category:    category,
 			URL:         buildServiceURL(host, port),
 			Source:      "scan",
-			HostAssetID: wsc.assetID,
+			HostAssetID: assetID,
 			IconKey:     iconKey,
 			Metadata: map[string]string{
 				"public_port": strconv.Itoa(port),
@@ -228,6 +229,7 @@ func (wsc *WebServiceCollector) discoverLANScannedServicesWithConfig(ctx context
 
 	services := make([]protocol.DiscoveredWebService, 0, len(openEndpoints))
 	unknownAdded := 0
+	assetID := wsc.currentAssetID()
 	for _, item := range openEndpoints {
 		name, category, iconKey, serviceKey, healthPath, knownOK := scannedPortMetadata(item.port)
 		if !knownOK {
@@ -239,13 +241,13 @@ func (wsc *WebServiceCollector) discoverLANScannedServicesWithConfig(ctx context
 		}
 
 		svc := protocol.DiscoveredWebService{
-			ID:          makeServiceID(wsc.assetID, "scan", net.JoinHostPort(item.host, strconv.Itoa(item.port))),
+			ID:          makeServiceID(assetID, "scan", net.JoinHostPort(item.host, strconv.Itoa(item.port))),
 			ServiceKey:  serviceKey,
 			Name:        name,
 			Category:    category,
 			URL:         buildServiceURL(item.host, item.port),
 			Source:      "scan",
-			HostAssetID: wsc.assetID,
+			HostAssetID: assetID,
 			IconKey:     iconKey,
 			Metadata: map[string]string{
 				"public_port":      strconv.Itoa(item.port),

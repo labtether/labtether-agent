@@ -3,8 +3,11 @@ package agentcore
 import (
 	"context"
 	"encoding/json"
+	"encoding/pem"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/labtether/labtether-agent/internal/assets"
@@ -57,6 +60,37 @@ func TestResolveHeartbeatPlatform(t *testing.T) {
 	}
 }
 
+func TestPublishUsesConfiguredTLSCAFile(t *testing.T) {
+	t.Setenv("LABTETHER_OUTBOUND_ALLOW_LOOPBACK", "true")
+
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/assets/heartbeat" {
+			t.Fatalf("unexpected request path %s", r.URL.Path)
+		}
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer server.Close()
+
+	caPath := filepath.Join(t.TempDir(), "hub-ca.pem")
+	caPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw})
+	if err := os.WriteFile(caPath, caPEM, 0o600); err != nil {
+		t.Fatalf("write test CA: %v", err)
+	}
+
+	publisher := NewHeartbeatPublisher(RuntimeConfig{
+		Name:       "labtether-agent",
+		APIBaseURL: server.URL,
+		APIToken:   "test-token",
+		AssetID:    "node-01",
+		Source:     "agent",
+		TLSCAFile:  caPath,
+	}, nil)
+
+	if err := publisher.Publish(context.Background(), TelemetrySample{AssetID: "node-01"}); err != nil {
+		t.Fatalf("Publish with configured CA returned error: %v", err)
+	}
+}
+
 func TestPublishNormalizesPlatformMetadata(t *testing.T) {
 	t.Setenv(envAllowInsecureTransport, "true")
 	t.Setenv("LABTETHER_OUTBOUND_ALLOW_LOOPBACK", "true")
@@ -80,6 +114,7 @@ func TestPublishNormalizesPlatformMetadata(t *testing.T) {
 		Name:       "labtether-agent",
 		APIBaseURL: server.URL,
 		APIToken:   "test-token",
+		AssetID:    "node-01",
 		Source:     "agent",
 	}
 	publisher := NewHeartbeatPublisher(cfg, map[string]string{

@@ -1,9 +1,14 @@
 package backends
 
 import (
+	"context"
+	"encoding/base64"
+	"encoding/binary"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"unicode/utf16"
 )
 
 // ---------------------------------------------------------------------------
@@ -324,4 +329,151 @@ func TestPerformVMActionEmptyVMNameWhitespace(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for whitespace-only vmName, got nil")
 	}
+}
+
+func TestBuildHyperVActionPowerShellArgsTreatsVMNameAsEncodedData(t *testing.T) {
+	t.Parallel()
+
+	payloads := []struct {
+		name   string
+		vmName string
+	}{
+		{name: "quotes and separator", vmName: `qa'"; Stop-VM -Name *; #`},
+		{name: "subexpression and pipe", vmName: "qa$(Get-VM)|Remove-VM"},
+		{name: "backtick wildcard and ampersand", vmName: "qa`*?[]&Start-Process"},
+	}
+	actions := []struct {
+		name       string
+		action     string
+		wantScript string
+	}{
+		{name: "start", action: "start", wantScript: "Start-VM -VM $vms"},
+		{name: "stop", action: "stop", wantScript: "Stop-VM -VM $vms -Force"},
+		{name: "restart", action: "restart", wantScript: "Restart-VM -VM $vms -Force"},
+		{name: "checkpoint", action: "checkpoint", wantScript: "Checkpoint-VM -VM $vms"},
+	}
+
+	for _, payload := range payloads {
+		payload := payload
+		t.Run(payload.name, func(t *testing.T) {
+			t.Parallel()
+			for _, action := range actions {
+				action := action
+				t.Run(action.name, func(t *testing.T) {
+					t.Parallel()
+					args, err := buildHyperVActionPowerShellArgs(action.action, payload.vmName)
+					if err != nil {
+						t.Fatalf("build Hyper-V action args: %v", err)
+					}
+					if len(args) != 4 || args[0] != "-NonInteractive" || args[1] != "-NoProfile" || args[2] != "-EncodedCommand" {
+						t.Fatalf("unexpected PowerShell args: %#v", args)
+					}
+					for _, arg := range args {
+						if strings.Contains(arg, payload.vmName) {
+							t.Fatalf("raw VM name leaked into PowerShell argv: %#v", args)
+						}
+					}
+
+					script := decodePowerShellUTF16LEForTest(t, args[3])
+					if strings.Contains(script, payload.vmName) {
+						t.Fatalf("raw VM name was interpolated into PowerShell source: %s", script)
+					}
+					if !strings.Contains(script, action.wantScript) {
+						t.Fatalf("script %q does not contain fixed action %q", script, action.wantScript)
+					}
+					if !strings.Contains(script, "Get-VM | Where-Object { $_.Name -eq $vmName }") ||
+						!strings.Contains(script, "$vms.Count -ne 1") {
+						t.Fatalf("script does not resolve exactly one VM object: %s", script)
+					}
+					if strings.Contains(script, "-Name "+payload.vmName) || strings.Contains(script, "Invoke-Expression") {
+						t.Fatalf("script contains an executable VM-name path: %s", script)
+					}
+					if got := decodeEmbeddedHyperVVMNameForTest(t, script); got != payload.vmName {
+						t.Fatalf("decoded VM name = %q, want %q", got, payload.vmName)
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestPerformVMActionUsesEncodedPowerShellCommand(t *testing.T) {
+	originalRunner := RunHyperVCommand
+	t.Cleanup(func() { RunHyperVCommand = originalRunner })
+
+	var command string
+	var capturedArgs []string
+	RunHyperVCommand = func(_ context.Context, name string, args ...string) ([]byte, error) {
+		command = name
+		capturedArgs = append([]string(nil), args...)
+		return nil, nil
+	}
+
+	vmName := `prod'"; Stop-VM -Name *; $(Remove-VM); #`
+	if err := (HyperVBackend{}).PerformVMAction("restart", vmName); err != nil {
+		t.Fatalf("PerformVMAction: %v", err)
+	}
+	if command != "powershell.exe" {
+		t.Fatalf("command = %q, want powershell.exe", command)
+	}
+	if len(capturedArgs) != 4 || capturedArgs[2] != "-EncodedCommand" {
+		t.Fatalf("captured args = %#v", capturedArgs)
+	}
+	for _, arg := range capturedArgs {
+		if strings.Contains(arg, vmName) {
+			t.Fatalf("raw adversarial VM name reached process argv: %#v", capturedArgs)
+		}
+	}
+	script := decodePowerShellUTF16LEForTest(t, capturedArgs[3])
+	if strings.Contains(script, vmName) || strings.Contains(script, "Stop-VM -Name *") || strings.Contains(script, "Remove-VM") {
+		t.Fatalf("adversarial VM name became PowerShell syntax: %s", script)
+	}
+	if got := decodeEmbeddedHyperVVMNameForTest(t, script); got != vmName {
+		t.Fatalf("decoded VM name = %q, want %q", got, vmName)
+	}
+}
+
+func TestBuildHyperVActionPowerShellArgsRejectsActionInjection(t *testing.T) {
+	t.Parallel()
+
+	for _, action := range []string{"", "migrate", "start; Stop-VM", "restart | Remove-VM"} {
+		if _, err := buildHyperVActionPowerShellArgs(action, "safe-vm"); err == nil {
+			t.Fatalf("unsafe action %q was accepted", action)
+		}
+	}
+}
+
+func decodePowerShellUTF16LEForTest(t *testing.T, encoded string) string {
+	t.Helper()
+	raw, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		t.Fatalf("decode PowerShell command base64: %v", err)
+	}
+	if len(raw)%2 != 0 {
+		t.Fatalf("encoded PowerShell command has odd byte length %d", len(raw))
+	}
+	codeUnits := make([]uint16, len(raw)/2)
+	for index := range codeUnits {
+		codeUnits[index] = binary.LittleEndian.Uint16(raw[index*2:])
+	}
+	return string(utf16.Decode(codeUnits))
+}
+
+func decodeEmbeddedHyperVVMNameForTest(t *testing.T, script string) string {
+	t.Helper()
+	const marker = "FromBase64String('"
+	start := strings.Index(script, marker)
+	if start < 0 {
+		t.Fatalf("missing embedded VM-name marker in script: %s", script)
+	}
+	start += len(marker)
+	end := strings.Index(script[start:], "')")
+	if end < 0 {
+		t.Fatalf("missing embedded VM-name terminator in script: %s", script)
+	}
+	decoded, err := base64.StdEncoding.DecodeString(script[start : start+end])
+	if err != nil {
+		t.Fatalf("decode embedded VM name: %v", err)
+	}
+	return string(decoded)
 }

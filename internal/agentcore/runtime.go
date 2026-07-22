@@ -20,6 +20,7 @@ type Runtime struct {
 	cfg       RuntimeConfig
 	provider  TelemetryProvider
 	publisher HeartbeatPublisher
+	identity  *runtimeIdentitySource
 
 	// WebSocket transport (nil when using HTTP-only mode).
 	transport      *wsTransport
@@ -49,11 +50,20 @@ type Runtime struct {
 }
 
 func NewRuntime(cfg RuntimeConfig, provider TelemetryProvider, publisher HeartbeatPublisher) *Runtime {
+	return newRuntimeWithIdentity(cfg, provider, publisher, newRuntimeIdentitySource(cfg))
+}
+
+func newRuntimeWithIdentity(cfg RuntimeConfig, provider TelemetryProvider, publisher HeartbeatPublisher, identity *runtimeIdentitySource) *Runtime {
 	now := time.Now().UTC()
+	if identity == nil {
+		identity = newRuntimeIdentitySource(cfg)
+	}
+	cfg.APIToken = ""
 	return &Runtime{
 		cfg:                   cfg,
 		provider:              provider,
 		publisher:             publisher,
+		identity:              identity,
 		baseCollectInterval:   cfg.CollectInterval,
 		baseHeartbeatInterval: cfg.HeartbeatInterval,
 		startedAt:             now,
@@ -66,21 +76,24 @@ func NewRuntime(cfg RuntimeConfig, provider TelemetryProvider, publisher Heartbe
 
 func (r *Runtime) Run(ctx context.Context) error {
 	bindAddress := resolveAgentLocalBindAddress()
-	localAuthToken, err := resolveAgentLocalAuthToken(r.cfg, bindAddress)
+	localAuthConfig := r.cfg
+	localAuthConfig.APIToken = r.identity.Snapshot().BearerToken
+	localAuth, err := resolveAgentLocalAuth(localAuthConfig, bindAddress)
+	localAuthConfig.APIToken = ""
 	if err != nil {
 		return err
 	}
 	r.localBindAddress = bindAddress
-	r.localAuthEnabled = strings.TrimSpace(localAuthToken) != ""
+	r.localAuthEnabled = strings.TrimSpace(localAuth.token) != "" || localAuth.useRuntimeIdentity
 
 	go r.collectLoop(ctx)
 	go r.heartbeatLoop(ctx)
 
-	return servicehttp.Run(ctx, servicehttp.Config{
+	serviceConfig := servicehttp.Config{
 		Name:        r.cfg.Name,
 		Port:        r.cfg.Port,
 		BindAddress: bindAddress,
-		AuthToken:   localAuthToken,
+		AuthToken:   localAuth.token,
 		ExtraHandlers: map[string]http.HandlerFunc{
 			"/agent/info": func(w http.ResponseWriter, req *http.Request) {
 				servicehttp.WriteJSON(w, http.StatusOK, r.provider.AgentInfo())
@@ -94,7 +107,14 @@ func (r *Runtime) Run(ctx context.Context) error {
 				_, _ = w.Write([]byte(RenderPrometheus(r.current())))
 			},
 		},
-	})
+	}
+	if localAuth.useRuntimeIdentity {
+		serviceConfig.AuthToken = ""
+		serviceConfig.AuthTokenProvider = func() string {
+			return r.identity.Snapshot().BearerToken
+		}
+	}
+	return servicehttp.Run(ctx, serviceConfig)
 }
 
 const (
@@ -114,30 +134,40 @@ func resolveAgentLocalBindAddress() string {
 	return bindAddress
 }
 
+type agentLocalAuthResolution struct {
+	token              string
+	useRuntimeIdentity bool
+}
+
 func resolveAgentLocalAuthToken(cfg RuntimeConfig, bindAddress string) (string, error) {
+	resolution, err := resolveAgentLocalAuth(cfg, bindAddress)
+	return resolution.token, err
+}
+
+func resolveAgentLocalAuth(cfg RuntimeConfig, bindAddress string) (agentLocalAuthResolution, error) {
 	if token := strings.TrimSpace(os.Getenv(envAgentLocalAuthToken)); token != "" {
-		return token, nil
+		return agentLocalAuthResolution{token: token}, nil
 	}
 	if tokenPath := strings.TrimSpace(os.Getenv(envAgentLocalAuthTokenFile)); tokenPath != "" {
 		token, err := loadSecretFromFile(tokenPath)
 		if err != nil {
-			return "", fmt.Errorf("failed to load %s: %w", envAgentLocalAuthTokenFile, err)
+			return agentLocalAuthResolution{}, fmt.Errorf("failed to load %s: %w", envAgentLocalAuthTokenFile, err)
 		}
 		if token = strings.TrimSpace(token); token != "" {
-			return token, nil
+			return agentLocalAuthResolution{token: token}, nil
 		}
 	}
 	if isLoopbackBindAddress(bindAddress) {
-		return "", nil
+		return agentLocalAuthResolution{}, nil
 	}
 	if parseBoolEnv(envAgentLocalAllowUnauth, false) {
 		log.Printf("%s: WARNING: non-loopback local API binding is unauthenticated (%s=true)", cfg.Name, envAgentLocalAllowUnauth)
-		return "", nil
+		return agentLocalAuthResolution{}, nil
 	}
 	if token := strings.TrimSpace(cfg.APIToken); token != "" {
-		return token, nil
+		return agentLocalAuthResolution{token: token, useRuntimeIdentity: true}, nil
 	}
-	return "", fmt.Errorf("non-loopback local API binding requires %s or %s=true", envAgentLocalAuthToken, envAgentLocalAllowUnauth)
+	return agentLocalAuthResolution{}, fmt.Errorf("non-loopback local API binding requires %s or %s=true", envAgentLocalAuthToken, envAgentLocalAllowUnauth)
 }
 
 func isLoopbackBindAddress(value string) bool {
@@ -220,7 +250,9 @@ func (r *Runtime) collectOnce(now time.Time) {
 	if err != nil {
 		r.logCollectWarning(err)
 	}
-	if sample.AssetID == "" {
+	if assetID := r.identity.AssetID(); assetID != "" {
+		sample.AssetID = assetID
+	} else if sample.AssetID == "" {
 		sample.AssetID = r.cfg.AssetID
 	}
 	if sample.CollectedAt.IsZero() {
@@ -253,8 +285,12 @@ func (r *Runtime) publishOnce(ctx context.Context) {
 
 func (r *Runtime) current() TelemetrySample {
 	r.mu.RLock()
-	defer r.mu.RUnlock()
-	return r.sample
+	sample := r.sample
+	r.mu.RUnlock()
+	if assetID := r.identity.AssetID(); assetID != "" {
+		sample.AssetID = assetID
+	}
+	return sample
 }
 
 func (r *Runtime) logCollectWarning(err error) {

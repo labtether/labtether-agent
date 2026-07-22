@@ -43,12 +43,30 @@ func TestValidateExecBinaryBlocksWhenAllowlistEnabled(t *testing.T) {
 	}
 }
 
-func TestValidateExecBinaryAllowsDefaultX11Utilities(t *testing.T) {
+func TestValidateExecBinaryAllowsDefaultDesktopUtilities(t *testing.T) {
 	t.Setenv(envExecAllowlistMode, "")
 	t.Setenv(envExecAllowedBinaries, "")
-	for _, name := range []string{"xdotool", "xset"} {
+	for _, name := range []string{"wl-copy", "wl-paste", "xauth", "xclip", "xdotool", "xsel", "xset", "ydotool"} {
 		if err := ValidateExecBinary(name); err != nil {
 			t.Fatalf("expected %q to be allowlisted, got %v", name, err)
+		}
+	}
+}
+
+func TestValidateExecBinaryNormalizesWindowsExecutableExtension(t *testing.T) {
+	t.Setenv(envExecAllowlistMode, "")
+	t.Setenv(envExecAllowedBinaries, "")
+	for _, name := range []string{
+		`C:\Windows\System32\cmd.exe`,
+		`C:\Windows\System32\netsh.exe`,
+		`C:\Windows\System32\sc.exe`,
+		`C:\Windows\System32\schtasks.exe`,
+		`C:\Windows\System32\wevtutil.exe`,
+		`C:\Users\operator\AppData\Local\Microsoft\WindowsApps\winget.exe`,
+		`C:\Windows\System32\WindowsPowerShell\v1.0\powershell.EXE`,
+	} {
+		if err := ValidateExecBinary(name); err != nil {
+			t.Fatalf("expected Windows executable %q to match the extensionless allowlist: %v", name, err)
 		}
 	}
 }
@@ -68,6 +86,41 @@ func TestValidateShellCommandAllowlist(t *testing.T) {
 	}
 	if err := ValidateShellCommand("ls -la"); err == nil {
 		t.Fatalf("expected non-allowlisted command to be blocked")
+	}
+}
+
+func TestValidateShellCommandRejectsPrefixAndShellOperatorBypasses(t *testing.T) {
+	t.Setenv(envShellAllowlistMode, "true")
+	t.Setenv(envShellAllowlistPrefixes, "uptime,systemctl status")
+
+	for _, command := range []string{
+		"uptime-now",
+		"uptime; id",
+		"uptime && id",
+		"uptime | id",
+		"systemctl statusx sshd",
+		"systemctl status sshd > /tmp/output",
+		"uptime\nid",
+	} {
+		if err := ValidateShellCommand(command); err == nil {
+			t.Fatalf("expected bypass attempt %q to be rejected", command)
+		}
+	}
+}
+
+func TestParseCommandLinePreservesLiteralQuotedArguments(t *testing.T) {
+	args, err := ParseCommandLine(`grep "hello world" '/tmp/a file'`)
+	if err != nil {
+		t.Fatalf("ParseCommandLine: %v", err)
+	}
+	want := []string{"grep", "hello world", "/tmp/a file"}
+	if len(args) != len(want) {
+		t.Fatalf("args = %#v, want %#v", args, want)
+	}
+	for i := range want {
+		if args[i] != want[i] {
+			t.Fatalf("args = %#v, want %#v", args, want)
+		}
 	}
 }
 

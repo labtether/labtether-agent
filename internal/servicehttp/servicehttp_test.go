@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 )
 
@@ -206,5 +207,46 @@ func TestBearerAuthMiddleware(t *testing.T) {
 	protected.ServeHTTP(rec, req)
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("healthz bypass status = %d, want %d", rec.Code, http.StatusNoContent)
+	}
+}
+
+func TestBearerAuthProviderRotatesAndFailsClosed(t *testing.T) {
+	var current atomic.Value
+	current.Store("credential-a")
+
+	protected := BearerAuthProvider(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}), func() string {
+		return current.Load().(string)
+	})
+
+	request := func(path, credential string) int {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		if credential != "" {
+			req.Header.Set("Authorization", "Bearer "+credential)
+		}
+		rec := httptest.NewRecorder()
+		protected.ServeHTTP(rec, req)
+		return rec.Code
+	}
+
+	if got := request("/agent/status", "credential-a"); got != http.StatusNoContent {
+		t.Fatalf("initial credential status = %d, want %d", got, http.StatusNoContent)
+	}
+
+	current.Store("credential-b")
+	if got := request("/agent/status", "credential-a"); got != http.StatusUnauthorized {
+		t.Fatalf("rotated old credential status = %d, want %d", got, http.StatusUnauthorized)
+	}
+	if got := request("/agent/status", "credential-b"); got != http.StatusNoContent {
+		t.Fatalf("rotated current credential status = %d, want %d", got, http.StatusNoContent)
+	}
+
+	current.Store("")
+	if got := request("/agent/status", "credential-b"); got != http.StatusUnauthorized {
+		t.Fatalf("empty provider status = %d, want %d", got, http.StatusUnauthorized)
+	}
+	if got := request("/healthz", ""); got != http.StatusNoContent {
+		t.Fatalf("probe status = %d, want %d", got, http.StatusNoContent)
 	}
 }

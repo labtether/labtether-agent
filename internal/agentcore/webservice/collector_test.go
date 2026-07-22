@@ -2,6 +2,7 @@ package webservice
 
 import (
 	"context"
+	"crypto/tls"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -49,6 +50,26 @@ func (m *mockCollectorTransport) Connected() bool {
 }
 
 func (m *mockCollectorTransport) Close() {}
+
+func TestNewWebServiceCollectorEnforcesTLS12Minimum(t *testing.T) {
+	collector := NewWebServiceCollector(nil, "asset", "127.0.0.1", time.Second, nil, WebServiceDiscoveryConfig{})
+
+	for name, client := range map[string]*http.Client{
+		"verified": collector.client,
+		"insecure": collector.insecureClient,
+	} {
+		transport, ok := client.Transport.(*http.Transport)
+		if !ok || transport.TLSClientConfig == nil {
+			t.Fatalf("%s client does not have an explicit TLS configuration", name)
+		}
+		if transport.TLSClientConfig.MinVersion < tls.VersionTLS12 {
+			t.Fatalf("%s client minimum TLS version = %x, want TLS 1.2 or newer", name, transport.TLSClientConfig.MinVersion)
+		}
+	}
+	if !collector.insecureClient.Transport.(*http.Transport).TLSClientConfig.InsecureSkipVerify {
+		t.Fatal("insecure discovery client unexpectedly verifies certificates")
+	}
+}
 
 func TestMakeServiceID(t *testing.T) {
 	t.Run("deterministic", func(t *testing.T) {

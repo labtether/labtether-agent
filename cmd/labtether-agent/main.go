@@ -27,8 +27,12 @@ func main() {
 		return
 	}
 
-	cfg := agentcore.LoadConfig("labtether-agent", "8090", agentplatform.DefaultSource())
-	if handled, exitCode := agentcore.HandleCLICommand(cfg, os.Args[1:]); handled {
+	cfg := applyLinkedVersion(
+		agentcore.LoadConfig("labtether-agent", "8090", agentplatform.DefaultSource()),
+		version,
+	)
+	cliArgs, forceConsole := splitRuntimeArgs(os.Args[1:])
+	if handled, exitCode := agentcore.HandleCLICommand(cfg, cliArgs); handled {
 		if exitCode != 0 {
 			os.Exit(exitCode)
 		}
@@ -38,7 +42,6 @@ func main() {
 
 	// Determine whether to run as a Windows Service or in interactive mode.
 	// The --console flag forces interactive mode even when launched by the SCM.
-	forceConsole := hasFlag(os.Args[1:], "--console")
 	if !forceConsole && isWindowsService() {
 		log.Printf("labtether-agent: starting as Windows Service")
 		if err := runAsWindowsService(cfg, provider); err != nil {
@@ -50,18 +53,42 @@ func main() {
 	// Interactive (foreground) mode — signal-based lifecycle.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	ctx, stopParentMonitor, err := contextWithConfiguredParent(
+		ctx,
+		os.Getenv(envParentPID),
+	)
+	if err != nil {
+		// A configured parent is a containment boundary for native wrappers.
+		// If it is invalid or already unavailable, do not start an orphan.
+		log.Fatalf("labtether-agent: parent lifecycle unavailable: %v", err)
+	}
+	defer stopParentMonitor()
 
 	if err := agentcore.Run(ctx, cfg, provider); err != nil {
 		log.Fatalf("%s exited with error: %v", cfg.Name, err)
 	}
 }
 
-// hasFlag checks whether a flag appears in the argument list.
-func hasFlag(args []string, flag string) bool {
+// splitRuntimeArgs removes flags consumed by the process host before handing
+// remaining arguments to the settings/identity/update CLI dispatcher.
+func splitRuntimeArgs(args []string) (cliArgs []string, forceConsole bool) {
+	cliArgs = make([]string, 0, len(args))
 	for _, arg := range args {
-		if strings.TrimSpace(arg) == flag {
-			return true
+		if strings.EqualFold(strings.TrimSpace(arg), "--console") {
+			forceConsole = true
+			continue
 		}
+		cliArgs = append(cliArgs, arg)
 	}
-	return false
+	return cliArgs, forceConsole
+}
+
+// applyLinkedVersion makes the release version injected with -ldflags visible
+// to the runtime, CLI help, hub handshake, and local status API. Development
+// builds retain the version derived from Go build metadata.
+func applyLinkedVersion(cfg agentcore.RuntimeConfig, linkedVersion string) agentcore.RuntimeConfig {
+	if linkedVersion = strings.TrimSpace(linkedVersion); linkedVersion != "" {
+		cfg.Version = linkedVersion
+	}
+	return cfg
 }

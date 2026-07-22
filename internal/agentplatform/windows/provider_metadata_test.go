@@ -22,8 +22,11 @@ func TestCapabilityMetadata_AllToolsPresent(t *testing.T) {
 	if meta["cap_packages"] != "list,action" {
 		t.Errorf("expected cap_packages=list,action, got %s", meta["cap_packages"])
 	}
-	if meta["package_backend"] != "winget" {
-		t.Errorf("expected package_backend=winget, got %s", meta["package_backend"])
+	if meta["package_backend"] != "registry" {
+		t.Errorf("expected package_backend=registry, got %s", meta["package_backend"])
+	}
+	if meta["package_action_backend"] != "winget" {
+		t.Errorf("expected package_action_backend=winget, got %s", meta["package_action_backend"])
 	}
 	// Logs always available
 	if meta["cap_logs"] != "stored,query,stream" {
@@ -39,8 +42,11 @@ func TestCapabilityMetadata_NoWinGetHasChoco(t *testing.T) {
 		return "/usr/bin/" + name, nil
 	}
 	meta := readCapabilityMetadataWith(lookPath)
-	if meta["package_backend"] != "choco" {
-		t.Errorf("expected package_backend=choco, got %s", meta["package_backend"])
+	if meta["package_backend"] != "registry" {
+		t.Errorf("expected package_backend=registry, got %s", meta["package_backend"])
+	}
+	if meta["package_action_backend"] != "choco" {
+		t.Errorf("expected package_action_backend=choco, got %s", meta["package_action_backend"])
 	}
 }
 
@@ -52,10 +58,13 @@ func TestCapabilityMetadata_NoPackageManagers(t *testing.T) {
 		return "/usr/bin/" + name, nil
 	}
 	meta := readCapabilityMetadataWith(lookPath)
-	if meta["cap_packages"] != "" {
-		t.Errorf("expected empty cap_packages, got %s", meta["cap_packages"])
+	if meta["cap_packages"] != "list" {
+		t.Errorf("expected cap_packages=list, got %s", meta["cap_packages"])
 	}
-	if meta["package_backend"] != "none" {
-		t.Errorf("expected package_backend=none, got %s", meta["package_backend"])
+	if meta["package_backend"] != "registry" {
+		t.Errorf("expected package_backend=registry, got %s", meta["package_backend"])
+	}
+	if meta["package_action_backend"] != "none" {
+		t.Errorf("expected package_action_backend=none, got %s", meta["package_action_backend"])
 	}
 }

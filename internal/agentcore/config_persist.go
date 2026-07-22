@@ -45,7 +45,7 @@ func persistAppliedConfig(r *Runtime) {
 	if err != nil {
 		return
 	}
-	if err := os.WriteFile(path, data, 0o600); err != nil {
+	if err := writeManagedFileAtomic(path, data, 0o600, true); err != nil {
 		log.Printf("config: failed to persist applied config: %v", err)
 	}
 }
@@ -60,7 +60,7 @@ func loadPersistedConfig(r *Runtime) {
 		return
 	}
 	path := filepath.Join(dir, appliedConfigFile)
-	data, err := os.ReadFile(path) // #nosec G304 -- Path is the package-owned applied-config state file under the managed dir.
+	data, err := readBoundedRegularFile(path, maxAppliedConfigBytes)
 	if err != nil {
 		return // file doesn't exist yet
 	}

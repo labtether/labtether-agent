@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"strings"
 
 	"github.com/labtether/protocol"
@@ -23,6 +24,9 @@ type WindowsNetworkSnapshot struct {
 	InterfaceName string
 	// WasDHCP is true when the interface was configured via DHCP before apply.
 	WasDHCP bool
+	// DHCPModeKnown is true only when the snapshot parser positively identified
+	// whether the address mode was DHCP or static.
+	DHCPModeKnown bool
 	// StaticIP is the static IP address that was configured before apply, if
 	// any. Empty when WasDHCP is true.
 	StaticIP string
@@ -32,6 +36,11 @@ type WindowsNetworkSnapshot struct {
 	Gateway string
 	// DNSServers are the DNS servers that were configured before apply.
 	DNSServers []string
+	// DNSWasDHCP and DNSModeKnown preserve the DNS source independently of the
+	// currently assigned server list. DHCP-assigned servers must not be restored
+	// as a static configuration.
+	DNSWasDHCP   bool
+	DNSModeKnown bool
 }
 
 func (WindowsNetworkBackend) ApplyAction(nm *NetworkManager, req protocol.NetworkActionData) protocol.NetworkResultData {
@@ -260,7 +269,8 @@ func (nm *NetworkManager) rollbackWindowsNetsh() (string, error) {
 	}
 
 	// Restore DNS configuration.
-	if len(snapshot.DNSServers) == 0 {
+	restoreDNSWithDHCP := snapshot.DNSWasDHCP || (!snapshot.DNSModeKnown && len(snapshot.DNSServers) == 0)
+	if restoreDNSWithDHCP {
 		out, err := WindowsRunCommandWithTimeout(NetworkActionCommandTimeout,
 			"netsh", "interface", "ip", "set", "dnsservers", iface, "dhcp")
 		trimmed := TruncateCommandOutput(out, MaxCommandOutputBytes)
@@ -357,12 +367,41 @@ func CaptureWindowsNetworkSnapshot(iface string) (*WindowsNetworkSnapshot, error
 		return nil, fmt.Errorf("netsh show config for %s: %s", iface, trimmed)
 	}
 	ParseWindowsIPConfig(string(ipOut), snapshot)
+	if !snapshot.DHCPModeKnown {
+		return nil, fmt.Errorf("netsh show config for %s returned an unrecognized or localized DHCP mode", iface)
+	}
+	if !snapshot.WasDHCP {
+		if net.ParseIP(snapshot.StaticIP).To4() == nil {
+			return nil, fmt.Errorf("netsh show config for %s did not return a valid static IPv4 address", iface)
+		}
+		maskIP := net.ParseIP(snapshot.SubnetMask).To4()
+		_, maskBits := net.IPMask(maskIP).Size()
+		if maskIP == nil || maskBits != 32 {
+			return nil, fmt.Errorf("netsh show config for %s did not return a valid subnet mask", iface)
+		}
+		if snapshot.Gateway != "" && net.ParseIP(snapshot.Gateway).To4() == nil {
+			return nil, fmt.Errorf("netsh show config for %s returned an invalid gateway", iface)
+		}
+	}
 
 	// Query DNS config.
 	dnsOut, dnsErr := WindowsRunCommandWithTimeout(NetworkActionCommandTimeout,
 		"netsh", "interface", "ip", "show", "dnsservers", iface)
-	if dnsErr == nil {
-		snapshot.DNSServers = ParseWindowsDNSServers(string(dnsOut))
+	if dnsErr != nil {
+		trimmed := TruncateCommandOutput(dnsOut, MaxCommandOutputBytes)
+		if trimmed == "" {
+			return nil, fmt.Errorf("netsh show dnsservers for %s: %w", iface, dnsErr)
+		}
+		return nil, fmt.Errorf("netsh show dnsservers for %s: %s", iface, trimmed)
+	}
+	ParseWindowsDNSConfig(string(dnsOut), snapshot)
+	if !snapshot.DNSModeKnown {
+		return nil, fmt.Errorf("netsh show dnsservers for %s returned an unrecognized or localized DNS mode", iface)
+	}
+	for _, server := range snapshot.DNSServers {
+		if net.ParseIP(server) == nil {
+			return nil, fmt.Errorf("netsh show dnsservers for %s returned an invalid DNS server", iface)
+		}
 	}
 
 	return snapshot, nil
@@ -376,9 +415,9 @@ func ParseWindowsIPConfig(raw string, snapshot *WindowsNetworkSnapshot) {
 		lower := strings.ToLower(line)
 
 		if strings.Contains(lower, "dhcp enabled") {
-			if strings.Contains(lower, "yes") {
-				snapshot.WasDHCP = true
-			}
+			value := strings.ToLower(extractNetshValue(line))
+			snapshot.DHCPModeKnown = value == "yes" || value == "no"
+			snapshot.WasDHCP = value == "yes"
 			continue
 		}
 		if strings.HasPrefix(lower, "ip address:") {
@@ -386,13 +425,7 @@ func ParseWindowsIPConfig(raw string, snapshot *WindowsNetworkSnapshot) {
 			continue
 		}
 		if strings.HasPrefix(lower, "subnet prefix:") || strings.HasPrefix(lower, "subnet mask:") {
-			// Prefer the raw mask form; netsh may report "255.255.255.0 (mask 0xffffff00)"
-			val := extractNetshValue(line)
-			// Strip parenthetical mask suffix if present.
-			if idx := strings.Index(val, " ("); idx >= 0 {
-				val = strings.TrimSpace(val[:idx])
-			}
-			snapshot.SubnetMask = val
+			snapshot.SubnetMask = normalizeNetshSubnetMask(extractNetshValue(line))
 			continue
 		}
 		if strings.HasPrefix(lower, "default gateway:") {
@@ -405,7 +438,17 @@ func ParseWindowsIPConfig(raw string, snapshot *WindowsNetworkSnapshot) {
 // ParseWindowsDNSServers parses the output of
 // "netsh interface ip show dnsservers <iface>" and returns the list of servers.
 func ParseWindowsDNSServers(raw string) []string {
-	var servers []string
+	snapshot := &WindowsNetworkSnapshot{}
+	ParseWindowsDNSConfig(raw, snapshot)
+	return snapshot.DNSServers
+}
+
+// ParseWindowsDNSConfig parses DNS server addresses and, critically, whether
+// they came from DHCP or a static configuration. Unknown/localized labels leave
+// DNSModeKnown false so callers can fail closed before changing the interface.
+func ParseWindowsDNSConfig(raw string, snapshot *WindowsNetworkSnapshot) {
+	var dhcpServers, staticServers []string
+	section := ""
 	for _, line := range strings.Split(raw, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
@@ -414,20 +457,66 @@ func ParseWindowsDNSServers(raw string) []string {
 		lower := strings.ToLower(line)
 		// Lines carrying a server address start with "DNS servers configured through" or
 		// have an IP on the right side of a colon-delimited label.
-		if strings.HasPrefix(lower, "dns servers configured through dhcp:") ||
-			strings.HasPrefix(lower, "statically configured dns servers:") {
+		if strings.HasPrefix(lower, "dns servers configured through dhcp:") {
+			section = "dhcp"
 			val := extractNetshValue(line)
 			if val != "" && !strings.EqualFold(val, "none") {
-				servers = append(servers, val)
+				dhcpServers = append(dhcpServers, val)
+			}
+			continue
+		}
+		if strings.HasPrefix(lower, "statically configured dns servers:") {
+			section = "static"
+			val := extractNetshValue(line)
+			if val != "" && !strings.EqualFold(val, "none") {
+				staticServers = append(staticServers, val)
 			}
 			continue
 		}
 		// Additional servers appear as lines with only an IP (no label).
 		if isIPAddress(line) {
-			servers = append(servers, line)
+			switch section {
+			case "dhcp":
+				dhcpServers = append(dhcpServers, line)
+			case "static":
+				staticServers = append(staticServers, line)
+			}
 		}
 	}
-	return servers
+	if len(staticServers) > 0 {
+		snapshot.DNSModeKnown = true
+		snapshot.DNSWasDHCP = false
+		snapshot.DNSServers = staticServers
+		return
+	}
+	if len(dhcpServers) > 0 {
+		snapshot.DNSModeKnown = true
+		snapshot.DNSWasDHCP = true
+		snapshot.DNSServers = dhcpServers
+		return
+	}
+	// Both sections saying "None" is insufficient to distinguish static from
+	// DHCP. Leaving the mode unknown is safer than inventing rollback state.
+	snapshot.DNSServers = nil
+}
+
+func normalizeNetshSubnetMask(raw string) string {
+	value := strings.TrimSpace(raw)
+	lower := strings.ToLower(value)
+	if marker := strings.Index(lower, "(mask "); marker >= 0 {
+		mask := strings.TrimSpace(value[marker+len("(mask "):])
+		mask = strings.TrimSuffix(mask, ")")
+		if net.ParseIP(mask).To4() != nil {
+			return mask
+		}
+	}
+	if net.ParseIP(value).To4() != nil {
+		return value
+	}
+	if _, network, err := net.ParseCIDR(value); err == nil {
+		return net.IP(network.Mask).String()
+	}
+	return ""
 }
 
 // NetAdapterEntry represents one object from Get-NetAdapter | ConvertTo-Json.

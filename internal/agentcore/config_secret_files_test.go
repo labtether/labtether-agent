@@ -43,6 +43,9 @@ func TestLoadConfigReadsSecretsFromFiles(t *testing.T) {
 	if cfg.EnrollmentTokenFilePath != enrollmentFile {
 		t.Fatalf("expected enrollment token file path %q, got %q", enrollmentFile, cfg.EnrollmentTokenFilePath)
 	}
+	if !cfg.EnrollmentTokenFromFile {
+		t.Fatal("expected enrollment token source to be marked file-backed")
+	}
 	if cfg.WebRTCTURNPassFilePath != turnPassFile {
 		t.Fatalf("expected turn pass file path %q, got %q", turnPassFile, cfg.WebRTCTURNPassFilePath)
 	}
@@ -115,14 +118,17 @@ func TestResolveAgentLocalAuthTokenFallsBackToRuntimeAPIToken(t *testing.T) {
 	t.Setenv(envAgentLocalAuthTokenFile, "")
 	t.Setenv(envAgentLocalAllowUnauth, "false")
 
-	token, err := resolveAgentLocalAuthToken(RuntimeConfig{
+	resolution, err := resolveAgentLocalAuth(RuntimeConfig{
 		Name:     "test-agent",
 		APIToken: "runtime-api-token",
 	}, "0.0.0.0")
 	if err != nil {
 		t.Fatalf("resolve local auth token: %v", err)
 	}
-	if token != "runtime-api-token" {
-		t.Fatalf("expected runtime API token fallback, got %q", token)
+	if resolution.token != "runtime-api-token" {
+		t.Fatal("expected runtime API token fallback")
+	}
+	if !resolution.useRuntimeIdentity {
+		t.Fatal("expected runtime API token fallback to remain dynamically bound to runtime identity")
 	}
 }

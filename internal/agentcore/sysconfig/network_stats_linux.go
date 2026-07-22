@@ -20,6 +20,21 @@ func ReadIfaceStats(name string) (rxBytes, txBytes, rxPackets, txPackets uint64)
 	return
 }
 
+// ReadIfaceStatsBatch collects one stats record for each requested interface.
+func ReadIfaceStatsBatch(names []string) (map[string]IfaceStats, error) {
+	stats := make(map[string]IfaceStats, len(names))
+	for _, name := range names {
+		rxBytes, txBytes, rxPackets, txPackets := ReadIfaceStats(name)
+		stats[name] = IfaceStats{
+			RXBytes:   rxBytes,
+			TXBytes:   txBytes,
+			RXPackets: rxPackets,
+			TXPackets: txPackets,
+		}
+	}
+	return stats, nil
+}
+
 // readUint64File reads a single uint64 value from a sysfs file.
 func readUint64File(path string) uint64 {
 	data, err := os.ReadFile(path)

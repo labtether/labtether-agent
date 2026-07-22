@@ -375,6 +375,60 @@ func TestStatusEndpointWithTransport(t *testing.T) {
 	}
 }
 
+func TestStatusEndpointEnrollmentPendingIsConnectingNotReady(t *testing.T) {
+	t.Parallel()
+	rt := NewRuntime(RuntimeConfig{
+		Name:              "test-agent",
+		Port:              "9100",
+		AssetID:           "pending-node",
+		CollectInterval:   10 * time.Second,
+		HeartbeatInterval: 30 * time.Second,
+	}, stubProvider{}, noopHeartbeatPublisher{})
+	rt.transport = &wsTransport{connected: true, pendingEnrollment: true}
+
+	rec := httptest.NewRecorder()
+	rt.statusHandler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/agent/status", nil))
+	var resp StatusResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode pending status: %v", err)
+	}
+	if resp.Connected {
+		t.Fatal("pending enrollment socket reported connected=true")
+	}
+	if resp.ConnectionState != "connecting" || resp.LastError != enrollmentPendingState {
+		t.Fatalf("pending status=(connected=%v state=%q last_error=%q)", resp.Connected, resp.ConnectionState, resp.LastError)
+	}
+	if resp.DisconnectedAt != nil {
+		t.Fatalf("pending socket reported disconnected_at=%v", resp.DisconnectedAt)
+	}
+}
+
+func TestStatusEndpointEnrollmentTokenRejectionIsTerminalAuthFailure(t *testing.T) {
+	t.Parallel()
+	rt := NewRuntime(RuntimeConfig{
+		Name:              "test-agent",
+		Port:              "9100",
+		AssetID:           "pending-node",
+		CollectInterval:   10 * time.Second,
+		HeartbeatInterval: 30 * time.Second,
+	}, stubProvider{}, noopHeartbeatPublisher{})
+	rt.transport = &wsTransport{
+		connected:         true,
+		pendingEnrollment: true,
+		credentialError:   enrollmentTokenRejected,
+	}
+
+	rec := httptest.NewRecorder()
+	rt.statusHandler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/agent/status", nil))
+	var resp StatusResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode rejected enrollment status: %v", err)
+	}
+	if resp.Connected || resp.ConnectionState != "auth_failed" || resp.LastError != enrollmentTokenRejected {
+		t.Fatalf("rejected enrollment status=(connected=%v state=%q last_error=%q)", resp.Connected, resp.ConnectionState, resp.LastError)
+	}
+}
+
 func TestStatusEndpointSupportsConditionalRequests(t *testing.T) {
 	t.Parallel()
 

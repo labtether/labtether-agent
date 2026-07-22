@@ -66,11 +66,12 @@ func (wsc *WebServiceCollector) buildServicesFromContainers(containers []dockerp
 			}
 
 			identifier := fmt.Sprintf("%s:%d", c.ID, port)
-			id := makeServiceID(wsc.assetID, "docker", identifier)
+			assetID := wsc.currentAssetID()
+			id := makeServiceID(assetID, "docker", identifier)
 			svc := protocol.DiscoveredWebService{
 				ID: id, ServiceKey: serviceKey, Name: displayName, Category: category,
 				URL: url, Source: "docker", ContainerID: c.ID,
-				HostAssetID: wsc.assetID, IconKey: iconKey,
+				HostAssetID: assetID, IconKey: iconKey,
 			}
 			if image := strings.TrimSpace(c.Image); image != "" {
 				if svc.Metadata == nil {

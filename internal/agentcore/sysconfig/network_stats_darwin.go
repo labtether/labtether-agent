@@ -40,6 +40,21 @@ func ReadIfaceStats(name string) (rxBytes, txBytes, rxPackets, txPackets uint64)
 	return rxBytes, txBytes, rxPackets, txPackets
 }
 
+// ReadIfaceStatsBatch collects one stats record for each requested interface.
+func ReadIfaceStatsBatch(names []string) (map[string]IfaceStats, error) {
+	stats := make(map[string]IfaceStats, len(names))
+	for _, name := range names {
+		rxBytes, txBytes, rxPackets, txPackets := ReadIfaceStats(name)
+		stats[name] = IfaceStats{
+			RXBytes:   rxBytes,
+			TXBytes:   txBytes,
+			RXPackets: rxPackets,
+			TXPackets: txPackets,
+		}
+	}
+	return stats, nil
+}
+
 func ParseDarwinNetstatOutput(name, raw string) (rxBytes, txBytes, rxPackets, txPackets uint64, ok bool) {
 	scanner := bufio.NewScanner(strings.NewReader(raw))
 	var header []string
