@@ -54,7 +54,7 @@ func TestParseLinuxUpgradablePackageInventories(t *testing.T) {
 		{
 			name: "apk",
 			run: func() ([]UpgradablePackageInfo, error) {
-				return ParseAPKUpgradablePackages([]byte("curl-8.5.0-r0 < 8.6.0-r0\n"))
+				return ParseAPKUpgradablePackages([]byte("Installed:                              Available:\ncurl-8.5.0-r0                         < 8.6.0-r0\n"))
 			},
 			want: []UpgradablePackageInfo{{Name: "curl", Version: "8.5.0-r0", AvailableVersion: "8.6.0-r0"}},
 		},
@@ -94,6 +94,46 @@ func TestLinuxUpgradableParsersRejectUnrecognizedOutput(t *testing.T) {
 				t.Fatal("unrecognized output was accepted as an empty update inventory")
 			}
 		})
+	}
+}
+
+func TestParseAPKUpgradablePackagesAcceptsHeadingOnlyForNoUpdates(t *testing.T) {
+	got, err := ParseAPKUpgradablePackages([]byte("Installed:                              Available:\n"))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("packages = %#v, want empty", got)
+	}
+}
+
+func TestParseAPKUpgradablePackagesAcceptsRepositoryTag(t *testing.T) {
+	got, err := ParseAPKUpgradablePackages([]byte("Installed:                              Available:\ncurl-8.5.0-r0                         < 8.6.0-r0 @edge\n"))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	want := []UpgradablePackageInfo{{Name: "curl", Version: "8.5.0-r0", AvailableVersion: "8.6.0-r0"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("packages = %#v, want %#v", got, want)
+	}
+}
+
+func TestParseAPKUpgradablePackagesRejectsHeadingLookalikes(t *testing.T) {
+	for _, input := range []string{
+		"",
+		"curl-8.5.0-r0 < 8.6.0-r0\n",
+		"Installed: Available: unexpected\n",
+		"Installed packages Available:\n",
+		"Warning: Available:\n",
+		"Installed: Available:\nInstalled: Available:\n",
+		"curl-8.5.0-r0 < 8.6.0-r0\nInstalled: Available:\n",
+		"Installed: Available:\ncurl-8.5.0-r0 < 8.6.0-r0 @\n",
+		"Installed: Available:\ncurl-8.5.0-r0 < 8.6.0-r0 edge\n",
+		"Installed: Available:\ncurl-8.5.0-r0 < 8.6.0-r0 @edge unexpected\n",
+	} {
+		if _, err := ParseAPKUpgradablePackages([]byte(input)); err == nil {
+			t.Fatalf("heading lookalike %q was accepted", input)
+		}
 	}
 }
 
