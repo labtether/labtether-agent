@@ -24,7 +24,7 @@ trap cleanup EXIT
 
 (
   cd "${ROOT_DIR}"
-  gosec -fmt=json ./... >"${tmp_json}" 2>/dev/null || true
+  GOOS=linux GOARCH=amd64 gosec -fmt=json ./... >"${tmp_json}" 2>/dev/null || true
 )
 
 if ! jq -e '.' "${tmp_json}" >/dev/null 2>&1; then

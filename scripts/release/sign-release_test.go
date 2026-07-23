@@ -38,6 +38,7 @@ func TestSignReleaseProducesCanonicalVerifiableArtifacts(t *testing.T) {
 		BinaryPath:        binaryPath,
 		OutputPrefix:      filepath.Join(directory, "labtether-agent-linux-amd64-v1.2.3"),
 		ExpectedPublicKey: publicEncoded,
+		ConfirmSign:       "v1.2.3",
 	}, strings.NewReader(privateEncoded))
 	if err != nil {
 		t.Fatalf("sign release: %v", err)
@@ -155,6 +156,7 @@ func TestSignReleaseRejectsUnexpectedPublicKey(t *testing.T) {
 		BinaryPath:        binaryPath,
 		OutputPrefix:      filepath.Join(directory, "release"),
 		ExpectedPublicKey: otherPublic,
+		ConfirmSign:       "v1.0.0",
 	}, strings.NewReader(privateEncoded))
 	if err == nil {
 		t.Fatal("expected signing key/public key mismatch to be rejected")
@@ -185,6 +187,7 @@ func TestSignReleaseRefusesExistingOutputWithoutMutation(t *testing.T) {
 		BinaryPath:        binaryPath,
 		OutputPrefix:      prefix,
 		ExpectedPublicKey: publicEncoded,
+		ConfirmSign:       "v1.0.0",
 	}, strings.NewReader(privateEncoded))
 	if err == nil {
 		t.Fatal("expected existing release output to be rejected")
@@ -222,6 +225,7 @@ func TestSignReleaseRefusesSymlinkOutputWithoutTouchingTarget(t *testing.T) {
 		BinaryPath:        binaryPath,
 		OutputPrefix:      prefix,
 		ExpectedPublicKey: publicEncoded,
+		ConfirmSign:       "v1.0.0",
 	}, strings.NewReader(privateEncoded))
 	if err == nil {
 		t.Fatal("expected symlink release output to be rejected")
@@ -252,6 +256,7 @@ func TestSignReleaseRejectsInputOutputCollision(t *testing.T) {
 		BinaryPath:        binaryPath,
 		OutputPrefix:      prefix,
 		ExpectedPublicKey: publicEncoded,
+		ConfirmSign:       "v1.0.0",
 	}, strings.NewReader(privateEncoded))
 	if err == nil {
 		t.Fatal("expected input/output collision to be rejected")
@@ -279,9 +284,33 @@ func TestSignReleaseRejectsMetadataDelimiterInjection(t *testing.T) {
 		BinaryPath:        binaryPath,
 		OutputPrefix:      filepath.Join(directory, "release"),
 		ExpectedPublicKey: publicEncoded,
+		ConfirmSign:       "v1.0.0",
 	}, strings.NewReader(privateEncoded))
 	if err == nil {
 		t.Fatal("expected metadata delimiter injection to be rejected")
+	}
+}
+
+func TestSignReleaseRequiresExactConfirmation(t *testing.T) {
+	_, privateEncoded, publicEncoded := testSigningKey(t)
+	directory := t.TempDir()
+	binaryPath := filepath.Join(directory, "agent")
+	if err := os.WriteFile(binaryPath, []byte("agent"), 0o755); err != nil {
+		t.Fatalf("write binary: %v", err)
+	}
+	for _, confirm := range []string{"", "v1.0.1"} {
+		_, err := signRelease(releaseSigningConfig{
+			Version:           "v1.0.0",
+			GOOS:              "linux",
+			Arch:              "amd64",
+			BinaryPath:        binaryPath,
+			OutputPrefix:      filepath.Join(directory, "release"+strings.ReplaceAll(confirm, ".", "-")),
+			ExpectedPublicKey: publicEncoded,
+			ConfirmSign:       confirm,
+		}, strings.NewReader(privateEncoded))
+		if err == nil {
+			t.Fatalf("expected confirmation %q to be rejected", confirm)
+		}
 	}
 }
 

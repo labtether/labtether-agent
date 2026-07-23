@@ -45,6 +45,8 @@ jobs:
         run: bash ./scripts/check-gosec-allowlist.sh
       - name: Lint GitHub Actions workflows
         run: actionlint
+      - name: Enforce local-only binary release policy
+        run: bash ./scripts/release/test-workflow-policy.sh
       - name: Scan current source for secrets
         run: gitleaks dir . --no-banner --redact --timeout 300
 

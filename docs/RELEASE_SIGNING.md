@@ -1,4 +1,4 @@
-# Release signing — one-time setup
+# Release Signing
 
 `labtether-agent` self-update verifies an ed25519 signature over the canonical
 release metadata (`version\nos\narch\nsha256\nsize`). Once signing is active,
@@ -6,12 +6,14 @@ operators can set `LABTETHER_AUTO_UPDATE_TRUSTED_PUBLIC_KEY` to the matching
 public key and the agent will fail any update that was not signed with the
 paired private key.
 
-This doc covers the one-time key generation and repository/hub wiring. It is
-intended for the release maintainer, not for end operators.
+This doc covers local-only key handling and the maintainer release flow. GitHub
+Actions does not receive the private key, does not publish release binaries,
+and does not upload signed assets. Hosted workflows only verify tagged source
+and publish the container image.
 
-## 1. Generate the keypair
+## Keypair
 
-Any machine with Go installed:
+Generate the keypair on a trusted local machine:
 
 ```sh
 go run - <<'EOF'
@@ -30,7 +32,7 @@ func main() {
 		panic(err)
 	}
 	fmt.Println("public  (publish to operators):", base64.StdEncoding.EncodeToString(pub))
-	fmt.Println("private (store as GitHub secret):", base64.StdEncoding.EncodeToString(priv))
+	fmt.Println("private (store locally only):", base64.StdEncoding.EncodeToString(priv))
 }
 EOF
 ```
@@ -38,21 +40,13 @@ EOF
 The private key is a 64-byte ed25519 private key (seed + derived public half);
 the signer accepts either a 32-byte seed or the 64-byte expanded form.
 
-## 2. Store the private key in CI
+Store the private key only in the maintainer's local secret store. Do not add it
+to GitHub Actions secrets, repository files, release artifacts, logs, caches, or
+temporary directories inside a source checkout.
 
-In the `labtether/labtether-agent` repo settings → **Secrets and variables** →
-**Actions** → **New repository secret**:
+## Public Key
 
-- **Name:** `RELEASE_SIGNING_PRIVATE_KEY`
-- **Value:** the base64 private-key string from step 1
-
-Once this secret is set, the "Sign release metadata" step in
-`.github/workflows/release.yml` will run on every tag push, producing
-`*.sig` and `*.metadata.json` assets alongside each platform binary.
-
-## 3. Publish the public key
-
-Operators need the public key to turn on verification:
+Operators need the public key to turn on verification.
 
 - Paste it into the `README.md` (or a dedicated `SIGNING_KEY.txt` in the repo)
   so it ships with the source and docs.
@@ -67,7 +61,37 @@ export LABTETHER_AUTO_UPDATE_TRUSTED_PUBLIC_KEY="<base64 public key>"
 With that set and the signature present in the manifest, the agent enforces
 signature verification on every self-update.
 
-## 4. Hub-side wiring
+## Local Release Flow
+
+The release has five separate local gates:
+
+1. Build the four raw binaries from a clean, exact-tagged source checkout.
+2. Run `go run ./scripts/release/release-contract prepare` to create checksums,
+   deterministic Linux archives, and the immutable build record in an external
+   private stage directory.
+3. For each raw binary, pipe the local private key to
+   `go run ./scripts/release/sign-release.go --confirm-sign vX.Y.Z` and write
+   the matching `.sig` and `.metadata.json` files into the stage assets
+   directory. The confirmation value must exactly match the release tag.
+4. Run `go run ./scripts/release/release-contract seal`, then verify the sealed
+   manifest and host proofs on Linux and Windows.
+5. Create a draft release, inspect its exact 20 assets, then publish only from a
+   separate invocation that rechecks the fresh draft and the inspection receipt.
+
+The public contract is exactly 20 release assets:
+
+- four raw binaries: Linux amd64, Linux arm64, Windows amd64, Windows arm64
+- four raw `.sha256` files
+- four detached signatures named `<raw>-<tag>.sig`
+- four metadata files named `<raw>-<tag>.metadata.json`
+- two Linux tarballs
+- two Linux tarball `.sha256` files
+
+The local stage directory must be outside the repository, private to the current
+user, and free of symlinks. Do not copy private keys into the stage; feed the
+signer through stdin and let only the signed release outputs enter the stage.
+
+## Hub Wiring
 
 The hub's `scripts/release/generate-agent-manifest.sh` now looks for a
 `labtether-agent-<suffix>-<version>.sig` asset in the agent release and
@@ -80,14 +104,14 @@ ultimate verifier). If an agent release ships without a signature, the
 manifest simply omits the field and agents configured with a trusted public
 key will refuse the update.
 
-## 5. Key rotation
+## Key Rotation
 
 To rotate:
 
-1. Generate a new keypair (step 1).
-2. Update `RELEASE_SIGNING_PRIVATE_KEY` in CI (step 2).
+1. Generate a new keypair locally.
+2. Update the local maintainer secret store.
 3. Publish both the old and new public keys during the transition window.
-4. Tag a new release — only this release is signed by the new key.
+4. Tag a new release. Only this release is signed by the new key.
 5. Once all deployments have updated their
    `LABTETHER_AUTO_UPDATE_TRUSTED_PUBLIC_KEY` to the new key, drop the old
    one from published docs.
@@ -95,4 +119,4 @@ To rotate:
 The agent currently accepts exactly one trusted public key. If you need a
 rotation period where two keys are simultaneously trusted, emit two
 signatures per release and update the agent to try each trusted key in turn
-— a small enhancement not yet implemented.
+- a small enhancement not yet implemented.

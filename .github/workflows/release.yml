@@ -1,25 +1,25 @@
-name: Release
+name: Release Source Verification
 
 on:
   push:
     tags: ["v*"]
 
-permissions: {}
+permissions:
+  contents: read
 
 defaults:
   run:
     shell: bash
 
 jobs:
-  build-binaries:
+  verify-release-source:
+    name: Verify source for ${{ matrix.goos }}/${{ matrix.goarch }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
-      contents: write
-      id-token: write
-      attestations: write
-      artifact-metadata: write
+      contents: read
     strategy:
+      fail-fast: false
       matrix:
         include:
           - goos: linux
@@ -43,155 +43,47 @@ jobs:
         with:
           go-version: "1.26"
 
-      - name: Build agent binary
+      - name: Validate exact stable tag
         env:
+          VERSION: ${{ github.ref_name }}
+          EXPECTED_COMMIT: ${{ github.sha }}
+        run: |
+          set -Eeuo pipefail
+          if [[ ! "${VERSION}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::release tag must use strict vX.Y.Z form"
+            exit 1
+          fi
+          if [[ "$(git rev-parse HEAD)" != "${EXPECTED_COMMIT}" ]]; then
+            echo "::error::checked-out source does not match the tag event commit"
+            exit 1
+          fi
+          if [[ -n "$(git status --porcelain=v1 --untracked-files=all)" ]]; then
+            echo "::error::release source checkout is not clean"
+            exit 1
+          fi
+
+      - name: Test release tooling
+        env:
+          GOWORK: "off"
+        run: go test ./scripts/release/...
+
+      - name: Compile source without publishing artifacts
+        env:
+          GOWORK: "off"
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
           SUFFIX: ${{ matrix.suffix }}
           VERSION: ${{ github.ref_name }}
         run: |
           set -Eeuo pipefail
-          if [[ ! "${VERSION}" =~ ^v[0-9A-Za-z][0-9A-Za-z._-]{0,126}$ ]]; then
-            echo "::error::release tag must be at most 128 characters and match the hub manifest contract (v plus letters, digits, dot, underscore, or hyphen)"
-            exit 1
-          fi
-          CGO_ENABLED=0 go build -trimpath \
+          output="${RUNNER_TEMP}/labtether-agent-${SUFFIX}"
+          go build -mod=readonly -trimpath -buildvcs=true \
             -ldflags="-s -w -X main.version=${VERSION}" \
-            -o "labtether-agent-${SUFFIX}" \
+            -o "${output}" \
             ./cmd/labtether-agent
+          test -s "${output}"
 
-      - name: Create tarball (Linux)
-        if: matrix.goos == 'linux'
-        env:
-          SUFFIX: ${{ matrix.suffix }}
-          VERSION: ${{ github.ref_name }}
-        run: |
-          set -Eeuo pipefail
-          archive="labtether-agent-${SUFFIX}-${VERSION}.tar.gz"
-          tar -czf "${archive}" -- "labtether-agent-${SUFFIX}"
-          sha256sum -- "${archive}" > "${archive}.sha256"
-
-      - name: Checksum raw binary
-        env:
-          SUFFIX: ${{ matrix.suffix }}
-        run: |
-          set -Eeuo pipefail
-          binary="labtether-agent-${SUFFIX}"
-          sha256sum -- "${binary}" > "${binary}.sha256"
-
-      - name: Sign release metadata
-        # Run the signer on the host (not cross-compiled), but embed the matrix
-        # target into the signed payload via --os / --arch.
-        env:
-          TARGET_OS: ${{ matrix.goos }}
-          TARGET_ARCH: ${{ matrix.goarch }}
-          SUFFIX: ${{ matrix.suffix }}
-          VERSION: ${{ github.ref_name }}
-          RELEASE_SIGNING_PRIVATE_KEY: ${{ secrets.RELEASE_SIGNING_PRIVATE_KEY }}
-          RELEASE_SIGNING_PUBLIC_KEY: jM9Mqx0db6S+w6FMKDnIX2jvVp7N554+6galqPvsq88=
-        run: |
-          set -Eeuo pipefail
-          set +x
-          if [ -z "${RELEASE_SIGNING_PRIVATE_KEY}" ]; then
-            echo "::error::RELEASE_SIGNING_PRIVATE_KEY must be configured; refusing to publish unsigned agent binaries"
-            exit 1
-          fi
-          signing_key="${RELEASE_SIGNING_PRIVATE_KEY}"
-          unset RELEASE_SIGNING_PRIVATE_KEY
-          unset GOOS GOARCH
-
-          binary="labtether-agent-${SUFFIX}"
-          printf '%s' "${signing_key}" | go run ./scripts/release \
-            --version "${VERSION}" \
-            --os "${TARGET_OS}" \
-            --arch "${TARGET_ARCH}" \
-            --binary "${binary}" \
-            --out-prefix "labtether-agent-${SUFFIX}-${VERSION}" \
-            --expected-public-key "${RELEASE_SIGNING_PUBLIC_KEY}"
-          unset signing_key
-          sha256sum --check --status -- "${binary}.sha256"
-
-      - name: Attest binary provenance
-        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4.1.1
-        with:
-          subject-path: ${{ github.workspace }}/labtether-agent-${{ matrix.suffix }}
-
-      - name: Upload Linux release assets
-        if: matrix.goos == 'linux'
-        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
-        with:
-          files: |
-            labtether-agent-${{ matrix.suffix }}
-            labtether-agent-${{ matrix.suffix }}.sha256
-            labtether-agent-${{ matrix.suffix }}-${{ github.ref_name }}.tar.gz
-            labtether-agent-${{ matrix.suffix }}-${{ github.ref_name }}.tar.gz.sha256
-            labtether-agent-${{ matrix.suffix }}-${{ github.ref_name }}.sig
-            labtether-agent-${{ matrix.suffix }}-${{ github.ref_name }}.metadata.json
-          fail_on_unmatched_files: true
-
-      - name: Upload Windows release assets
-        if: matrix.goos == 'windows'
-        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
-        with:
-          files: |
-            labtether-agent-${{ matrix.suffix }}
-            labtether-agent-${{ matrix.suffix }}.sha256
-            labtether-agent-${{ matrix.suffix }}-${{ github.ref_name }}.sig
-            labtether-agent-${{ matrix.suffix }}-${{ github.ref_name }}.metadata.json
-          fail_on_unmatched_files: true
-
-  build-and-push-image:
-    needs: build-binaries
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    permissions:
-      contents: read
-      packages: write
-      id-token: write
-      attestations: write
-      artifact-metadata: write
-    steps:
-      - name: Validate release tag
-        env:
-          VERSION: ${{ github.ref_name }}
-        run: |
-          set -Eeuo pipefail
-          if [[ ! "${VERSION}" =~ ^v[0-9A-Za-z][0-9A-Za-z._-]{0,126}$ ]]; then
-            echo "::error::release tag must be at most 128 characters and match the hub manifest contract (v plus letters, digits, dot, underscore, or hyphen)"
-            exit 1
-          fi
-
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          persist-credentials: false
-
-      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
-
-      - uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and push agent image
-        id: build
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
-        with:
-          context: .
-          file: Dockerfile
-          push: true
-          platforms: linux/amd64,linux/arm64
-          build-args: |
-            APP_VERSION=${{ github.ref_name }}
-          tags: |
-            ghcr.io/labtether/labtether-agent:${{ github.ref_name }}
-            ghcr.io/labtether/labtether-agent:latest
-          provenance: mode=max
-          sbom: true
-
-      - name: Attest pushed image provenance
-        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4.1.1
-        with:
-          subject-name: ghcr.io/labtether/labtether-agent
-          subject-digest: ${{ steps.build.outputs.digest }}
-          push-to-registry: true
+      # Binary release assets are intentionally not signed, attested, uploaded,
+      # or published from GitHub Actions. Maintainers use the local-only
+      # draft/inspect/publish lane documented in docs/RELEASE_SIGNING.md.

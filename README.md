@@ -143,8 +143,8 @@ To turn on verification, set this on every agent:
 export LABTETHER_AUTO_UPDATE_TRUSTED_PUBLIC_KEY="jM9Mqx0db6S+w6FMKDnIX2jvVp7N554+6galqPvsq88="
 ```
 
-Maintainers: see [`docs/RELEASE_SIGNING.md`](docs/RELEASE_SIGNING.md) for key
-rotation and CI setup.
+Maintainers: see [`docs/RELEASE_SIGNING.md`](docs/RELEASE_SIGNING.md) for
+local-only signing, draft inspection, publication, and key rotation.
 
 ---
 
