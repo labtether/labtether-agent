@@ -2,6 +2,9 @@
 # format: rule_id<TAB>path<TAB>line<TAB>justification
 # policy: entries must be explicitly reviewed; new findings fail CI until added with rationale.
 G101	internal/agentcore/ws_transport.go	79	Machine-readable token persistence status code; not a credential or secret.
+G304	internal/agentcore/sysconfig/network_stats_linux.go	40	Path uses an interface name returned by the local kernel through net.Interfaces plus a fixed sysfs statistics suffix.
+G304	internal/agentplatform/linux/provider_metadata.go	381	Key-value reader is called only for the fixed local /etc/os-release metadata path.
+G304	internal/agentplatform/linux/provider_metadata.go	410	Trimmed metadata reader is called only with fixed local /proc and /sys paths selected by the agent.
 G703	internal/agentcore/managed_file.go	24	Managed configuration path is checked with Lstat, restricted to a regular file, and matched to the opened inode before bounded reading.
 G703	internal/agentcore/managed_file.go	32	Managed configuration path is checked with Lstat, restricted to a regular file, and matched to the opened inode before bounded reading.
 G706	cmd/labtether-agent/parent_lifetime.go	37	Parent PID is parsed as a bounded unsigned integer and logged with the numeric percent-d formatter.
