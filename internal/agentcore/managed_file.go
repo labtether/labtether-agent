@@ -21,7 +21,7 @@ func readBoundedRegularFile(path string, maxBytes int64) ([]byte, error) {
 	if maxBytes <= 0 {
 		return nil, fmt.Errorf("invalid file size limit")
 	}
-	before, err := os.Lstat(path) // #nosec G703 -- callers provide intentional local runtime/config paths; this helper then rejects non-regular targets.
+	before, err := os.Lstat(path)
 	if err != nil {
 		return nil, err
 	}
@@ -29,7 +29,7 @@ func readBoundedRegularFile(path string, maxBytes int64) ([]byte, error) {
 		return nil, fmt.Errorf("refusing non-regular file %s", path)
 	}
 
-	file, err := os.Open(path) // #nosec G304,G703 -- caller supplies an intentional local runtime/config path; descriptor identity is verified below.
+	file, err := os.Open(path) // #nosec G304 -- caller supplies a managed runtime/config path.
 	if err != nil {
 		return nil, err
 	}

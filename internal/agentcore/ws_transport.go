@@ -76,7 +76,7 @@ const (
 	maxBackoff                  = 60 * time.Second
 	authBackoff                 = 5 * time.Minute
 	authFailureThreshold        = 3
-	agentTokenPersistenceFailed = "agent_token_persistence_failed" // #nosec G101 -- protocol event key, not a credential.
+	agentTokenPersistenceFailed = "agent_token_persistence_failed"
 	enrollmentTokenRejected     = "enrollment_token_rejected"
 )
 

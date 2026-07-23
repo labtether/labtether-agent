@@ -34,7 +34,7 @@ func contextWithConfiguredParent(
 	go func() {
 		select {
 		case <-parentDone:
-			log.Printf("labtether-agent: configured parent PID %d exited; stopping", pid) // #nosec G706 -- pid is a parsed integer, not raw log text.
+			log.Printf("labtether-agent: configured parent PID %d exited; stopping", pid)
 			cancel()
 		case <-childCtx.Done():
 		}
