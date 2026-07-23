@@ -1,4 +1,4 @@
-// sign-release signs agent release metadata with an ed25519 key from CI.
+// sign-release signs agent release metadata with a local-only ed25519 key.
 //
 // Payload format (must match internal/agentcore/self_update.go
 // selfUpdateSignaturePayload): version\nos\narch\nsha256\nsize, joined by
@@ -45,6 +45,7 @@ type releaseSigningConfig struct {
 	BinaryPath        string
 	OutputPrefix      string
 	ExpectedPublicKey string
+	ConfirmSign       string
 }
 
 type releaseMetadata struct {
@@ -82,6 +83,7 @@ func main() {
 	binary := flag.String("binary", "", "path to the built binary to hash")
 	outPrefix := flag.String("out-prefix", "", "output filename prefix (no extension)")
 	expectedPublicKey := flag.String("expected-public-key", "", "expected base64/hex ed25519 public key")
+	confirmSign := flag.String("confirm-sign", "", "exact release tag confirmation")
 	flag.Parse()
 
 	result, err := signRelease(releaseSigningConfig{
@@ -91,6 +93,7 @@ func main() {
 		BinaryPath:        *binary,
 		OutputPrefix:      *outPrefix,
 		ExpectedPublicKey: *expectedPublicKey,
+		ConfirmSign:       *confirmSign,
 	}, os.Stdin)
 	if err != nil {
 		fail("%v", err)
@@ -114,6 +117,13 @@ func signRelease(cfg releaseSigningConfig, keyReader io.Reader) (signingResult, 
 	version, err := normalizeMetadataField("version", cfg.Version, false)
 	if err != nil {
 		return result, err
+	}
+	confirmSign, err := normalizeMetadataField("confirm-sign", cfg.ConfirmSign, false)
+	if err != nil {
+		return result, err
+	}
+	if confirmSign != version {
+		return result, errors.New("signing requires exact --confirm-sign TAG confirmation")
 	}
 	goos, err := normalizeMetadataField("os", cfg.GOOS, true)
 	if err != nil {
