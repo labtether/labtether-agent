@@ -138,6 +138,24 @@ func TestBuildDarwinLogShowArgs(t *testing.T) {
 	if !strings.Contains(joined, "--style ndjson") {
 		t.Fatalf("expected --style ndjson in args, got %v", args)
 	}
+	if !strings.Contains(joined, "--predicate eventType == logEvent") {
+		t.Fatalf("expected logEvent predicate in args, got %v", args)
+	}
+}
+
+func TestParseDarwinLogOutput(t *testing.T) {
+	out := []byte(`{"timestamp":"2026-02-24 11:12:13.123456-0800","eventMessage":"network changed","messageType":"Default","process":"configd","eventType":"logEvent"}` + "\n")
+
+	entries, err := parseDarwinLogOutput(out, protocol.JournalQueryData{Limit: 10})
+	if err != nil {
+		t.Fatalf("parseDarwinLogOutput() error = %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("entries=%d, want 1", len(entries))
+	}
+	if entries[0].Message != "network changed" {
+		t.Fatalf("message=%q, want network changed", entries[0].Message)
+	}
 }
 
 func TestBuildDarwinLogStreamArgs(t *testing.T) {

@@ -1,9 +1,11 @@
 package backends
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"sort"
 	"strings"
@@ -26,14 +28,15 @@ type DarwinPackageBackend struct{}
 
 // ListPackages lists installed Homebrew packages.
 func (DarwinPackageBackend) ListPackages() ([]protocol.PackageInfo, error) {
-	if _, err := exec.LookPath("brew"); err != nil {
+	brewPath, err := ResolveDarwinBrewPath()
+	if err != nil {
 		return nil, fmt.Errorf("brew is not available on this host")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), darwinPackageListTimeout)
 	defer cancel()
 
-	out, err := securityruntime.CommandContextCombinedOutput(ctx, "brew", "info", "--json=v2", "--installed")
+	out, err := securityruntime.CommandContextCombinedOutput(ctx, brewPath, "info", "--json=v2", "--installed")
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
 			return nil, fmt.Errorf("brew package listing timed out")
@@ -55,13 +58,14 @@ func (DarwinPackageBackend) ListPackages() ([]protocol.PackageInfo, error) {
 // ListUpgradablePackages lists outdated Homebrew formulae and casks with both
 // their installed and available versions.
 func (DarwinPackageBackend) ListUpgradablePackages() ([]UpgradablePackageInfo, error) {
-	if _, err := DarwinPackageLookPath("brew"); err != nil {
+	brewPath, err := ResolveDarwinBrewPath()
+	if err != nil {
 		return nil, fmt.Errorf("brew is not available on this host")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), PackageInventoryCommandTimeout)
 	defer cancel()
-	out, runErr := RunDarwinPackageInventoryCommand(ctx, "brew", "outdated", "--json=v2")
+	out, runErr := RunDarwinPackageInventoryCommand(ctx, brewPath, "outdated", "--json=v2")
 	if err := packageInventoryCommandError(ctx, "brew", "upgradable package listing", out, runErr); err != nil {
 		return nil, err
 	}
@@ -74,7 +78,8 @@ func (DarwinPackageBackend) ListUpgradablePackages() ([]UpgradablePackageInfo, e
 
 // PerformAction performs a Homebrew package action (install, remove, upgrade).
 func (DarwinPackageBackend) PerformAction(action string, packages []string) (PackageActionResult, error) {
-	if _, err := exec.LookPath("brew"); err != nil {
+	brewPath, err := ResolveDarwinBrewPath()
+	if err != nil {
 		return PackageActionResult{}, fmt.Errorf("brew is not available on this host")
 	}
 
@@ -86,7 +91,7 @@ func (DarwinPackageBackend) PerformAction(action string, packages []string) (Pac
 	ctx, cancel := context.WithTimeout(context.Background(), PackageActionCommandTimeout)
 	defer cancel()
 
-	out, runErr := securityruntime.CommandContextCombinedOutput(ctx, "brew", args...)
+	out, runErr := securityruntime.CommandContextCombinedOutput(ctx, brewPath, args...)
 	result := PackageActionResult{
 		Output:         TruncateCommandOutput(out, MaxCommandOutputBytes),
 		RebootRequired: false,
@@ -99,6 +104,24 @@ func (DarwinPackageBackend) PerformAction(action string, packages []string) (Pac
 	}
 
 	return result, nil
+}
+
+// ResolveDarwinBrewPath finds Homebrew even in launchd or SSH environments
+// whose PATH omits the standard Homebrew bin directory.
+func ResolveDarwinBrewPath() (string, error) {
+	if resolved, err := DarwinPackageLookPath("brew"); err == nil {
+		return resolved, nil
+	}
+	for _, candidate := range []string{
+		"/opt/homebrew/bin/brew",
+		"/usr/local/bin/brew",
+	} {
+		info, err := os.Stat(candidate)
+		if err == nil && !info.IsDir() && info.Mode().Perm()&0111 != 0 {
+			return candidate, nil
+		}
+	}
+	return "", exec.ErrNotFound
 }
 
 // BuildDarwinPackageActionArgs builds the Homebrew arguments for a package action.
@@ -190,6 +213,7 @@ func (v *brewCaskInstalledVersions) UnmarshalJSON(data []byte) error {
 
 // ParseBrewInstalledPackages parses the output of `brew info --json=v2 --installed`.
 func ParseBrewInstalledPackages(raw []byte) ([]protocol.PackageInfo, error) {
+	raw = extractBrewJSONObject(raw)
 	var payload brewInstalledJSON
 	if err := json.Unmarshal(raw, &payload); err != nil {
 		return nil, fmt.Errorf("failed to parse brew package output: %w", err)
@@ -263,6 +287,7 @@ func ParseBrewInstalledPackages(raw []byte) ([]protocol.PackageInfo, error) {
 
 // ParseBrewUpgradablePackages parses `brew outdated --json=v2` output.
 func ParseBrewUpgradablePackages(raw []byte) ([]UpgradablePackageInfo, error) {
+	raw = extractBrewJSONObject(raw)
 	var payload brewOutdatedJSON
 	if err := json.Unmarshal(raw, &payload); err != nil {
 		return nil, fmt.Errorf("failed to parse brew outdated output: %w", err)
@@ -295,4 +320,13 @@ func ParseBrewUpgradablePackages(raw []byte) ([]UpgradablePackageInfo, error) {
 		})
 	}
 	return packages, nil
+}
+
+func extractBrewJSONObject(raw []byte) []byte {
+	start := bytes.IndexByte(raw, '{')
+	end := bytes.LastIndexByte(raw, '}')
+	if start == -1 || end == -1 || end < start {
+		return raw
+	}
+	return raw[start : end+1]
 }
