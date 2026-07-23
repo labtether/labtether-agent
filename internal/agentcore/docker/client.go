@@ -23,6 +23,8 @@ type dockerClient struct {
 	httpClient *http.Client
 	baseURL    string // "http://localhost" for unix socket, or full URL for TCP
 	unixPath   string // non-empty when using a unix domain socket endpoint
+	localIPC   bool   // true for unix sockets and Windows named pipes
+	initErr    error  // closed failure for unsupported or invalid local transports
 }
 
 // newDockerClient creates a client for the given Docker socket path or TCP URL.
@@ -30,6 +32,21 @@ type dockerClient struct {
 // For TCP URLs (used in testing with httptest), pass the full URL.
 func NewDockerClient(endpoint string) *dockerClient {
 	endpoint = strings.TrimSpace(endpoint)
+	if normalized, matched, err := NormalizeDockerNpipeEndpoint(endpoint); matched {
+		client := &dockerClient{
+			httpClient: &http.Client{Timeout: 30 * time.Second},
+			baseURL:    "http://localhost",
+			localIPC:   true,
+			initErr:    err,
+		}
+		if err != nil {
+			return client
+		}
+		transport, transportErr := newDockerNpipeTransport(dockerNpipeNativePath(normalized))
+		client.httpClient.Transport = transport
+		client.initErr = transportErr
+		return client
+	}
 	if stripped, ok := TrimDockerUnixScheme(endpoint); ok {
 		endpoint = stripped
 	}
@@ -53,6 +70,7 @@ func NewDockerClient(endpoint string) *dockerClient {
 		},
 		baseURL:  "http://localhost",
 		unixPath: endpoint,
+		localIPC: true,
 	}
 }
 
@@ -68,19 +86,25 @@ func TrimDockerUnixScheme(value string) (string, bool) {
 }
 
 func (c *dockerClient) newRequest(ctx context.Context, method, requestURL string, body io.Reader) (*http.Request, error) {
-	if c != nil && strings.TrimSpace(c.unixPath) != "" {
-		// #nosec G107 -- unix socket transport never leaves local host networking.
+	if c != nil && c.initErr != nil {
+		return nil, c.initErr
+	}
+	if c != nil && (c.localIPC || strings.TrimSpace(c.unixPath) != "") {
+		// #nosec G107 -- local IPC transports never leave the host.
 		return http.NewRequestWithContext(ctx, method, requestURL, body)
 	}
 	return securityruntime.NewOutboundRequestWithContext(ctx, method, requestURL, body)
 }
 
 func (c *dockerClient) doRequest(client *http.Client, req *http.Request) (*http.Response, error) {
+	if c != nil && c.initErr != nil {
+		return nil, c.initErr
+	}
 	if client == nil {
 		client = c.httpClient
 	}
-	if c != nil && strings.TrimSpace(c.unixPath) != "" {
-		// #nosec G107 G704 -- unix socket transport is local IPC, not remote network egress.
+	if c != nil && (c.localIPC || strings.TrimSpace(c.unixPath) != "") {
+		// #nosec G107 G704 -- local IPC transports cannot reach remote network targets.
 		return client.Do(req)
 	}
 	return securityruntime.DoOutboundRequest(client, req)

@@ -92,6 +92,27 @@ func TestHandleDockerEndpointTestClosedOutcomes(t *testing.T) {
 	}
 }
 
+func TestHandleDockerEndpointTestCanonicalNpipeReachesTypedProbe(t *testing.T) {
+	sender := &dockerEndpointTestCaptureSender{assetID: "node-win"}
+	request := protocol.DockerEndpointTestData{
+		RequestID: "docker-test-npipe",
+		AssetID:   "node-win",
+		Endpoint:  "npipe:////./pipe/docker_engine",
+	}
+	var probedEndpoint string
+	handleDockerEndpointTestWithProbe(context.Background(), sender, dockerEndpointTestMessage(t, request), func(_ context.Context, endpoint string) error {
+		probedEndpoint = endpoint
+		return errors.New("named pipe unavailable")
+	})
+	_, result := decodeDockerEndpointTestResult(t, sender)
+	if probedEndpoint != request.Endpoint {
+		t.Fatalf("probe endpoint = %q, want %q", probedEndpoint, request.Endpoint)
+	}
+	if result.Status != protocol.DockerEndpointTestStatusFailed || result.Code != protocol.DockerEndpointTestCodeUnreachable {
+		t.Fatalf("result = %+v, want failed/unreachable", result)
+	}
+}
+
 func TestHandleDockerEndpointTestRejectsInvalidAndMismatchedRequests(t *testing.T) {
 	tests := []struct {
 		name     string

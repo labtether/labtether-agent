@@ -13,6 +13,35 @@ import (
 	"time"
 )
 
+func TestNormalizeDockerNpipeEndpointClosedGrammar(t *testing.T) {
+	const endpoint = "npipe:////./pipe/docker_engine"
+	normalized, matched, err := NormalizeDockerNpipeEndpoint(endpoint)
+	if err != nil || !matched || normalized != endpoint {
+		t.Fatalf("canonical endpoint result = (%q, %t, %v)", normalized, matched, err)
+	}
+	if native := dockerNpipeNativePath(normalized); native != `\\.\pipe\docker_engine` {
+		t.Fatalf("native path = %q", native)
+	}
+
+	for _, unsafe := range []string{
+		"npipe:////./pipe/",
+		"npipe://./pipe/docker_engine",
+		"npipe:////server/pipe/docker_engine",
+		`npipe:\\\\server\\pipe\\docker_engine`,
+		"NPIPE:////./pipe/docker_engine",
+		"npipe:////./pipe/docker..engine",
+		"npipe:////./pipe/.",
+		"npipe:////./pipe/_docker_engine",
+		"npipe:////./pipe/docker_engine.",
+		`npipe:////./pipe/docker\engine`,
+		"npipe:////./pipe/docker_engine?x=1",
+	} {
+		if _, matched, err := NormalizeDockerNpipeEndpoint(unsafe); !matched || err == nil {
+			t.Fatalf("unsafe endpoint %q result matched=%t err=%v", unsafe, matched, err)
+		}
+	}
+}
+
 func newSecureDockerClientFixture(t *testing.T, handler http.HandlerFunc) (*httptest.Server, *dockerClient) {
 	t.Helper()
 	t.Setenv("LABTETHER_OUTBOUND_ALLOW_LOOPBACK", "true")
