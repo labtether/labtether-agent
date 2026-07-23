@@ -134,6 +134,54 @@ func TestValidateShellCommandAllowlistEnabledByDefault(t *testing.T) {
 	}
 }
 
+func TestValidateShellCommandAllowsNarrowWindowsEchoProbe(t *testing.T) {
+	t.Setenv(envShellAllowlistMode, "")
+	t.Setenv(envShellAllowlistPrefixes, "")
+
+	for _, command := range []string{
+		"cmd /c echo labtether-windows-agent-command-ok",
+		"CMD /C ECHO LabTether_probe.v1:ok",
+		`cmd /c echo "quoted-safe-marker"`,
+	} {
+		if err := ValidateShellCommand(command); err != nil {
+			t.Fatalf("expected narrow Windows echo probe %q to be allowed: %v", command, err)
+		}
+	}
+}
+
+func TestValidateShellCommandRejectsWindowsCmdInterpreterBypasses(t *testing.T) {
+	t.Setenv(envShellAllowlistMode, "")
+	t.Setenv(envShellAllowlistPrefixes, "")
+
+	for _, command := range []string{
+		"cmd /c echo",
+		"cmd /c whoami",
+		"cmd /k echo ok",
+		`cmd /c "echo ok & whoami"`,
+		`cmd /c echo "ok & whoami"`,
+		`cmd /c echo "ok | whoami"`,
+		`cmd /c echo "ok > C:\\Temp\\probe.txt"`,
+		`cmd /c echo "ok < C:\\Temp\\probe.txt"`,
+		"cmd /c echo %PATH%",
+		"cmd /c echo !COMSPEC!",
+		"cmd /c echo $(whoami)",
+		"cmd /c echo `whoami`",
+		"cmd /c echo ok && whoami",
+		"cmd /c echo ok & whoami",
+		"cmd /c echo ok | whoami",
+		"cmd /c echo ok > probe.txt",
+		"cmd /c echo ok\nwhoami",
+		"cmd /c echo ok\r\nwhoami",
+		"cmd /c echo shutdown",
+		"cmd /c echo ok /?",
+		"cmd /c echo 日本語",
+	} {
+		if err := ValidateShellCommand(command); err == nil {
+			t.Fatalf("expected Windows cmd bypass attempt %q to be rejected", command)
+		}
+	}
+}
+
 func TestValidateShellCommandBlocksShutdownVariants(t *testing.T) {
 	cases := []struct {
 		name    string

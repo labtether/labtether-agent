@@ -114,6 +114,7 @@ var defaultAllowedExecBinaries = []string{
 }
 
 var defaultShellAllowlistPrefixes = []string{
+	"cmd /c echo",
 	"uptime",
 	"uname",
 	"df",
@@ -370,6 +371,29 @@ func commandArgsHavePrefix(args, prefix []string) bool {
 	return true
 }
 
+func validateWindowsCmdEcho(args []string) error {
+	if len(args) < 4 || normalizeExecutableName(args[0]) != "cmd" ||
+		!strings.EqualFold(args[1], "/c") || !strings.EqualFold(args[2], "echo") {
+		return fmt.Errorf("cmd /c is limited to an echo probe with a non-empty ASCII value")
+	}
+	for _, arg := range args[3:] {
+		if arg == "" {
+			return fmt.Errorf("cmd /c echo probe values must not be empty")
+		}
+		for _, char := range arg {
+			switch {
+			case char >= 'a' && char <= 'z':
+			case char >= 'A' && char <= 'Z':
+			case char >= '0' && char <= '9':
+			case char == '.', char == '_', char == '-', char == ':':
+			default:
+				return fmt.Errorf("cmd /c echo probe values may contain only ASCII letters, digits, dot, underscore, dash, or colon")
+			}
+		}
+	}
+	return nil
+}
+
 func toSet(values []string, normalize func(string) string) map[string]struct{} {
 	out := make(map[string]struct{}, len(values))
 	for _, value := range values {
@@ -462,6 +486,11 @@ func ValidateShellCommand(command string) error {
 			continue
 		}
 		if commandArgsHavePrefix(args, prefixArgs) {
+			if normalizeExecutableName(args[0]) == "cmd" {
+				if err := validateWindowsCmdEcho(args); err != nil {
+					return err
+				}
+			}
 			return nil
 		}
 	}
