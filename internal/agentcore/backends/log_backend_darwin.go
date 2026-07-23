@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os/exec"
 	"regexp"
@@ -39,13 +40,27 @@ func (DarwinLogBackend) QueryEntries(req protocol.JournalQueryData) ([]protocol.
 		if ctx.Err() == context.DeadlineExceeded {
 			return nil, fmt.Errorf("system log query timed out")
 		}
+		if errors.Is(err, securityruntime.ErrCommandOutputLimit) {
+			entries, parseErr := parseDarwinLogOutput(out, req)
+			if parseErr != nil {
+				return nil, parseErr
+			}
+			if len(entries) > 0 {
+				return entries, nil
+			}
+			return nil, fmt.Errorf("system log query output exceeded safe capture limit before matching entries were found")
+		}
 		trimmed := strings.TrimSpace(string(out))
 		if trimmed != "" {
-			return nil, fmt.Errorf("system log query failed: %s", trimmed)
+			return nil, fmt.Errorf("system log query failed: %s", TruncateCommandOutput([]byte(trimmed), MaxCommandOutputBytes))
 		}
 		return nil, fmt.Errorf("system log query failed: %w", err)
 	}
 
+	return parseDarwinLogOutput(out, req)
+}
+
+func parseDarwinLogOutput(out []byte, req protocol.JournalQueryData) ([]protocol.LogStreamData, error) {
 	limit := NormalizedJournalLimit(req.Limit)
 	buffer := make([]timedLogEntry, 0, limit)
 
@@ -131,7 +146,7 @@ func (DarwinLogBackend) StreamEntries(ctx context.Context, emit func(protocol.Lo
 
 // BuildDarwinLogShowArgs builds the arguments for `log show`.
 func BuildDarwinLogShowArgs(req protocol.JournalQueryData) []string {
-	args := []string{"show", "--style", "ndjson", "--color", "none", "--debug"}
+	args := []string{"show", "--style", "ndjson", "--color", "none", "--debug", "--predicate", "eventType == logEvent"}
 	start, end, last := ResolveDarwinLogRange(req.Since, req.Until)
 	if last != "" {
 		args = append(args, "--last", last)

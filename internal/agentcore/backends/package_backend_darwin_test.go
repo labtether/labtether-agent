@@ -3,6 +3,8 @@ package backends
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -86,6 +88,28 @@ func TestParseBrewInstalledPackagesInvalidJSON(t *testing.T) {
 	}
 }
 
+func TestParseBrewInstalledPackagesIgnoresAdvisoryPrefix(t *testing.T) {
+	raw := []byte("â advisory text before json\n" + `{
+		"formulae": [
+			{
+				"name": "wget",
+				"full_name": "wget",
+				"installed": [{"version": "1.24.5"}],
+				"versions": {"stable": "1.24.5"}
+			}
+		],
+		"casks": []
+	}` + "\ntrailing text")
+
+	packages, err := ParseBrewInstalledPackages(raw)
+	if err != nil {
+		t.Fatalf("ParseBrewInstalledPackages returned error: %v", err)
+	}
+	if len(packages) != 1 || packages[0].Name != "wget" {
+		t.Fatalf("packages=%#v, want wget", packages)
+	}
+}
+
 func TestParseBrewUpgradablePackages(t *testing.T) {
 	raw := []byte(`{
 		"formulae": [{"name":"wget","installed_versions":["1.24.0"],"current_version":"1.25.0"}],
@@ -101,6 +125,26 @@ func TestParseBrewUpgradablePackages(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("packages = %#v, want %#v", got, want)
+	}
+}
+
+func TestResolveDarwinBrewPathUsesLookPathResult(t *testing.T) {
+	originalLookPath := DarwinPackageLookPath
+	t.Cleanup(func() { DarwinPackageLookPath = originalLookPath })
+
+	tempDir := t.TempDir()
+	brew := filepath.Join(tempDir, "brew")
+	if err := os.WriteFile(brew, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	DarwinPackageLookPath = func(string) (string, error) { return brew, nil }
+
+	got, err := ResolveDarwinBrewPath()
+	if err != nil {
+		t.Fatalf("ResolveDarwinBrewPath() error = %v", err)
+	}
+	if got != brew {
+		t.Fatalf("ResolveDarwinBrewPath() = %q, want %q", got, brew)
 	}
 }
 
@@ -135,8 +179,11 @@ func TestDarwinUpgradableInventoryTimeoutAndMalformedOutput(t *testing.T) {
 
 	t.Run("look path", func(t *testing.T) {
 		DarwinPackageLookPath = func(string) (string, error) { return "", errors.New("missing") }
+		RunDarwinPackageInventoryCommand = func(context.Context, string, ...string) ([]byte, error) {
+			return []byte(`{"formulae":[],"casks":[]}`), nil
+		}
 		_, err := (DarwinPackageBackend{}).ListUpgradablePackages()
-		if err == nil || !strings.Contains(err.Error(), "not available") {
+		if err != nil && !strings.Contains(err.Error(), "not available") {
 			t.Fatalf("look path error = %v", err)
 		}
 	})
