@@ -561,6 +561,12 @@ func normalizeDockerEndpointValue(raw string) (string, error) {
 	if value == "" {
 		return "", fmt.Errorf("%s cannot be empty", SettingKeyDockerEndpoint)
 	}
+	if normalized, matched, err := dockerpkg.NormalizeDockerNpipeEndpoint(value); matched {
+		if err != nil {
+			return "", fmt.Errorf("%s: %w", SettingKeyDockerEndpoint, err)
+		}
+		return normalized, nil
+	}
 
 	if strings.HasPrefix(value, "/") {
 		return value, nil
@@ -574,7 +580,7 @@ func normalizeDockerEndpointValue(raw string) (string, error) {
 
 	parsed, err := url.Parse(value)
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		return "", fmt.Errorf("%s must be an absolute unix path, unix:// path, or http(s) URL", SettingKeyDockerEndpoint)
+		return "", fmt.Errorf("%s must be an absolute unix path, unix:// path, canonical npipe path, or http(s) URL", SettingKeyDockerEndpoint)
 	}
 	scheme := strings.ToLower(strings.TrimSpace(parsed.Scheme))
 	if scheme != "http" && scheme != "https" {

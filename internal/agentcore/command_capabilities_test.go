@@ -35,3 +35,22 @@ func TestCapabilityBearingTokenAllowsMatchingFileCapability(t *testing.T) {
 		t.Fatalf("matching file capability should be accepted: checked=%v allowed=%v", checked, allowed)
 	}
 }
+
+func TestDockerEndpointTestRequiresDockerCapability(t *testing.T) {
+	required := requiredCapabilitiesForMessage(protocol.MsgDockerEndpointTest)
+	if len(required) == 0 {
+		t.Fatal("Docker endpoint tests must require a capability")
+	}
+
+	dockerToken := testCapabilityToken(t, `{"capabilities":["agent.docker"]}`)
+	checked, allowed := remoteaccess.TokenAllowsAnyCapability(dockerToken, required...)
+	if !checked || !allowed {
+		t.Fatalf("matching Docker capability should be accepted: checked=%v allowed=%v", checked, allowed)
+	}
+
+	terminalToken := testCapabilityToken(t, `{"capabilities":["agent.terminal"]}`)
+	checked, allowed = remoteaccess.TokenAllowsAnyCapability(terminalToken, required...)
+	if !checked || allowed {
+		t.Fatalf("unrelated capability must not authorize Docker endpoint tests: checked=%v allowed=%v", checked, allowed)
+	}
+}

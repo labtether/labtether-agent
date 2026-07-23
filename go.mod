@@ -3,9 +3,10 @@ module github.com/labtether/labtether-agent
 go 1.26.1
 
 require (
+	github.com/Microsoft/go-winio v0.6.2
 	github.com/creack/pty v1.1.24
 	github.com/gorilla/websocket v1.5.3
-	github.com/labtether/protocol v1.5.0
+	github.com/labtether/protocol v1.6.0
 	github.com/pion/interceptor v0.1.45
 	github.com/pion/rtp v1.10.3
 	github.com/pion/webrtc/v4 v4.2.16
