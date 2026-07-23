@@ -114,10 +114,16 @@ func (dc *DockerCollector) CollectAndSendStats(ctx context.Context) {
 
 // PingDockerEndpoint checks if a Docker endpoint is reachable.
 func PingDockerEndpoint(endpoint string, timeout time.Duration) bool {
-	client := NewDockerClient(endpoint)
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	return client.ping(ctx) == nil
+	return CheckDockerEndpoint(ctx, endpoint) == nil
+}
+
+// CheckDockerEndpoint probes a Docker endpoint with the native Engine API
+// client. Callers own the context deadline so interactive endpoint tests do
+// not depend on the long-running Docker collector being enabled.
+func CheckDockerEndpoint(ctx context.Context, endpoint string) error {
+	return NewDockerClient(endpoint).ping(ctx)
 }
 
 func cloneStringMap(input map[string]string) map[string]string {

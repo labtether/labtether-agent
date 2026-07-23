@@ -85,6 +85,9 @@ func receiveLoop(ctx context.Context, transport *wsTransport, cfg RuntimeConfig,
 	// Host power transitions are serialized independently of the general
 	// handler pool so duplicate requests cannot race each other.
 	powerSem := make(chan struct{}, 1)
+	// Docker endpoint probes are collector-independent but serialized so a
+	// hostile or buggy Hub cannot create an unbounded set of dial attempts.
+	dockerEndpointTestSem := make(chan struct{}, 1)
 	powerRuntime := newPlatformPowerBackend()
 
 	// handlerWG tracks all in-flight handler goroutines so receiveLoop can
@@ -745,6 +748,27 @@ func receiveLoop(ctx context.Context, transport *wsTransport, cfg RuntimeConfig,
 				}()
 			}
 		// Docker container management messages.
+		case protocol.MsgDockerEndpointTest:
+			select {
+			case dockerEndpointTestSem <- struct{}{}:
+				select {
+				case sem <- struct{}{}:
+				case <-ctx.Done():
+					<-dockerEndpointTestSem
+					return
+				}
+				handlerWG.Add(1)
+				go func() {
+					defer handlerWG.Done()
+					defer func() { <-sem }()
+					defer func() { <-dockerEndpointTestSem }()
+					safeHandler("docker-endpoint-test", func() {
+						handleDockerEndpointTest(ctx, transport, msg)
+					})
+				}()
+			default:
+				sendDockerEndpointTestBusy(transport, msg)
+			}
 		case protocol.MsgDockerAction:
 			if dockerCollector != nil {
 				sem <- struct{}{}
