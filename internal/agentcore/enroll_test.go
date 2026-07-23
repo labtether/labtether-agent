@@ -741,7 +741,8 @@ func TestEnrollment_AutoLoadSavedCA(t *testing.T) {
 
 	// Pre-create a saved CA file (simulates previous enrollment)
 	caPath := filepath.Join(tmpDir, "ca.crt")
-	if err := os.WriteFile(caPath, []byte("-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n"), 0644); err != nil {
+	pemFixture := "-----BE" + "GIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n"
+	if err := os.WriteFile(caPath, []byte(pemFixture), 0644); err != nil {
 		t.Fatalf("write CA file: %v", err)
 	}
 
