@@ -7,9 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
-	"syscall"
 )
 
 func ValidateStage(stage string) (string, error) {
@@ -34,13 +32,8 @@ func ValidateStage(stage string) (string, error) {
 	if filepath.Clean(stage) != resolved {
 		return "", errors.New("release stage path must not traverse symlinked ancestors")
 	}
-	if runtime.GOOS != "windows" {
-		if info.Mode().Perm() != 0o700 {
-			return "", fmt.Errorf("release stage mode is %#o, want 0700", info.Mode().Perm())
-		}
-		if stat, ok := info.Sys().(*syscall.Stat_t); ok && int(stat.Uid) != os.Getuid() {
-			return "", errors.New("release stage must be owned by the current user")
-		}
+	if err := validateStagePermissions(info); err != nil {
+		return "", err
 	}
 	return resolved, nil
 }
