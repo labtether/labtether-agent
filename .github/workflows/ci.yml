@@ -1,14 +1,49 @@
 name: CI
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
+    tags: ["v*"]
   pull_request:
 
 permissions:
   contents: read
 
 jobs:
+  qa-select:
+    name: Select risk-based QA contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      agent_cross_platform: ${{ steps.select.outputs.agent_cross_platform }}
+      agent_hub_transport: ${{ steps.select.outputs.agent_hub_transport }}
+      agent_installed_container: ${{ steps.select.outputs.agent_installed_container }}
+      selected_json: ${{ steps.select.outputs.selected_json }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Test QA contract selector
+        run: python3 -m unittest scripts/ci/test_select_qa_contracts.py
+
+      - name: Select contracts
+        id: select
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          FULL_MODE: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/') }}
+        run: |
+          set -euo pipefail
+          selector=(python3 scripts/ci/select-qa-contracts.py)
+          if [[ "${FULL_MODE}" == "true" || -z "${BASE_SHA}" || "${BASE_SHA}" =~ ^0+$ ]]; then
+            selector+=(--full)
+          else
+            selector+=(--base "${BASE_SHA}" --head "${GITHUB_SHA}")
+          fi
+          "${selector[@]}"
+
   go-checks:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -50,8 +85,31 @@ jobs:
       - name: Scan current source for secrets
         run: gitleaks dir . --no-banner --redact --timeout 300
 
+  agent-hub-transport:
+    name: Contract / Agent-to-Hub transport
+    needs: qa-select
+    if: needs.qa-select.outputs.agent_hub_transport == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26'
+      - name: Run identity, enrollment, authorization, and connection contracts
+        run: |
+          go test \
+            ./internal/agentcore \
+            ./internal/agentidentity \
+            ./internal/securityruntime \
+            ./internal/servicehttp
+
   cross-build:
     # FreeBSD is a source-portability gate only; this does not add a release artifact.
+    needs: qa-select
+    if: needs.qa-select.outputs.agent_cross_platform == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -81,3 +139,26 @@ jobs:
           go build -trimpath -o /tmp/labtether-agent-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/labtether-agent
           mkdir -p /tmp/labtether-agent-test-binaries
           go test -c -o /tmp/labtether-agent-test-binaries/ ./...
+
+  installed-container:
+    name: Contract / Installed Linux container
+    needs: qa-select
+    if: needs.qa-select.outputs.agent_installed_container == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Build runnable agent image
+        run: |
+          docker build \
+            --build-arg "VERSION=ci-${GITHUB_SHA}" \
+            --tag labtether-agent:qa-contract \
+            .
+      - name: Validate packaged entrypoint and non-root runtime
+        run: |
+          docker run --rm labtether-agent:qa-contract help |
+            grep -Fx "labtether-agent ci-${GITHUB_SHA}"
+          docker run --rm --entrypoint /bin/sh labtether-agent:qa-contract \
+            -eu -c 'test "$(id -u)" = 1001'

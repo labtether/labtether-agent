@@ -290,9 +290,12 @@ func reEnrollAgainstActiveHub(ctx context.Context, cfg RuntimeConfig, transport 
 
 	currentIdentity := transport.identitySource().Snapshot()
 	activeWSURL := currentIdentity.WSBaseURL
-	canonicalAssetID := currentIdentity.AssetID
+	canonicalAssetID := canonicalEnrollmentAssetID(currentIdentity.AssetID)
 	if strings.TrimSpace(activeWSURL) == "" {
 		return "", fmt.Errorf("re-enrollment websocket URL is unavailable")
+	}
+	if canonicalAssetID == "" {
+		return "", fmt.Errorf("re-enrollment asset id is unavailable")
 	}
 
 	cfgCopy := cfg
@@ -373,6 +376,33 @@ func reEnrollAgainstActiveHub(ctx context.Context, cfg RuntimeConfig, transport 
 	// transport.updateToken() is called by the reconnect loop after this
 	// returns, resetting the auth-failure state atomically with token adoption.
 	return resp.AgentToken, nil
+}
+
+// canonicalEnrollmentAssetID mirrors the Hub's hostname-to-asset normalization
+// for an already validated runtime asset ID. Continuity proof v2 is verified
+// against that canonical value, not the original hostname casing.
+func canonicalEnrollmentAssetID(assetID string) string {
+	const maxAssetIDBytes = 64
+
+	canonical := strings.ToLower(strings.TrimSpace(assetID))
+	if len(canonical) > maxAssetIDBytes {
+		canonical = canonical[:maxAssetIDBytes]
+	}
+	var normalized strings.Builder
+	normalized.Grow(len(canonical))
+	for _, ch := range canonical {
+		switch {
+		case ch >= 'a' && ch <= 'z':
+			normalized.WriteRune(ch)
+		case ch >= '0' && ch <= '9':
+			normalized.WriteRune(ch)
+		case ch == '-' || ch == '_' || ch == '.':
+			normalized.WriteRune(ch)
+		default:
+			normalized.WriteByte('-')
+		}
+	}
+	return strings.Trim(normalized.String(), "-")
 }
 
 func replayBufferedTelemetry(transport *wsTransport, telemetryBuf *RingBuffer[TelemetrySample]) {

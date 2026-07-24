@@ -70,13 +70,13 @@ func TestReEnrollAgainstActiveHubBypassesStaleCredentialSources(t *testing.T) {
 		if decodeErr != nil {
 			t.Errorf("decode signature: %v", decodeErr)
 		}
-		proofPayload := agentidentity.BuildTokenEnrollmentProofPayloadV2("stale-container-vm", req.EnrollmentToken, identity.Fingerprint)
+		proofPayload := agentidentity.BuildTokenEnrollmentProofPayloadV2("stale-container-vm.local", req.EnrollmentToken, identity.Fingerprint)
 		if !ed25519.Verify(publicKey, proofPayload, signature) {
 			t.Error("re-enrollment continuity proof did not verify")
 		}
 		_ = json.NewEncoder(w).Encode(enrollResponse{
 			AgentToken: "fresh-agent-token",
-			AssetID:    "canonical-container-vm",
+			AssetID:    "stale-container-vm.local",
 			HubWSURL:   strings.Replace(activeHubURL, "http://", "ws://", 1) + "/ws/agent",
 			HubAPIURL:  activeHubURL,
 		})
@@ -94,10 +94,10 @@ func TestReEnrollAgainstActiveHubBypassesStaleCredentialSources(t *testing.T) {
 	}
 
 	activeWSURL := strings.Replace(activeHub.URL, "http://", "ws://", 1) + "/ws/agent"
-	transport := newWSTransport(activeWSURL, "stale-agent-token", "stale-container-vm", "linux", "test", nil, tokenFile, identity)
+	transport := newWSTransport(activeWSURL, "stale-agent-token", "Stale-Container-VM.local", "linux", "test", nil, tokenFile, identity)
 	transport.reEnrollFn = func() (string, error) { return "sentinel", nil }
 	cfg := RuntimeConfig{
-		AssetID:                 "stale-container-vm",
+		AssetID:                 "Stale-Container-VM.local",
 		APIToken:                "stale-explicit-token",
 		EnrollmentToken:         "fresh-enrollment-token",
 		EnrollmentTokenFilePath: enrollmentTokenFile,
@@ -117,11 +117,11 @@ func TestReEnrollAgainstActiveHubBypassesStaleCredentialSources(t *testing.T) {
 	if activeHubCalls != 1 || wrongHubCalls != 0 {
 		t.Fatalf("active hub calls=%d wrong hub calls=%d", activeHubCalls, wrongHubCalls)
 	}
-	if got := transport.AssetID(); got != "canonical-container-vm" {
+	if got := transport.AssetID(); got != "stale-container-vm.local" {
 		t.Fatalf("transport asset id = %q", got)
 	}
 	runtimeIdentity := transport.identitySource().Snapshot()
-	if runtimeIdentity.BearerToken != "fresh-agent-token" || runtimeIdentity.AssetID != "canonical-container-vm" || runtimeIdentity.WSBaseURL != activeWSURL || runtimeIdentity.APIBaseURL != activeHub.URL {
+	if runtimeIdentity.BearerToken != "fresh-agent-token" || runtimeIdentity.AssetID != "stale-container-vm.local" || runtimeIdentity.WSBaseURL != activeWSURL || runtimeIdentity.APIBaseURL != activeHub.URL {
 		t.Fatalf("runtime identity did not rotate atomically: token_current=%v asset=%q ws=%q api=%q", runtimeIdentity.BearerToken == "fresh-agent-token", runtimeIdentity.AssetID, runtimeIdentity.WSBaseURL, runtimeIdentity.APIBaseURL)
 	}
 	persistedToken, err := loadTokenFromFile(tokenFile)
@@ -145,8 +145,42 @@ func TestReEnrollAgainstActiveHubBypassesStaleCredentialSources(t *testing.T) {
 	if err := restoreEnrollmentState(&restored); err != nil {
 		t.Fatalf("restore enrollment state: %v", err)
 	}
-	if restored.AssetID != "canonical-container-vm" || restored.WSBaseURL != activeWSURL {
+	if restored.AssetID != "stale-container-vm.local" || restored.WSBaseURL != activeWSURL {
 		t.Fatalf("restored enrollment state = %#v", restored)
+	}
+}
+
+func TestCanonicalEnrollmentAssetIDMatchesHubHostnameNormalization(t *testing.T) {
+	const sixtyThreeAs = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
+	tests := []struct {
+		name    string
+		assetID string
+		want    string
+	}{
+		{name: "case and whitespace", assetID: "  My Mac.local  ", want: "my-mac.local"},
+		{name: "valid separators", assetID: "NODE_Name-1.local", want: "node_name-1.local"},
+		{name: "punctuation", assetID: "!!!node???name!!!", want: "node---name"},
+		{name: "unicode", assetID: "αHostβ.local", want: "host-.local"},
+		{
+			name:    "replacement at byte limit is trimmed",
+			assetID: sixtyThreeAs + "?tail",
+			want:    sixtyThreeAs,
+		},
+		{
+			name:    "split unicode rune at byte limit matches hub range behavior",
+			assetID: sixtyThreeAs + "é",
+			want:    sixtyThreeAs,
+		},
+		{name: "only invalid characters", assetID: "🎉", want: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := canonicalEnrollmentAssetID(tt.assetID); got != tt.want {
+				t.Fatalf("canonicalEnrollmentAssetID(%q) = %q, want %q", tt.assetID, got, tt.want)
+			}
+		})
 	}
 }
 
