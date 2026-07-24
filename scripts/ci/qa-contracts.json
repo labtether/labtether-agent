@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "contracts": {
+    "agent-cross-platform": {
+      "reason": "Linux, macOS, Windows, and FreeBSD source portability"
+    },
+    "agent-hub-transport": {
+      "reason": "Agent identity, enrollment, authorization, and Hub connection behavior"
+    },
+    "agent-installed-container": {
+      "reason": "Runnable non-root Linux container package"
+    }
+  },
+  "high_risk_patterns": [
+    ".github/workflows/**",
+    "Dockerfile",
+    "cmd/**",
+    "internal/**",
+    "scripts/ci/**",
+    "scripts/release/**"
+  ],
+  "rules": [
+    {
+      "id": "qa-infrastructure",
+      "reason": "QA selection and workflow changes must exercise every contract they can alter",
+      "patterns": [
+        ".github/workflows/**",
+        "scripts/ci/**"
+      ],
+      "contracts": [
+        "agent-hub-transport",
+        "agent-cross-platform",
+        "agent-installed-container"
+      ]
+    },
+    {
+      "id": "packaging-signing",
+      "reason": "Container, release, packaging, or signing changes require cross-platform and installed checks",
+      "patterns": [
+        ".github/workflows/container-release.yml",
+        ".github/workflows/release.yml",
+        "Dockerfile",
+        "scripts/release/**"
+      ],
+      "contracts": [
+        "agent-cross-platform",
+        "agent-installed-container"
+      ]
+    },
+    {
+      "id": "network-tls-wss-security",
+      "reason": "Identity, permission, TLS/WSS, enrollment, or Hub connection changes require shared transport proof",
+      "patterns": [
+        "cmd/labtether-agent/**",
+        "internal/agentcore/**",
+        "internal/agentidentity/**",
+        "internal/securityruntime/**",
+        "internal/servicehttp/**"
+      ],
+      "contracts": [
+        "agent-hub-transport",
+        "agent-cross-platform",
+        "agent-installed-container"
+      ]
+    },
+    {
+      "id": "platform-specific",
+      "reason": "Platform-specific behavior requires every supported target to compile",
+      "patterns": [
+        "internal/agentplatform/**",
+        "internal/platforms/**"
+      ],
+      "contracts": [
+        "agent-cross-platform",
+        "agent-installed-container"
+      ]
+    },
+    {
+      "id": "agent-runtime-fallback",
+      "reason": "Unclassified agent runtime changes still require Hub transport and cross-platform contracts",
+      "patterns": [
+        "cmd/**",
+        "internal/**"
+      ],
+      "contracts": [
+        "agent-hub-transport",
+        "agent-cross-platform"
+      ]
+    }
+  ]
+}
