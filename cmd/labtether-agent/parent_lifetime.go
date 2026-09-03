@@ -52,11 +52,11 @@ func parseConfiguredParentPID(raw string) (pid int, configured bool, err error) 
 		return 0, false, nil
 	}
 
-	parsed, err := strconv.ParseUint(raw, 10, 32)
-	if err != nil || parsed == 0 || parsed > uint64(^uint(0)>>1) {
+	parsed, err := strconv.Atoi(raw)
+	if err != nil || parsed <= 0 {
 		return 0, true, fmt.Errorf("%s must be a positive process ID", envParentPID)
 	}
-	pid = int(parsed)
+	pid = parsed
 	if pid == os.Getpid() {
 		return 0, true, fmt.Errorf("%s cannot reference the agent itself", envParentPID)
 	}
