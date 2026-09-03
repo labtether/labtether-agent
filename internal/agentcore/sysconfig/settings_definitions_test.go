@@ -88,6 +88,14 @@ func TestNormalizeAgentSettingValueDockerEndpointUnixSchemeCaseInsensitive(t *te
 	}
 }
 
+func TestNormalizeAgentSettingValueDockerEndpointRejectsNetworkPathPrefix(t *testing.T) {
+	for _, endpoint := range []string{"//server/docker.sock", `/\\server/docker.sock`} {
+		if _, err := NormalizeAgentSettingValue(SettingKeyDockerEndpoint, endpoint); err == nil {
+			t.Fatalf("network-path endpoint %q was accepted", endpoint)
+		}
+	}
+}
+
 func TestNormalizeAgentSettingValueDockerEndpointCanonicalNpipe(t *testing.T) {
 	const endpoint = "npipe:////./pipe/docker_engine"
 	normalized, err := NormalizeAgentSettingValue(SettingKeyDockerEndpoint, endpoint)

@@ -771,16 +771,29 @@ func TestCleanupPendingWriteDoesNotRemoveReplacementForSameRequestID(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
+	oldRoot, err := os.OpenRoot(baseDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newRoot, err := os.OpenRoot(baseDir)
+	if err != nil {
+		_ = oldRoot.Close()
+		t.Fatal(err)
+	}
 
 	oldPending := &PendingWrite{
-		File:    oldFile,
-		Path:    filepath.Join(baseDir, "old.txt"),
-		TmpPath: oldFile.Name(),
+		File:       oldFile,
+		Root:       oldRoot,
+		Path:       filepath.Join(baseDir, "old.txt"),
+		TmpPath:    oldFile.Name(),
+		TmpRelPath: filepath.Base(oldFile.Name()),
 	}
 	newPending := &PendingWrite{
-		File:    newFile,
-		Path:    filepath.Join(baseDir, "new.txt"),
-		TmpPath: newFile.Name(),
+		File:       newFile,
+		Root:       newRoot,
+		Path:       filepath.Join(baseDir, "new.txt"),
+		TmpPath:    newFile.Name(),
+		TmpRelPath: filepath.Base(newFile.Name()),
 	}
 	fm := &Manager{
 		writers: map[string]*PendingWrite{

@@ -569,6 +569,9 @@ func normalizeDockerEndpointValue(raw string) (string, error) {
 	}
 
 	if strings.HasPrefix(value, "/") {
+		if len(value) > 1 && (value[1] == '/' || value[1] == '\\') {
+			return "", fmt.Errorf("%s absolute path must not begin with a network-path prefix", SettingKeyDockerEndpoint)
+		}
 		return value, nil
 	}
 	if path, ok := dockerpkg.TrimDockerUnixScheme(value); ok {
