@@ -23,6 +23,11 @@ func handleConfigUpdate(transport *wsTransport, msg protocol.Message, runtime *R
 	if runtime == nil {
 		return
 	}
+	if !runtime.allowRemoteOverrides() {
+		log.Printf("agentws: ignoring config update because remote overrides are disabled")
+		sendLegacyConfigApplied(transport, runtime)
+		return
+	}
 
 	changed := false
 	if data.CollectIntervalSec != nil {
@@ -70,6 +75,10 @@ func handleConfigUpdate(transport *wsTransport, msg protocol.Message, runtime *R
 	}
 
 	// Send acknowledgment back to hub.
+	sendLegacyConfigApplied(transport, runtime)
+}
+
+func sendLegacyConfigApplied(transport *wsTransport, runtime *Runtime) {
 	ackData, _ := json.Marshal(protocol.ConfigAppliedData{
 		CollectIntervalSec:   runtime.effectiveCollectIntervalSec(),
 		HeartbeatIntervalSec: runtime.effectiveHeartbeatIntervalSec(),

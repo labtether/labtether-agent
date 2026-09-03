@@ -27,7 +27,13 @@ type UpdatePackageCommand struct {
 
 // ExecConfig contains the subset of runtime config needed by command/update handlers.
 type ExecConfig struct {
-	APIToken string // #nosec G117 -- Runtime API token, not a hardcoded credential.
+	APIBaseURL         string
+	APIToken           string // #nosec G117 -- Runtime API token, not a hardcoded credential.
+	WSBaseURL          string
+	AutoUpdateCheckURL string
+	TLSCAFile          string
+	TLSSkipVerify      bool
+	Version            string
 }
 
 // SelfUpdateFn is the signature for self-update logic, wired from root agentcore.

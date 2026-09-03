@@ -24,8 +24,9 @@ func decodeConfigApplied(t *testing.T, msg protocol.Message) protocol.ConfigAppl
 
 func TestHandleConfigUpdateAcknowledgesEffectiveIntervalsOnInvalidUpdate(t *testing.T) {
 	runtime := newSettingsLifecycleRuntime(t, RuntimeConfig{
-		CollectInterval:   15 * time.Second,
-		HeartbeatInterval: 45 * time.Second,
+		CollectInterval:      15 * time.Second,
+		HeartbeatInterval:    45 * time.Second,
+		AllowRemoteOverrides: true,
 	})
 	transport, messages, cleanup := newSettingsLifecycleTransport(t)
 	defer cleanup()
@@ -56,8 +57,9 @@ func TestHandleConfigUpdateAppliesValidIntervalsAndPersists(t *testing.T) {
 	t.Setenv("HOME", home)
 
 	runtime := newSettingsLifecycleRuntime(t, RuntimeConfig{
-		CollectInterval:   10 * time.Second,
-		HeartbeatInterval: 20 * time.Second,
+		CollectInterval:      10 * time.Second,
+		HeartbeatInterval:    20 * time.Second,
+		AllowRemoteOverrides: true,
 	})
 	transport, messages, cleanup := newSettingsLifecycleTransport(t)
 	defer cleanup()
@@ -113,8 +115,9 @@ func TestHandleConfigUpdateClearsLegacyOverridesBackToBaseline(t *testing.T) {
 	t.Setenv("HOME", home)
 
 	runtime := newSettingsLifecycleRuntime(t, RuntimeConfig{
-		CollectInterval:   10 * time.Second,
-		HeartbeatInterval: 20 * time.Second,
+		CollectInterval:      10 * time.Second,
+		HeartbeatInterval:    20 * time.Second,
+		AllowRemoteOverrides: true,
 	})
 	runtime.collectIntervalOverride.Store(30)
 	runtime.heartbeatIntervalOverride.Store(60)
@@ -160,5 +163,40 @@ func TestHandleConfigUpdateClearsLegacyOverridesBackToBaseline(t *testing.T) {
 	path := filepath.Join(home, ".labtether", appliedConfigFile)
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatalf("expected applied config file to be removed, got err=%v", err)
+	}
+}
+
+func TestHandleConfigUpdateDoesNotBypassDisabledRemoteOverrides(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	runtime := newSettingsLifecycleRuntime(t, RuntimeConfig{
+		CollectInterval:      10 * time.Second,
+		HeartbeatInterval:    20 * time.Second,
+		AllowRemoteOverrides: false,
+	})
+	transport, messages, cleanup := newSettingsLifecycleTransport(t)
+	defer cleanup()
+
+	collect := 30
+	heartbeat := 60
+	data, err := json.Marshal(protocol.ConfigUpdateData{
+		CollectIntervalSec:   &collect,
+		HeartbeatIntervalSec: &heartbeat,
+	})
+	if err != nil {
+		t.Fatalf("marshal config update: %v", err)
+	}
+
+	handleConfigUpdate(transport, protocol.Message{Type: protocol.MsgConfigUpdate, Data: data}, runtime)
+
+	ack := decodeConfigApplied(t, readSettingsLifecycleMessage(t, messages))
+	if ack.CollectIntervalSec != 10 || ack.HeartbeatIntervalSec != 20 {
+		t.Fatalf("ack=%+v, want unchanged baseline intervals", ack)
+	}
+	if runtime.collectIntervalOverride.Load() != 0 || runtime.heartbeatIntervalOverride.Load() != 0 {
+		t.Fatal("disabled remote overrides changed runtime interval overrides")
+	}
+	if _, err := os.Stat(filepath.Join(home, ".labtether", appliedConfigFile)); !os.IsNotExist(err) {
+		t.Fatalf("disabled remote overrides wrote applied config: %v", err)
 	}
 }

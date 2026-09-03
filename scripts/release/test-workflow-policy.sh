@@ -47,6 +47,11 @@ grep -Fq 'packages: write' "${CONTAINER_WORKFLOW}" ||
   fail "container workflow lacks its narrowly scoped GHCR permission"
 grep -Fq 'subject-digest:' "${CONTAINER_WORKFLOW}" ||
   fail "container provenance must bind the pushed image digest"
+if grep -Fq 'APP_VERSION=' "${CONTAINER_WORKFLOW}"; then
+  fail "container workflow uses the wrong Docker build argument"
+fi
+grep -Eq '^[[:space:]]+VERSION=\$\{\{ github\.ref_name \}\}$' "${CONTAINER_WORKFLOW}" ||
+  fail "container workflow does not inject the release version into the Docker build"
 grep -Fq 'confirm-sign' "${SIGNER}" ||
   fail "local signer lacks an exact confirmation flag"
 grep -Fq 'signing requires exact --confirm-sign TAG confirmation' "${SIGNER}" ||

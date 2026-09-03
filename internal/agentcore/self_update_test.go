@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -77,6 +78,8 @@ func TestCheckAndApplySelfUpdate_ReplacesExecutable(t *testing.T) {
 		case "/release":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"version": "v2.0.0",
+				"os":      runtime.GOOS,
+				"arch":    runtime.GOARCH,
 				"sha256":  newSHA,
 				"url":     server.URL + "/binary",
 			})
@@ -132,6 +135,8 @@ func TestCheckAndApplySelfUpdate_NoopWhenChecksumMatches(t *testing.T) {
 		if r.URL.Path == "/release" {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"version": "v2.0.0",
+				"os":      runtime.GOOS,
+				"arch":    runtime.GOARCH,
 				"sha256":  currentSHA,
 				"url":     server.URL + "/binary",
 			})
@@ -177,6 +182,8 @@ func TestCheckAndApplySelfUpdate_ForceWhenChecksumMatches(t *testing.T) {
 		if r.URL.Path == "/release" {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"version": "v2.0.0",
+				"os":      runtime.GOOS,
+				"arch":    runtime.GOARCH,
 				"sha256":  currentSHA,
 				"url":     server.URL + "/binary",
 			})
@@ -306,7 +313,10 @@ func TestNativeWrapperSelfUpdateBlocked(t *testing.T) {
 
 func TestValidateReleaseMetadataRejectsCrossOriginByDefault(t *testing.T) {
 	release := agentReleaseMetadata{
-		SHA256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		Version: "v2.0.0",
+		OS:      runtime.GOOS,
+		Arch:    runtime.GOARCH,
+		SHA256:  "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 	}
 	err := validateReleaseMetadata("https://hub.example.com/api/v1/agent/releases/latest", "https://cdn.example.com/agent.bin", release)
 	if err == nil {
@@ -320,6 +330,191 @@ func TestShouldAttachUpdateTokenOnlyForSameOrigin(t *testing.T) {
 	}
 	if shouldAttachUpdateToken("https://hub.example.com/api/v1/agent/releases/latest", "https://cdn.example.com/agent.bin") {
 		t.Fatalf("expected token forwarding to be disabled for cross-origin download")
+	}
+}
+
+func TestFetchReleaseMetadataBoundsAndAuth(t *testing.T) {
+	t.Setenv(envAllowInsecureTransport, "true")
+	t.Setenv("LABTETHER_OUTBOUND_ALLOW_LOOPBACK", "true")
+
+	t.Run("custom endpoint does not receive Hub token", func(t *testing.T) {
+		seenAuthorization := ""
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			seenAuthorization = r.Header.Get("Authorization")
+			_ = json.NewEncoder(w).Encode(agentReleaseMetadata{Version: "v2.0.0"})
+		}))
+		defer server.Close()
+
+		if _, err := fetchReleaseMetadata(RuntimeConfig{APIToken: "hub-secret"}, server.URL); err != nil {
+			t.Fatalf("fetchReleaseMetadata returned error: %v", err)
+		}
+		if seenAuthorization != "" {
+			t.Fatalf("custom endpoint received Hub authorization header %q", seenAuthorization)
+		}
+	})
+
+	t.Run("canonical Hub origin may receive Hub token", func(t *testing.T) {
+		seenAuthorization := ""
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			seenAuthorization = r.Header.Get("Authorization")
+			_ = json.NewEncoder(w).Encode(agentReleaseMetadata{Version: "v2.0.0"})
+		}))
+		defer server.Close()
+
+		cfg := RuntimeConfig{APIBaseURL: server.URL, APIToken: "hub-secret"}
+		if _, err := fetchReleaseMetadata(cfg, server.URL+"/api/v1/agent/releases/latest"); err != nil {
+			t.Fatalf("fetchReleaseMetadata returned error: %v", err)
+		}
+		if seenAuthorization != "Bearer hub-secret" {
+			t.Fatalf("canonical endpoint authorization header = %q", seenAuthorization)
+		}
+	})
+
+	t.Run("content length above limit is rejected", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Length", strconv.Itoa(maxSelfUpdateMetadataSize+1))
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer server.Close()
+
+		if _, err := fetchReleaseMetadata(RuntimeConfig{}, server.URL); err == nil || !strings.Contains(err.Error(), "maximum size") {
+			t.Fatalf("expected metadata size error, got %v", err)
+		}
+	})
+
+	t.Run("chunked body above limit is rejected", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Transfer-Encoding", "chunked")
+			_, _ = w.Write([]byte(strings.Repeat("x", maxSelfUpdateMetadataSize+1)))
+		}))
+		defer server.Close()
+
+		if _, err := fetchReleaseMetadata(RuntimeConfig{}, server.URL); err == nil || !strings.Contains(err.Error(), "maximum size") {
+			t.Fatalf("expected metadata size error, got %v", err)
+		}
+	})
+
+	t.Run("trailing JSON is rejected", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write([]byte(`{"version":"v2.0.0"}{"extra":true}`))
+		}))
+		defer server.Close()
+
+		if _, err := fetchReleaseMetadata(RuntimeConfig{}, server.URL); err == nil || !strings.Contains(err.Error(), "trailing JSON") {
+			t.Fatalf("expected trailing JSON error, got %v", err)
+		}
+	})
+
+	t.Run("cross-origin redirect strips Hub token", func(t *testing.T) {
+		seenAuthorization := ""
+		destination := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			seenAuthorization = r.Header.Get("Authorization")
+			_ = json.NewEncoder(w).Encode(agentReleaseMetadata{Version: "v2.0.0"})
+		}))
+		defer destination.Close()
+		origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Location", destination.URL)
+			w.WriteHeader(http.StatusFound)
+		}))
+		defer origin.Close()
+
+		cfg := RuntimeConfig{APIBaseURL: origin.URL, APIToken: "hub-secret"}
+		if _, err := fetchReleaseMetadata(cfg, origin.URL+"/api/v1/agent/releases/latest"); err != nil {
+			t.Fatalf("fetch redirected metadata: %v", err)
+		}
+		if seenAuthorization != "" {
+			t.Fatalf("redirect destination received Hub authorization header %q", seenAuthorization)
+		}
+	})
+}
+
+func TestValidateReleaseTargetRejectsWrongPlatformAndRollback(t *testing.T) {
+	valid := agentReleaseMetadata{Version: "v2.0.0", OS: runtime.GOOS, Arch: runtime.GOARCH}
+	if err := validateReleaseTarget(RuntimeConfig{Version: "v1.9.0"}, valid); err != nil {
+		t.Fatalf("newer matching release rejected: %v", err)
+	}
+
+	wrongOS := valid
+	wrongOS.OS = "not-" + runtime.GOOS
+	if err := validateReleaseTarget(RuntimeConfig{Version: "v1.9.0"}, wrongOS); err == nil {
+		t.Fatal("expected wrong OS to be rejected")
+	}
+
+	wrongArch := valid
+	wrongArch.Arch = "not-" + runtime.GOARCH
+	if err := validateReleaseTarget(RuntimeConfig{Version: "v1.9.0"}, wrongArch); err == nil {
+		t.Fatal("expected wrong architecture to be rejected")
+	}
+
+	rollback := valid
+	rollback.Version = "v1.8.9"
+	if err := validateReleaseTarget(RuntimeConfig{Version: "v1.9.0"}, rollback); err == nil || !strings.Contains(err.Error(), "downgrade") {
+		t.Fatalf("expected rollback to be rejected, got %v", err)
+	}
+
+	if err := validateReleaseTarget(RuntimeConfig{Version: "development"}, valid); err != nil {
+		t.Fatalf("development build should accept a stable release: %v", err)
+	}
+	hugeRollback := valid
+	hugeRollback.Version = "v999999999999999999999999999999.0.0"
+	if err := validateReleaseTarget(RuntimeConfig{Version: "v1000000000000000000000000000000.0.0"}, hugeRollback); err == nil {
+		t.Fatal("expected large numeric rollback to be rejected")
+	}
+	invalidRelease := valid
+	invalidRelease.Version = "latest"
+	if err := validateReleaseTarget(RuntimeConfig{Version: "v1.9.0"}, invalidRelease); err == nil {
+		t.Fatal("expected non-semantic release version to be rejected")
+	}
+}
+
+func TestForcedSelfUpdateStillRejectsRollback(t *testing.T) {
+	t.Setenv(envAllowInsecureTransport, "true")
+	t.Setenv("LABTETHER_OUTBOUND_ALLOW_LOOPBACK", "true")
+	t.Setenv(envSelfUpdateAcceptUnsigned, "true")
+	tempDir := t.TempDir()
+	executablePath := filepath.Join(tempDir, "labtether-agent")
+	originalBinary := []byte("current-binary")
+	if err := os.WriteFile(executablePath, originalBinary, 0o755); err != nil {
+		t.Fatalf("write current executable: %v", err)
+	}
+
+	binaryRequests := 0
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/release":
+			_ = json.NewEncoder(w).Encode(agentReleaseMetadata{
+				Version: "v1.9.9",
+				OS:      runtime.GOOS,
+				Arch:    runtime.GOARCH,
+				SHA256:  strings.Repeat("a", 64),
+				URL:     server.URL + "/binary",
+			})
+		case "/binary":
+			binaryRequests++
+			_, _ = w.Write([]byte("older-binary"))
+		}
+	}))
+	defer server.Close()
+	originalExecutablePathFn := executablePathFn
+	executablePathFn = func() (string, error) { return executablePath, nil }
+	t.Cleanup(func() { executablePathFn = originalExecutablePathFn })
+
+	if _, _, err := checkAndApplySelfUpdateWithOptions(RuntimeConfig{
+		AutoUpdateCheckURL: server.URL + "/release",
+		Version:            "v2.0.0",
+	}, selfUpdateOptions{Force: true}); err == nil || !strings.Contains(err.Error(), "downgrade") {
+		t.Fatalf("expected forced rollback rejection, got %v", err)
+	}
+	if binaryRequests != 0 {
+		t.Fatalf("rollback downloaded binary %d times", binaryRequests)
+	}
+	content, err := os.ReadFile(executablePath)
+	if err != nil {
+		t.Fatalf("read current executable: %v", err)
+	}
+	if string(content) != string(originalBinary) {
+		t.Fatalf("rollback changed executable to %q", content)
 	}
 }
 
@@ -531,6 +726,8 @@ func TestMaybeAutoUpdateOnStartupRequestsRestart(t *testing.T) {
 		case "/release":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"version": "v2.0.0",
+				"os":      runtime.GOOS,
+				"arch":    runtime.GOARCH,
 				"sha256":  newSHA,
 				"url":     server.URL + "/binary",
 			})

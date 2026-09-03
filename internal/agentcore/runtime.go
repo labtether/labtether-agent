@@ -76,15 +76,12 @@ func newRuntimeWithIdentity(cfg RuntimeConfig, provider TelemetryProvider, publi
 
 func (r *Runtime) Run(ctx context.Context) error {
 	bindAddress := resolveAgentLocalBindAddress()
-	localAuthConfig := r.cfg
-	localAuthConfig.APIToken = r.identity.Snapshot().BearerToken
-	localAuth, err := resolveAgentLocalAuth(localAuthConfig, bindAddress)
-	localAuthConfig.APIToken = ""
+	localAuth, err := resolveAgentLocalAuth(r.cfg, bindAddress)
 	if err != nil {
 		return err
 	}
 	r.localBindAddress = bindAddress
-	r.localAuthEnabled = strings.TrimSpace(localAuth.token) != "" || localAuth.useRuntimeIdentity
+	r.localAuthEnabled = strings.TrimSpace(localAuth.token) != ""
 
 	go r.collectLoop(ctx)
 	go r.heartbeatLoop(ctx)
@@ -108,12 +105,6 @@ func (r *Runtime) Run(ctx context.Context) error {
 			},
 		},
 	}
-	if localAuth.useRuntimeIdentity {
-		serviceConfig.AuthToken = ""
-		serviceConfig.AuthTokenProvider = func() string {
-			return r.identity.Snapshot().BearerToken
-		}
-	}
 	return servicehttp.Run(ctx, serviceConfig)
 }
 
@@ -135,8 +126,7 @@ func resolveAgentLocalBindAddress() string {
 }
 
 type agentLocalAuthResolution struct {
-	token              string
-	useRuntimeIdentity bool
+	token string
 }
 
 func resolveAgentLocalAuthToken(cfg RuntimeConfig, bindAddress string) (string, error) {
@@ -163,9 +153,6 @@ func resolveAgentLocalAuth(cfg RuntimeConfig, bindAddress string) (agentLocalAut
 	if parseBoolEnv(envAgentLocalAllowUnauth, false) {
 		log.Printf("%s: WARNING: non-loopback local API binding is unauthenticated (%s=true)", cfg.Name, envAgentLocalAllowUnauth)
 		return agentLocalAuthResolution{}, nil
-	}
-	if token := strings.TrimSpace(cfg.APIToken); token != "" {
-		return agentLocalAuthResolution{token: token, useRuntimeIdentity: true}, nil
 	}
 	return agentLocalAuthResolution{}, fmt.Errorf("non-loopback local API binding requires %s or %s=true", envAgentLocalAuthToken, envAgentLocalAllowUnauth)
 }

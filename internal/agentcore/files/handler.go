@@ -19,18 +19,19 @@ import (
 )
 
 const (
-	FileChunkSize            = 64 * 1024         // 64KB per chunk
-	MaxFileSize              = 512 * 1024 * 1024 // 512MB max file transfer
-	maxFileListEntries       = 5000
-	maxFileListScanned       = 20000
-	maxFileListReadBatch     = 256
-	maxFileListResponseSize  = 4 * 1024 * 1024
-	maxFileListRequestIDLen  = 256
-	maxWritePending          = 64
-	maxFileWriteRequestIDLen = 256
-	pendingWriteIdleTTL      = 5 * time.Minute
-	orphanCleanupScanBudget  = 2 * time.Second
-	orphanCleanupMaxEntries  = 20000
+	FileChunkSize                 = 64 * 1024         // 64KB per chunk
+	MaxFileSize                   = 512 * 1024 * 1024 // 512MB max file transfer
+	MaxFileWriteQueuedMessageSize = 128 * 1024        // Bounded in-memory envelope around one base64-encoded chunk.
+	maxFileListEntries            = 5000
+	maxFileListScanned            = 20000
+	maxFileListReadBatch          = 256
+	maxFileListResponseSize       = 4 * 1024 * 1024
+	maxFileListRequestIDLen       = 256
+	maxWritePending               = 64
+	maxFileWriteRequestIDLen      = 256
+	pendingWriteIdleTTL           = 5 * time.Minute
+	orphanCleanupScanBudget       = 2 * time.Second
+	orphanCleanupMaxEntries       = 20000
 )
 
 var (
