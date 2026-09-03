@@ -142,12 +142,13 @@ func (tm *TerminalManager) HandleTerminalStart(transport MessageSender, msg prot
 	})
 	var input io.WriteCloser
 	var output io.ReadCloser
+	var pipeProcessDone <-chan error
 	if errors.Is(err, pty.ErrUnsupported) {
 		// creack/pty deliberately reports unsupported on Windows. Keep the
 		// terminal usable with a bounded stdin/stdout pipe bridge until a native
 		// ConPTY backend is available; process execution and input still pass
 		// through the same allowlist and authenticated agent channel.
-		input, output, err = startPipeBackedTerminal(cmd)
+		input, output, pipeProcessDone, err = startPipeBackedTerminal(cmd)
 	}
 	if err != nil {
 		log.Printf("terminal: failed to start PTY for session %s: %v", req.SessionID, err)
@@ -185,7 +186,11 @@ func (tm *TerminalManager) HandleTerminalStart(transport MessageSender, msg prot
 	// Observe process exit for lifecycle signalling only. Do NOT close
 	// the PTY here — streamOutput owns that.
 	go func() {
-		_ = cmd.Wait()
+		if pipeProcessDone != nil {
+			_ = <-pipeProcessDone
+		} else {
+			_ = cmd.Wait()
+		}
 		close(sess.done)
 	}()
 }
@@ -405,21 +410,21 @@ func (tm *TerminalManager) cleanup(sessionID string) {
 	}
 }
 
-func startPipeBackedTerminal(cmd *exec.Cmd) (io.WriteCloser, io.ReadCloser, error) {
+func startPipeBackedTerminal(cmd *exec.Cmd) (io.WriteCloser, io.ReadCloser, <-chan error, error) {
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		_ = stdin.Close()
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		_ = stdin.Close()
 		_ = stdout.Close()
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	combinedReader, combinedWriter := io.Pipe()
 	if err := cmd.Start(); err != nil {
@@ -428,7 +433,7 @@ func startPipeBackedTerminal(cmd *exec.Cmd) (io.WriteCloser, io.ReadCloser, erro
 		_ = stderr.Close()
 		_ = combinedReader.Close()
 		_ = combinedWriter.Close()
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	var copies sync.WaitGroup
@@ -440,12 +445,15 @@ func startPipeBackedTerminal(cmd *exec.Cmd) (io.WriteCloser, io.ReadCloser, erro
 	}
 	go copyStream(stdout)
 	go copyStream(stderr)
+	processDone := make(chan error, 1)
 	go func() {
 		copies.Wait()
 		_ = combinedWriter.Close()
+		processDone <- cmd.Wait()
+		close(processDone)
 	}()
 
-	return stdin, combinedReader, nil
+	return stdin, combinedReader, processDone, nil
 }
 
 func (s *TerminalSession) read(buf []byte) (int, error) {
