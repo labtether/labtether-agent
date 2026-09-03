@@ -379,14 +379,14 @@ func (fm *Manager) cleanupWriteLocked(requestID string, pw *PendingWrite) {
 	if closeErr := pw.File.Close(); closeErr != nil {
 		log.Printf("file: failed to close pending writer %s: %v", requestID, closeErr)
 	}
-	if pw.Root != nil {
+	if pw.Root == nil {
+		log.Printf("file: pending upload %s is missing its file root", requestID)
+	} else {
 		if rmErr := pw.Root.Remove(pw.TmpRelPath); rmErr != nil && !errors.Is(rmErr, os.ErrNotExist) {
-			log.Printf("file: failed to remove temp upload %s: %v", pw.TmpPath, rmErr)
+			log.Printf("file: failed to remove temp upload for %s: %v", requestID, rmErr)
 		}
 		_ = pw.Root.Close()
 		pw.Root = nil
-	} else if rmErr := os.Remove(pw.TmpPath); rmErr != nil && !errors.Is(rmErr, os.ErrNotExist) {
-		log.Printf("file: failed to remove temp upload %s: %v", pw.TmpPath, rmErr)
 	}
 	// Keep the request visible as pending until its file handle and temporary
 	// path have both been cleaned. Callers use absence from this map as the
