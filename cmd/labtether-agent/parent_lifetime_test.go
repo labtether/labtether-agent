@@ -22,6 +22,7 @@ func TestParseConfiguredParentPID(t *testing.T) {
 		{name: "valid", raw: " 4242 ", wantPID: 4242, configured: true},
 		{name: "zero", raw: "0", configured: true, wantError: true},
 		{name: "negative", raw: "-1", configured: true, wantError: true},
+		{name: "native int overflow", raw: "18446744073709551615", configured: true, wantError: true},
 		{name: "text", raw: "parent", configured: true, wantError: true},
 		{name: "self", raw: strconv.Itoa(os.Getpid()), configured: true, wantError: true},
 	}
