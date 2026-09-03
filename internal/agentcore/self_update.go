@@ -1,6 +1,7 @@
 package agentcore
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
@@ -28,9 +29,15 @@ const (
 	envSelfUpdateAllowExternalDownload = "LABTETHER_AUTO_UPDATE_ALLOW_EXTERNAL_DOWNLOAD"
 	envSelfUpdateAcceptUnsigned        = "LABTETHER_AUTO_UPDATE_ACCEPT_UNSIGNED"
 	maxSelfUpdateBinarySize            = 100 * 1024 * 1024 // 100MB
+	maxSelfUpdateMetadataSize          = 1 * 1024 * 1024   // 1MB
+	maxSelfUpdateVersionLength         = 128
+	maxSelfUpdatePlatformLength        = 128
+	maxSelfUpdateURLLength             = 4096
+	maxSelfUpdateSignatureLength       = 512
 )
 
 const nativeWrapperSelfUpdateMessage = "self-update is managed by the native LabTether app; update the app instead"
+const selfUpdateEndpointUnavailableMessage = "auto-update endpoint unavailable"
 
 var (
 	agentExitFn       = os.Exit
@@ -83,7 +90,7 @@ func checkAndApplySelfUpdateWithOptions(cfg RuntimeConfig, opts selfUpdateOption
 
 	checkURL := normalizeHTTPSURL(buildAgentReleaseCheckURL(cfg))
 	if checkURL == "" {
-		return false, "auto-update endpoint unavailable", nil
+		return false, selfUpdateEndpointUnavailableMessage, nil
 	}
 	executablePath, err := executablePathFn()
 	if err != nil {
@@ -108,6 +115,9 @@ func checkAndApplySelfUpdateWithOptions(cfg RuntimeConfig, opts selfUpdateOption
 		return false, "", err
 	}
 	if err := verifyReleaseMetadataSignature(release, downloadURL); err != nil {
+		return false, "", err
+	}
+	if err := validateReleaseTarget(cfg, release); err != nil {
 		return false, "", err
 	}
 
@@ -217,7 +227,7 @@ func fetchReleaseMetadata(cfg RuntimeConfig, endpoint string) (agentReleaseMetad
 	if err != nil {
 		return agentReleaseMetadata{}, err
 	}
-	if token := strings.TrimSpace(cfg.APIToken); token != "" {
+	if token := strings.TrimSpace(cfg.APIToken); token != "" && shouldAttachUpdateMetadataToken(cfg, requestURL.String()) {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
 	resp, err := securityruntime.DoOutboundRequest(client, req)
@@ -229,9 +239,27 @@ func fetchReleaseMetadata(cfg RuntimeConfig, endpoint string) (agentReleaseMetad
 		return agentReleaseMetadata{}, fmt.Errorf("release endpoint returned status %d", resp.StatusCode)
 	}
 
-	var payload agentReleaseMetadata
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+	if resp.ContentLength > maxSelfUpdateMetadataSize {
+		return agentReleaseMetadata{}, fmt.Errorf("release metadata exceeded maximum size of %d bytes", maxSelfUpdateMetadataSize)
+	}
+	encoded, err := io.ReadAll(io.LimitReader(resp.Body, maxSelfUpdateMetadataSize+1))
+	if err != nil {
 		return agentReleaseMetadata{}, err
+	}
+	if len(encoded) > maxSelfUpdateMetadataSize {
+		return agentReleaseMetadata{}, fmt.Errorf("release metadata exceeded maximum size of %d bytes", maxSelfUpdateMetadataSize)
+	}
+	var payload agentReleaseMetadata
+	decoder := json.NewDecoder(bytes.NewReader(encoded))
+	if err := decoder.Decode(&payload); err != nil {
+		return agentReleaseMetadata{}, err
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return agentReleaseMetadata{}, fmt.Errorf("release metadata contains trailing JSON")
+		}
+		return agentReleaseMetadata{}, fmt.Errorf("release metadata contains trailing data: %w", err)
 	}
 	return payload, nil
 }
@@ -311,10 +339,34 @@ func newSelfUpdateHTTPClient(cfg RuntimeConfig) *http.Client {
 	return &http.Client{
 		Timeout:   selfUpdateTimeout,
 		Transport: transport,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 10 {
+				return fmt.Errorf("stopped after 10 redirects")
+			}
+			if len(via) > 0 && !sameOrigin(via[0].URL.String(), req.URL.String()) {
+				req.Header.Del("Authorization")
+			}
+			return nil
+		},
 	}
 }
 
 func validateReleaseMetadata(checkURL, downloadURL string, release agentReleaseMetadata) error {
+	if len(strings.TrimSpace(release.Version)) == 0 || len(release.Version) > maxSelfUpdateVersionLength {
+		return fmt.Errorf("release metadata includes an invalid version")
+	}
+	if len(strings.TrimSpace(release.OS)) == 0 || len(release.OS) > maxSelfUpdatePlatformLength {
+		return fmt.Errorf("release metadata includes an invalid os")
+	}
+	if len(strings.TrimSpace(release.Arch)) == 0 || len(release.Arch) > maxSelfUpdatePlatformLength {
+		return fmt.Errorf("release metadata includes an invalid architecture")
+	}
+	if len(release.URL) > maxSelfUpdateURLLength {
+		return fmt.Errorf("release metadata download url exceeds %d bytes", maxSelfUpdateURLLength)
+	}
+	if len(release.Signature) > maxSelfUpdateSignatureLength {
+		return fmt.Errorf("release metadata signature exceeds %d bytes", maxSelfUpdateSignatureLength)
+	}
 	sha := strings.TrimSpace(strings.ToLower(release.SHA256))
 	if sha == "" {
 		return fmt.Errorf("release metadata missing sha256 digest")
@@ -332,6 +384,67 @@ func validateReleaseMetadata(checkURL, downloadURL string, release agentReleaseM
 		return fmt.Errorf("release download url must match release metadata origin")
 	}
 	return nil
+}
+
+func validateReleaseTarget(cfg RuntimeConfig, release agentReleaseMetadata) error {
+	if !strings.EqualFold(strings.TrimSpace(release.OS), runtime.GOOS) {
+		return fmt.Errorf("release metadata targets os %q, want %q", strings.TrimSpace(release.OS), runtime.GOOS)
+	}
+	if !strings.EqualFold(strings.TrimSpace(release.Arch), runtime.GOARCH) {
+		return fmt.Errorf("release metadata targets architecture %q, want %q", strings.TrimSpace(release.Arch), runtime.GOARCH)
+	}
+
+	releaseVersion, ok := parseStableReleaseVersion(release.Version)
+	if !ok {
+		return fmt.Errorf("release metadata version %q is not a stable semantic version", strings.TrimSpace(release.Version))
+	}
+	currentVersion, currentIsStable := parseStableReleaseVersion(cfg.Version)
+	if currentIsStable && compareStableReleaseVersions(releaseVersion, currentVersion) < 0 {
+		return fmt.Errorf("refusing agent downgrade from %s to %s", strings.TrimSpace(cfg.Version), strings.TrimSpace(release.Version))
+	}
+	return nil
+}
+
+type stableReleaseVersion [3]string
+
+func parseStableReleaseVersion(raw string) (stableReleaseVersion, bool) {
+	var parsed stableReleaseVersion
+	value := strings.TrimSpace(raw)
+	if len(value) > 0 && (value[0] == 'v' || value[0] == 'V') {
+		value = value[1:]
+	}
+	parts := strings.Split(value, ".")
+	if len(parts) != len(parsed) {
+		return parsed, false
+	}
+	for index, part := range parts {
+		if part == "" {
+			return parsed, false
+		}
+		for _, char := range part {
+			if char < '0' || char > '9' {
+				return parsed, false
+			}
+		}
+		normalized := strings.TrimLeft(part, "0")
+		if normalized == "" {
+			normalized = "0"
+		}
+		parsed[index] = normalized
+	}
+	return parsed, true
+}
+
+func compareStableReleaseVersions(left, right stableReleaseVersion) int {
+	for index := range left {
+		if len(left[index]) < len(right[index]) || (len(left[index]) == len(right[index]) && left[index] < right[index]) {
+			return -1
+		}
+		if len(left[index]) > len(right[index]) || (len(left[index]) == len(right[index]) && left[index] > right[index]) {
+			return 1
+		}
+	}
+	return 0
 }
 
 func verifyReleaseMetadataSignature(release agentReleaseMetadata, downloadURL string) error {
@@ -419,6 +532,13 @@ func selfUpdateSignaturePayload(release agentReleaseMetadata) string {
 
 func shouldAttachUpdateToken(checkURL, downloadURL string) bool {
 	return sameOrigin(checkURL, downloadURL)
+}
+
+func shouldAttachUpdateMetadataToken(cfg RuntimeConfig, endpoint string) bool {
+	canonicalConfig := cfg
+	canonicalConfig.AutoUpdateCheckURL = ""
+	canonicalEndpoint := buildAgentReleaseCheckURL(canonicalConfig)
+	return canonicalEndpoint != "" && sameOrigin(canonicalEndpoint, endpoint)
 }
 
 func sameOrigin(leftRaw, rightRaw string) bool {

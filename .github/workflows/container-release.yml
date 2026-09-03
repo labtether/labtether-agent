@@ -70,7 +70,7 @@ jobs:
           push: true
           platforms: linux/amd64,linux/arm64
           build-args: |
-            APP_VERSION=${{ github.ref_name }}
+            VERSION=${{ github.ref_name }}
           tags: |
             ghcr.io/labtether/labtether-agent:${{ github.ref_name }}
             ghcr.io/labtether/labtether-agent:latest

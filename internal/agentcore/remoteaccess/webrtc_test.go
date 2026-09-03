@@ -3,8 +3,11 @@ package remoteaccess
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -119,6 +122,105 @@ func TestNormalizeWebRTCSessionVideoSettingsDefaultsAndClamps(t *testing.T) {
 	}
 }
 
+func TestWebRTCManagerReservesDuplicateIDsAndAggregateLimit(t *testing.T) {
+	manager := NewWebRTCManager(protocol.WebRTCCapabilitiesData{}, nil, nil, nil)
+	starts := make([]*pendingWebRTCStart, 0, MaxWebRTCSessions)
+	for index := 0; index < MaxWebRTCSessions; index++ {
+		start, reason := manager.reserveSessionStart(fmt.Sprintf("session-%d", index))
+		if start == nil {
+			t.Fatalf("reserve session %d failed: %s", index, reason)
+		}
+		starts = append(starts, start)
+	}
+	if start, reason := manager.reserveSessionStart("session-0"); start != nil || !strings.Contains(reason, "progress") {
+		t.Fatalf("duplicate pending start = %v, reason %q", start, reason)
+	}
+	if start, reason := manager.reserveSessionStart("overflow"); start != nil || !strings.Contains(reason, "too many") {
+		t.Fatalf("overflow start = %v, reason %q", start, reason)
+	}
+
+	manager.abortPendingSession("session-0", starts[0], "test cleanup")
+	if start, reason := manager.reserveSessionStart("replacement"); start == nil {
+		t.Fatalf("released slot could not be reserved: %s", reason)
+	} else {
+		manager.abortPendingSession("replacement", start, "test cleanup")
+	}
+	for index := 1; index < len(starts); index++ {
+		manager.abortPendingSession(fmt.Sprintf("session-%d", index), starts[index], "test cleanup")
+	}
+}
+
+func TestWebRTCManagerStopCancelsPendingStart(t *testing.T) {
+	manager := NewWebRTCManager(protocol.WebRTCCapabilitiesData{}, nil, nil, nil)
+	start, reason := manager.reserveSessionStart("pending")
+	if start == nil {
+		t.Fatalf("reserve pending session: %s", reason)
+	}
+
+	if !manager.cleanupSessionInstance("pending", nil, "stopped by hub") {
+		t.Fatal("pending session was not cleaned")
+	}
+	if start.ctx.Err() == nil {
+		t.Fatal("pending session context was not canceled")
+	}
+	if manager.promotePendingSession("pending", start) {
+		t.Fatal("stopped pending session was promoted")
+	}
+}
+
+func TestWebRTCManagerConcurrentDuplicateStartGetsOneReservation(t *testing.T) {
+	manager := NewWebRTCManager(protocol.WebRTCCapabilitiesData{}, nil, nil, nil)
+	const attempts = 32
+	starts := make(chan *pendingWebRTCStart, attempts)
+	var wg sync.WaitGroup
+	for index := 0; index < attempts; index++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			start, _ := manager.reserveSessionStart("same-id")
+			starts <- start
+		}()
+	}
+	wg.Wait()
+	close(starts)
+
+	var winner *pendingWebRTCStart
+	for start := range starts {
+		if start == nil {
+			continue
+		}
+		if winner != nil {
+			t.Fatal("duplicate starts received more than one reservation")
+		}
+		winner = start
+	}
+	if winner == nil {
+		t.Fatal("duplicate starts received no reservation")
+	}
+	manager.abortPendingSession("same-id", winner, "test cleanup")
+}
+
+func TestWebRTCManagerStaleCleanupCannotRemoveReplacement(t *testing.T) {
+	manager := NewWebRTCManager(protocol.WebRTCCapabilitiesData{}, nil, nil, nil)
+	oldSession := &WebRTCSession{sessionID: "same-id", done: make(chan struct{})}
+	replacement := &WebRTCSession{sessionID: "same-id", done: make(chan struct{})}
+	manager.Sessions["same-id"] = replacement
+
+	if manager.cleanupSessionInstance("same-id", oldSession, "stale callback") {
+		t.Fatal("stale callback reported that it cleaned a session")
+	}
+	if manager.Sessions["same-id"] != replacement {
+		t.Fatal("stale callback removed replacement session")
+	}
+	transport := &audioCaptureMessageSender{}
+	if manager.sendSessionMessageIfCurrent(transport, "same-id", oldSession, protocol.Message{Type: protocol.MsgWebRTCAnswer}) {
+		t.Fatal("stale session sent a message under the replacement ID")
+	}
+	if len(transport.messages) != 0 {
+		t.Fatalf("stale session sent %d messages", len(transport.messages))
+	}
+}
+
 func TestWebRTCManagerHandleWebRTCStartReportsUnavailable(t *testing.T) {
 	transport, messages, cleanup := newDesktopRuntimeTransport(t)
 	defer cleanup()
@@ -149,6 +251,26 @@ func TestWebRTCManagerHandleWebRTCStartHonorsDisabledSetting(t *testing.T) {
 	stopped := readWebRTCStopped(t, messages)
 	if stopped.Reason != "webrtc disabled" {
 		t.Fatalf("reason=%q, want webrtc disabled", stopped.Reason)
+	}
+}
+
+func TestWebRTCManagerHandleWebRTCStartNormalizesSessionID(t *testing.T) {
+	transport, messages, cleanup := newDesktopRuntimeTransport(t)
+	defer cleanup()
+
+	settings := newDisabledWebRTCSettings()
+	manager := NewWebRTCManager(protocol.WebRTCCapabilitiesData{Available: true}, settings, nil, nil)
+	manager.HandleWebRTCStart(transport, protocol.Message{
+		Type: protocol.MsgWebRTCStart,
+		Data: mustMarshalDesktopRuntime(t, protocol.WebRTCSessionData{SessionID: " session-with-spaces "}),
+	})
+
+	stopped := readWebRTCStopped(t, messages)
+	if stopped.SessionID != "session-with-spaces" {
+		t.Fatalf("session ID=%q, want normalized ID", stopped.SessionID)
+	}
+	if len(manager.Sessions) != 0 || len(manager.pending) != 0 {
+		t.Fatalf("failed start retained sessions: active=%d pending=%d", len(manager.Sessions), len(manager.pending))
 	}
 }
 

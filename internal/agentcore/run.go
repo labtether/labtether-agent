@@ -174,6 +174,7 @@ func Run(ctx context.Context, cfg RuntimeConfig, provider TelemetryProvider) err
 		deskMgr := newDesktopManager(dispMgr)
 		fileMgr := files.NewManager(cfg.FileRootMode)
 		webrtcMgr := newWebRTCManager(webrtcCaps, runtime, fileMgr, dispMgr)
+		audioMgr := newAudioSidebandManager()
 
 		// Start reconnect loop in background.
 		go transport.reconnectLoop(ctx, func() {
@@ -191,6 +192,7 @@ func Run(ctx context.Context, cfg RuntimeConfig, provider TelemetryProvider) err
 			termMgr.CloseAll()
 			deskMgr.CloseAll()
 			webrtcMgr.CloseAll()
+			audioMgr.CloseAll()
 		})
 
 		// Load persisted config overrides from disk.
@@ -204,7 +206,6 @@ func Run(ctx context.Context, cfg RuntimeConfig, provider TelemetryProvider) err
 		cronMgr := backends.NewCronManager()
 		usersMgr := system.NewUsersManager()
 		clipMgr := newClipboardManager()
-		audioMgr := newAudioSidebandManager()
 		dockerMode := strings.TrimSpace(strings.ToLower(cfg.DockerEnabled))
 		if dockerMode == "" {
 			dockerMode = "auto"

@@ -5,6 +5,8 @@ package agentcore
 // package to continue using the same identifiers without import changes.
 
 import (
+	"fmt"
+
 	"github.com/labtether/labtether-agent/internal/agentcore/files"
 	"github.com/labtether/labtether-agent/internal/agentcore/remoteaccess"
 	"github.com/labtether/protocol"
@@ -14,9 +16,11 @@ func init() {
 	// Wire self-update callback from root into remoteaccess so that the exec_ws
 	// handler can trigger self-update without a circular import.
 	remoteaccess.SelfUpdateFn = func(cfg remoteaccess.ExecConfig, force bool) (bool, string, error) {
-		// Only the API token is needed from the remote handler context — the rest
-		// of the RuntimeConfig is not available outside root agentcore.
-		return checkAndApplySelfUpdateWithOptions(RuntimeConfig{APIToken: cfg.APIToken}, selfUpdateOptions{Force: force})
+		updated, summary, err := checkAndApplySelfUpdateWithOptions(runtimeConfigFromExecConfig(cfg), selfUpdateOptions{Force: force})
+		if err == nil && !updated && summary == selfUpdateEndpointUnavailableMessage {
+			return false, "", fmt.Errorf("%s", selfUpdateEndpointUnavailableMessage)
+		}
+		return updated, summary, err
 	}
 	remoteaccess.SelfUpdateExitFn = agentExitFn
 }
@@ -142,10 +146,34 @@ var startAudioCapture = &remoteaccess.StartAudioCapture
 
 // Exec/command handler aliases.
 var handleCommandRequest = func(transport *wsTransport, msg protocol.Message, cfg RuntimeConfig) {
-	remoteaccess.HandleCommandRequest(transport, msg, remoteaccess.ExecConfig{APIToken: cfg.APIToken})
+	remoteaccess.HandleCommandRequest(transport, msg, execConfigFromRuntimeConfig(cfg))
 }
 var handleUpdateRequest = func(transport *wsTransport, msg protocol.Message, cfg RuntimeConfig) {
-	remoteaccess.HandleUpdateRequest(transport, msg, remoteaccess.ExecConfig{APIToken: cfg.APIToken})
+	remoteaccess.HandleUpdateRequest(transport, msg, execConfigFromRuntimeConfig(cfg))
+}
+
+func execConfigFromRuntimeConfig(cfg RuntimeConfig) remoteaccess.ExecConfig {
+	return remoteaccess.ExecConfig{
+		APIBaseURL:         cfg.APIBaseURL,
+		APIToken:           cfg.APIToken,
+		WSBaseURL:          cfg.WSBaseURL,
+		AutoUpdateCheckURL: cfg.AutoUpdateCheckURL,
+		TLSCAFile:          cfg.TLSCAFile,
+		TLSSkipVerify:      cfg.TLSSkipVerify,
+		Version:            cfg.Version,
+	}
+}
+
+func runtimeConfigFromExecConfig(cfg remoteaccess.ExecConfig) RuntimeConfig {
+	return RuntimeConfig{
+		APIBaseURL:         cfg.APIBaseURL,
+		APIToken:           cfg.APIToken,
+		WSBaseURL:          cfg.WSBaseURL,
+		AutoUpdateCheckURL: cfg.AutoUpdateCheckURL,
+		TLSCAFile:          cfg.TLSCAFile,
+		TLSSkipVerify:      cfg.TLSSkipVerify,
+		Version:            cfg.Version,
+	}
 }
 
 var tokenAllowsAnyCapability = remoteaccess.TokenAllowsAnyCapability

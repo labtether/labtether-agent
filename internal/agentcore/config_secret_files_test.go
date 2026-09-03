@@ -113,22 +113,16 @@ func TestResolveAgentLocalAuthTokenAllowsExplicitUnauthenticatedNonLoopbackBind(
 	}
 }
 
-func TestResolveAgentLocalAuthTokenFallsBackToRuntimeAPIToken(t *testing.T) {
+func TestResolveAgentLocalAuthTokenRejectsRuntimeAPITokenReuse(t *testing.T) {
 	t.Setenv(envAgentLocalAuthToken, "")
 	t.Setenv(envAgentLocalAuthTokenFile, "")
 	t.Setenv(envAgentLocalAllowUnauth, "false")
 
-	resolution, err := resolveAgentLocalAuth(RuntimeConfig{
+	_, err := resolveAgentLocalAuth(RuntimeConfig{
 		Name:     "test-agent",
 		APIToken: "runtime-api-token",
 	}, "0.0.0.0")
-	if err != nil {
-		t.Fatalf("resolve local auth token: %v", err)
-	}
-	if resolution.token != "runtime-api-token" {
-		t.Fatal("expected runtime API token fallback")
-	}
-	if !resolution.useRuntimeIdentity {
-		t.Fatal("expected runtime API token fallback to remain dynamically bound to runtime identity")
+	if err == nil {
+		t.Fatal("expected non-loopback bind to reject Hub API token reuse")
 	}
 }

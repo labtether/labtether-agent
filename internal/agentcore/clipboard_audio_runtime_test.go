@@ -256,7 +256,7 @@ func TestAudioSidebandManagerHandleAudioStopCancelsSession(t *testing.T) {
 		t.Fatalf("state=%q, want started", started.State)
 	}
 
-	manager.HandleAudioStop(protocol.Message{
+	manager.HandleAudioStop(transport, protocol.Message{
 		Type: protocol.MsgDesktopAudioStop,
 		Data: mustMarshalDesktopRuntime(t, protocol.DesktopAudioStopData{SessionID: "sess-stop"}),
 	})
