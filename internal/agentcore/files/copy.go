@@ -83,32 +83,6 @@ func (b rootedCopyBackend) RemoveAll(path string) error {
 	return b.root.RemoveAll(path)
 }
 
-type localCopyBackend struct{}
-
-func (localCopyBackend) Lstat(path string) (os.FileInfo, error) {
-	return os.Lstat(path)
-}
-
-func (localCopyBackend) MkdirAll(path string, mode os.FileMode) error {
-	return os.MkdirAll(path, mode)
-}
-
-func (localCopyBackend) Mkdir(path string, mode os.FileMode) error {
-	return os.Mkdir(path, mode)
-}
-
-func (localCopyBackend) Open(path string) (*os.File, error) {
-	return os.Open(path) // #nosec G304 -- Paths are validated by the file manager or explicit helper caller.
-}
-
-func (localCopyBackend) OpenFile(path string, flag int, mode os.FileMode) (*os.File, error) {
-	return os.OpenFile(path, flag, mode) // #nosec G304 -- Paths are validated by the file manager or explicit helper caller.
-}
-
-func (localCopyBackend) RemoveAll(path string) error {
-	return os.RemoveAll(path)
-}
-
 type copyState struct {
 	ctx                context.Context
 	limits             copyLimits
@@ -188,48 +162,6 @@ func copyPathRecursiveRootContext(ctx context.Context, root *os.Root, srcRel, ds
 		return errors.New("destination cannot be inside source directory")
 	}
 	return copyPathWithBackend(ctx, rootedCopyBackend{root: root}, srcRel, dstRel, limits)
-}
-
-// CopyPathRecursive copies a file or directory tree from srcPath to dstPath.
-// Symlinks are rejected for safety and the destination must not exist.
-func CopyPathRecursive(srcPath, dstPath string) error {
-	return CopyPathRecursiveContext(context.Background(), srcPath, dstPath)
-}
-
-// CopyPathRecursiveContext is the cancellable form of CopyPathRecursive.
-func CopyPathRecursiveContext(ctx context.Context, srcPath, dstPath string) error {
-	return copyPathRecursiveWithLimits(ctx, srcPath, dstPath, defaultCopyLimits)
-}
-
-func copyPathRecursiveWithLimits(ctx context.Context, srcPath, dstPath string, limits copyLimits) error {
-	srcInfo, err := os.Lstat(srcPath)
-	if err != nil {
-		return err
-	}
-	if srcInfo.Mode()&os.ModeSymlink != 0 {
-		return errors.New("copying symlinks is not supported")
-	}
-	if _, err := os.Lstat(dstPath); err == nil {
-		return errors.New("destination already exists")
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-
-	dstContainmentPath, err := copyDestinationContainmentPath(dstPath)
-	if err != nil {
-		return err
-	}
-	srcContainmentPath, err := filepath.EvalSymlinks(srcPath)
-	if err != nil {
-		return err
-	}
-	if srcContainmentPath == dstContainmentPath {
-		return errors.New("source and destination are identical")
-	}
-	if srcInfo.IsDir() && PathWithinBaseDir(srcContainmentPath, dstContainmentPath) {
-		return errors.New("destination cannot be inside source directory")
-	}
-	return copyPathWithBackend(ctx, localCopyBackend{}, srcPath, dstPath, limits)
 }
 
 func copyPathWithBackend(ctx context.Context, backend copyBackend, srcPath, dstPath string, limits copyLimits) error {
@@ -439,13 +371,4 @@ func (state *copyState) checkContext() error {
 		return fmt.Errorf("copy canceled: %w", err)
 	}
 	return nil
-}
-
-func copyDestinationContainmentPath(dstPath string) (string, error) {
-	cleaned := filepath.Clean(dstPath)
-	resolvedParent, err := resolveExistingPathForContainment(filepath.Dir(cleaned))
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(resolvedParent, filepath.Base(cleaned)), nil
 }
