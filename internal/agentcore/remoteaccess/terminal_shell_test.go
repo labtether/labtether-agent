@@ -36,15 +36,13 @@ func TestShellCandidatesForUnixRemainPortable(t *testing.T) {
 
 func TestPipeBackedTerminalBridgesInputAndOutput(t *testing.T) {
 	cmd := exec.Command("sh", "-c", "read line; printf 'pipe:%s\\n' \"$line\"")
-	input, output, err := startPipeBackedTerminal(cmd)
+	input, output, processDone, err := startPipeBackedTerminal(cmd)
 	if err != nil {
 		t.Fatalf("startPipeBackedTerminal: %v", err)
 	}
 	defer input.Close()
 	defer output.Close()
 
-	waitDone := make(chan error, 1)
-	go func() { waitDone <- cmd.Wait() }()
 	if _, err := io.WriteString(input, "LTQA-WINDOWS-PIPE\\n"); err != nil {
 		t.Fatalf("write terminal input: %v", err)
 	}
@@ -58,7 +56,7 @@ func TestPipeBackedTerminalBridgesInputAndOutput(t *testing.T) {
 		t.Fatalf("output = %q", raw)
 	}
 	select {
-	case err := <-waitDone:
+	case err := <-processDone:
 		if err != nil {
 			t.Fatalf("wait: %v", err)
 		}
