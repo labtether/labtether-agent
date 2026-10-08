@@ -297,6 +297,10 @@ func normalizeRedirectHost(raw string) string {
 	if host == "" || strings.ContainsAny(host, "\r\n/\\?#@") {
 		return ""
 	}
+	// Bare IPv6 literals must be recognized before URL parsing treats their suffix as a port.
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.String()
+	}
 	parsed, err := url.Parse("https://" + host)
 	if err != nil || parsed.User != nil || parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.Port() != "" || parsed.Hostname() == "" {
 		return ""

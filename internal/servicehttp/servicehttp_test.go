@@ -266,3 +266,48 @@ func TestBearerAuthProviderRotatesAndFailsClosed(t *testing.T) {
 		t.Fatalf("probe status = %d, want %d", got, http.StatusNoContent)
 	}
 }
+
+func TestRedirectHandler_ConfiguredHostValidation(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		host         string
+		wantLocation string
+	}{
+		{"bare IPv6 loopback", "::1", "https://[::1]:8443/some/path?q=1"},
+		{"bare IPv6 global", "2001:db8::1", "https://[2001:db8::1]:8443/some/path?q=1"},
+		{"bare IPv6 hex suffix", "2001:db8::abcd", "https://[2001:db8::abcd]:8443/some/path?q=1"},
+		{"bracketed IPv6", "[2001:db8::1]", "https://[2001:db8::1]:8443/some/path?q=1"},
+		{"IPv4", "192.0.2.1", "https://192.0.2.1:8443/some/path?q=1"},
+		{"normalized DNS", " Example.COM. ", "https://example.com:8443/some/path?q=1"},
+		{"DNS with port", "example.com:9443", ""},
+		{"IPv4 with port", "192.0.2.1:9443", ""},
+		{"IPv6 with port", "[2001:db8::1]:9443", ""},
+		{"empty", "", ""},
+		{"URL", "https://example.com", ""},
+		{"path", "example.com/elsewhere", ""},
+		{"backslash", `example.com\elsewhere`, ""},
+		{"query", "example.com?next=elsewhere", ""},
+		{"fragment", "example.com#elsewhere", ""},
+		{"userinfo", "attacker@example.com", ""},
+		{"header injection", "example.com\r\nLocation: https://attacker.example", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			handler := RedirectToHTTPSForHost(8443, tc.host)
+			req := httptest.NewRequest(http.MethodGet, "http://untrusted.example/some/path?q=1", nil)
+			req.Host = "attacker.example:9000"
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+
+			wantStatus := http.StatusMovedPermanently
+			if tc.wantLocation == "" {
+				wantStatus = http.StatusMisdirectedRequest
+			}
+			if rec.Code != wantStatus {
+				t.Fatalf("status = %d, want %d", rec.Code, wantStatus)
+			}
+			if got := rec.Header().Get("Location"); got != tc.wantLocation {
+				t.Fatalf("Location = %q, want %q", got, tc.wantLocation)
+			}
+		})
+	}
+}
