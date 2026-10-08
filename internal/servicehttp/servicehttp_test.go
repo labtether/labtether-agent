@@ -39,7 +39,7 @@ func TestSecurityHeadersMiddleware(t *testing.T) {
 }
 
 func TestRedirectHandler_Redirects(t *testing.T) {
-	handler := RedirectToHTTPS(8443)
+	handler := RedirectToHTTPSForHost(8443, "example.com")
 
 	req := httptest.NewRequest(http.MethodGet, "http://example.com/some/path?q=1", nil)
 	req.Host = "example.com"
@@ -61,7 +61,7 @@ func TestRedirectHandler_Redirects(t *testing.T) {
 }
 
 func TestRedirectHandler_HealthzException(t *testing.T) {
-	handler := RedirectToHTTPS(8443)
+	handler := RedirectToHTTPSForHost(8443, "example.com")
 
 	req := httptest.NewRequest(http.MethodGet, "http://example.com/healthz", nil)
 	req.Host = "example.com"
@@ -88,7 +88,7 @@ func TestRedirectHandler_HealthzException(t *testing.T) {
 }
 
 func TestRedirectHandler_StripsPort(t *testing.T) {
-	handler := RedirectToHTTPS(443)
+	handler := RedirectToHTTPSForHost(443, "example.com")
 
 	req := httptest.NewRequest(http.MethodGet, "http://example.com:8080/path", nil)
 	req.Host = "example.com:8080"
@@ -106,11 +106,27 @@ func TestRedirectHandler_StripsPort(t *testing.T) {
 	}
 }
 
+func TestRedirectHandler_RejectsUnconfiguredRequestHost(t *testing.T) {
+	handler := RedirectToHTTPS(8443)
+
+	req := httptest.NewRequest(http.MethodGet, "http://attacker.example/account", nil)
+	req.Host = "attacker.example"
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusMisdirectedRequest {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusMisdirectedRequest)
+	}
+	if location := rec.Header().Get("Location"); location != "" {
+		t.Fatalf("Location = %q, want empty", location)
+	}
+}
+
 func TestRedirectHandlerWithWebSocketBypass_DesktopStreamUpgrade(t *testing.T) {
 	wsHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusTeapot)
 	})
-	handler := RedirectToHTTPSWithWebSocketBypass(8443, wsHandler)
+	handler := RedirectToHTTPSWithWebSocketBypassForHost(8443, "example.com", wsHandler)
 
 	req := httptest.NewRequest(http.MethodGet, "http://example.com/desktop/sessions/sess-1/stream?ticket=abc", nil)
 	req.Host = "example.com:8080"
@@ -131,7 +147,7 @@ func TestRedirectHandlerWithWebSocketBypass_NonWebSocketStillRedirects(t *testin
 	wsHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusTeapot)
 	})
-	handler := RedirectToHTTPSWithWebSocketBypass(8443, wsHandler)
+	handler := RedirectToHTTPSWithWebSocketBypassForHost(8443, "example.com", wsHandler)
 
 	req := httptest.NewRequest(http.MethodGet, "http://example.com/desktop/sessions/sess-1/stream?ticket=abc", nil)
 	req.Host = "example.com:8080"
@@ -154,7 +170,7 @@ func TestRedirectHandlerWithWebSocketBypass_TLSInfoPassthrough(t *testing.T) {
 			"tls_enabled": true,
 		})
 	})
-	handler := RedirectToHTTPSWithWebSocketBypass(8443, muxHandler)
+	handler := RedirectToHTTPSWithWebSocketBypassForHost(8443, "example.com", muxHandler)
 
 	req := httptest.NewRequest(http.MethodGet, "http://example.com/api/v1/tls/info", nil)
 	req.Host = "example.com:8080"
@@ -248,5 +264,50 @@ func TestBearerAuthProviderRotatesAndFailsClosed(t *testing.T) {
 	}
 	if got := request("/healthz", ""); got != http.StatusNoContent {
 		t.Fatalf("probe status = %d, want %d", got, http.StatusNoContent)
+	}
+}
+
+func TestRedirectHandler_ConfiguredHostValidation(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		host         string
+		wantLocation string
+	}{
+		{"bare IPv6 loopback", "::1", "https://[::1]:8443/some/path?q=1"},
+		{"bare IPv6 global", "2001:db8::1", "https://[2001:db8::1]:8443/some/path?q=1"},
+		{"bare IPv6 hex suffix", "2001:db8::abcd", "https://[2001:db8::abcd]:8443/some/path?q=1"},
+		{"bracketed IPv6", "[2001:db8::1]", "https://[2001:db8::1]:8443/some/path?q=1"},
+		{"IPv4", "192.0.2.1", "https://192.0.2.1:8443/some/path?q=1"},
+		{"normalized DNS", " Example.COM. ", "https://example.com:8443/some/path?q=1"},
+		{"DNS with port", "example.com:9443", ""},
+		{"IPv4 with port", "192.0.2.1:9443", ""},
+		{"IPv6 with port", "[2001:db8::1]:9443", ""},
+		{"empty", "", ""},
+		{"URL", "https://example.com", ""},
+		{"path", "example.com/elsewhere", ""},
+		{"backslash", `example.com\elsewhere`, ""},
+		{"query", "example.com?next=elsewhere", ""},
+		{"fragment", "example.com#elsewhere", ""},
+		{"userinfo", "attacker@example.com", ""},
+		{"header injection", "example.com\r\nLocation: https://attacker.example", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			handler := RedirectToHTTPSForHost(8443, tc.host)
+			req := httptest.NewRequest(http.MethodGet, "http://untrusted.example/some/path?q=1", nil)
+			req.Host = "attacker.example:9000"
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+
+			wantStatus := http.StatusMovedPermanently
+			if tc.wantLocation == "" {
+				wantStatus = http.StatusMisdirectedRequest
+			}
+			if rec.Code != wantStatus {
+				t.Fatalf("status = %d, want %d", rec.Code, wantStatus)
+			}
+			if got := rec.Header().Get("Location"); got != tc.wantLocation {
+				t.Fatalf("Location = %q, want %q", got, tc.wantLocation)
+			}
+		})
 	}
 }
