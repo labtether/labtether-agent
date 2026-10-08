@@ -1,7 +1,7 @@
 # gosec allowlist
 # format: rule_id<TAB>path<TAB>line<TAB>justification
 # policy: entries must be explicitly reviewed; new findings fail CI until added with rationale.
-G101	internal/agentcore/ws_transport.go	79	Machine-readable token persistence status code; not a credential or secret.
+G101	internal/agentcore/ws_transport.go	48	Machine-readable token persistence status code; not a credential or secret.
 G304	internal/agentcore/sysconfig/network_stats_linux.go	40	Path uses an interface name returned by the local kernel through net.Interfaces plus a fixed sysfs statistics suffix.
 G304	internal/agentplatform/linux/provider_metadata.go	381	Key-value reader is called only for the fixed local /etc/os-release metadata path.
 G304	internal/agentplatform/linux/provider_metadata.go	410	Trimmed metadata reader is called only with fixed local /proc and /sys paths selected by the agent.
@@ -21,10 +21,10 @@ G304	scripts/release/internal/releasecontract/github.go	289	Draft inspection rec
 G304	scripts/release/internal/releasecontract/proof.go	201	Host proof file is validated as a small regular non-symlink file before strict JSON decoding and manifest binding.
 G304	scripts/release/internal/releasecontract/stage.go	88	Release asset files are validated as regular non-symlink files with bounded size and before/after SameFile checks while hashing.
 G304	scripts/release/internal/releasecontract/stage.go	133	Release control output uses a validated non-symlink parent and O_EXCL no-replace creation.
-G304	scripts/release/internal/releasecontract/verify.go	304	Sealed release manifest is validated as a small regular file and compared byte-for-byte against the regenerated manifest.
-G304	scripts/release/internal/releasecontract/verify.go	323	Release binary is validated as a bounded regular file with executable magic, architecture, and Go build-info checks.
-G304	scripts/release/internal/releasecontract/verify.go	427	Signed metadata path is derived from validated asset names and read only after small regular-file validation.
-G304	scripts/release/internal/releasecontract/verify.go	465	Detached signature path is derived from validated asset names and read only after small regular-file validation.
-G304	scripts/release/internal/releasecontract/verify.go	520	Checksum path is derived from a validated manifest asset and read only after small regular-file validation.
-G304	scripts/release/internal/releasecontract/verify.go	536	Build record path is fixed in the private release-control directory and validated as a small regular file before strict JSON decoding.
-G304	scripts/release/internal/releasecontract/verify.go	625	Release manifest path is fixed in the private release-control directory and validated as a small regular file before strict JSON decoding.
+G304	scripts/release/internal/releasecontract/verify_manifest.go	186	Sealed release manifest is validated as a small regular file and compared byte-for-byte against the regenerated manifest.
+G304	scripts/release/internal/releasecontract/verify_binary.go	30	Release binary is validated as a bounded regular file with executable magic, architecture, and Go build-info checks.
+G304	scripts/release/internal/releasecontract/verify_binary.go	134	Signed metadata path is derived from validated asset names and read only after small regular-file validation.
+G304	scripts/release/internal/releasecontract/verify_binary.go	172	Detached signature path is derived from validated asset names and read only after small regular-file validation.
+G304	scripts/release/internal/releasecontract/verify.go	166	Checksum path is derived from a validated manifest asset and read only after small regular-file validation.
+G304	scripts/release/internal/releasecontract/verify_binary.go	187	Build record path is fixed in the private release-control directory and validated as a small regular file before strict JSON decoding.
+G304	scripts/release/internal/releasecontract/verify_manifest.go	219	Release manifest path is fixed in the private release-control directory and validated as a small regular file before strict JSON decoding.
