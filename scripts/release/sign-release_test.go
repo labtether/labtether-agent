@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/labtether/labtether-agent/scripts/release/internal/releasecontract"
 )
 
 func testSigningKey(t *testing.T) (ed25519.PrivateKey, string, string) {
@@ -127,7 +129,7 @@ func TestHashReleaseBinaryRejectsOversizeAndSymlink(t *testing.T) {
 	if err := os.WriteFile(binaryPath, []byte("12345"), 0o755); err != nil {
 		t.Fatalf("write binary: %v", err)
 	}
-	if _, _, err := hashReleaseBinary(binaryPath, 4); err == nil {
+	if _, _, err := releasecontract.HashReleaseBinary(binaryPath, 4); err == nil {
 		t.Fatal("expected oversized release binary to be rejected")
 	}
 
@@ -135,7 +137,7 @@ func TestHashReleaseBinaryRejectsOversizeAndSymlink(t *testing.T) {
 	if err := os.Symlink(binaryPath, symlinkPath); err != nil {
 		t.Skipf("symlink unavailable: %v", err)
 	}
-	if _, _, err := hashReleaseBinary(symlinkPath, 1024); err == nil {
+	if _, _, err := releasecontract.HashReleaseBinary(symlinkPath, 1024); err == nil {
 		t.Fatal("expected release binary symlink to be rejected")
 	}
 }

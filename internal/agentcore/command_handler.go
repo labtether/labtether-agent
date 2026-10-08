@@ -3,20 +3,16 @@ package agentcore
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"log"
-	"strings"
-	"sync"
-	"time"
-
 	"github.com/gorilla/websocket"
-
 	"github.com/labtether/labtether-agent/internal/agentcore/backends"
 	"github.com/labtether/labtether-agent/internal/agentcore/docker"
 	"github.com/labtether/labtether-agent/internal/agentcore/files"
 	"github.com/labtether/labtether-agent/internal/agentcore/remoteaccess"
 	"github.com/labtether/labtether-agent/internal/agentcore/system"
 	"github.com/labtether/protocol"
+	"log"
+	"sync"
+	"time"
 )
 
 // defaultCommandTimeout is defined in remoteaccess_aliases.go
@@ -95,6 +91,17 @@ func receiveLoop(ctx context.Context, transport *wsTransport, cfg RuntimeConfig,
 	// drain them gracefully on disconnect/shutdown.
 	var handlerWG sync.WaitGroup
 
+	// All ordinary handlers share the same concurrency and panic boundary.
+	dispatch := func(name string, handle func()) {
+		sem <- struct{}{}
+		handlerWG.Add(1)
+		go func() {
+			defer handlerWG.Done()
+			defer func() { <-sem }()
+			safeHandler(name, handle)
+		}()
+	}
+
 	// Upload chunks share a request ID and offsets, so they must be applied in
 	// WebSocket delivery order. Dispatching each file.write in an independent
 	// goroutine lets a later EOF marker overtake the data chunk and corrupts the
@@ -167,17 +174,15 @@ func receiveLoop(ctx context.Context, transport *wsTransport, cfg RuntimeConfig,
 			}
 		}
 
+		if dispatchNodeMessage(msg, transport, dispatch, processMgr, serviceMgr, journalMgr, diskMgr, networkMgr, packageMgr, cronMgr, usersMgr) {
+			continue
+		}
+
 		switch msg.Type {
 		case protocol.MsgCommandRequest:
-			sem <- struct{}{}
-			handlerWG.Add(1)
-			go func() {
-				defer handlerWG.Done()
-				defer func() { <-sem }()
-				safeHandler("command-request", func() {
-					handleCommandRequest(transport, msg, runtimeConfigWithCurrentIdentity(cfg, transport))
-				})
-			}()
+			dispatch("command-request", func() {
+				handleCommandRequest(transport, msg, runtimeConfigWithCurrentIdentity(cfg, transport))
+			})
 		case msgPowerAction:
 			select {
 			case powerSem <- struct{}{}:
@@ -205,255 +210,111 @@ func receiveLoop(ctx context.Context, transport *wsTransport, cfg RuntimeConfig,
 				)
 			}
 		case protocol.MsgPing:
-			sem <- struct{}{}
-			handlerWG.Add(1)
-			go func() {
-				defer handlerWG.Done()
-				defer func() { <-sem }()
-				safeHandler("ping", func() {
-					_ = transport.Send(protocol.Message{Type: protocol.MsgPong})
-				})
-			}()
+			dispatch("ping", func() {
+				_ = transport.Send(protocol.Message{Type: protocol.MsgPong})
+			})
 		case protocol.MsgConfigUpdate:
-			sem <- struct{}{}
-			handlerWG.Add(1)
-			go func() {
-				defer handlerWG.Done()
-				defer func() { <-sem }()
-				safeHandler("config-update", func() {
-					handleConfigUpdate(transport, msg, runtime)
-				})
-			}()
+			dispatch("config-update", func() {
+				handleConfigUpdate(transport, msg, runtime)
+			})
 		case protocol.MsgAgentSettingsApply:
-			sem <- struct{}{}
-			handlerWG.Add(1)
-			go func() {
-				defer handlerWG.Done()
-				defer func() { <-sem }()
-				safeHandler("agent-settings-apply", func() {
-					handleAgentSettingsApply(transport, msg, runtime)
-				})
-			}()
+			dispatch("agent-settings-apply", func() {
+				handleAgentSettingsApply(transport, msg, runtime)
+			})
 		case protocol.MsgUpdateRequest:
-			sem <- struct{}{}
-			handlerWG.Add(1)
-			go func() {
-				defer handlerWG.Done()
-				defer func() { <-sem }()
-				safeHandler("update-request", func() {
-					handleUpdateRequest(transport, msg, runtimeConfigWithCurrentIdentity(cfg, transport))
-				})
-			}()
+			dispatch("update-request", func() {
+				handleUpdateRequest(transport, msg, runtimeConfigWithCurrentIdentity(cfg, transport))
+			})
 		case protocol.MsgTerminalProbe:
-			sem <- struct{}{}
-			handlerWG.Add(1)
-			go func() {
-				defer handlerWG.Done()
-				defer func() { <-sem }()
-				safeHandler("terminal-probe", func() {
-					termMgr.HandleTerminalProbe(transport)
-				})
-			}()
+			dispatch("terminal-probe", func() {
+				termMgr.HandleTerminalProbe(transport)
+			})
 		case protocol.MsgTerminalStart:
-			sem <- struct{}{}
-			handlerWG.Add(1)
-			go func() {
-				defer handlerWG.Done()
-				defer func() { <-sem }()
-				safeHandler("terminal-start", func() {
-					termMgr.HandleTerminalStart(transport, msg)
-				})
-			}()
+			dispatch("terminal-start", func() {
+				termMgr.HandleTerminalStart(transport, msg)
+			})
 		case protocol.MsgTerminalData:
-			sem <- struct{}{}
-			handlerWG.Add(1)
-			go func() {
-				defer handlerWG.Done()
-				defer func() { <-sem }()
-				safeHandler("terminal-data", func() {
-					termMgr.HandleTerminalData(msg)
-				})
-			}()
+			dispatch("terminal-data", func() {
+				termMgr.HandleTerminalData(msg)
+			})
 		case protocol.MsgTerminalResize:
-			sem <- struct{}{}
-			handlerWG.Add(1)
-			go func() {
-				defer handlerWG.Done()
-				defer func() { <-sem }()
-				safeHandler("terminal-resize", func() {
-					termMgr.HandleTerminalResize(msg)
-				})
-			}()
+			dispatch("terminal-resize", func() {
+				termMgr.HandleTerminalResize(msg)
+			})
 		case protocol.MsgTerminalTmuxKill:
-			sem <- struct{}{}
-			handlerWG.Add(1)
-			go func() {
-				defer handlerWG.Done()
-				defer func() { <-sem }()
-				safeHandler("terminal-tmux-kill", func() {
-					termMgr.HandleTerminalTmuxKill(transport, msg)
-				})
-			}()
+			dispatch("terminal-tmux-kill", func() {
+				termMgr.HandleTerminalTmuxKill(transport, msg)
+			})
 		case protocol.MsgTerminalClose:
-			sem <- struct{}{}
-			handlerWG.Add(1)
-			go func() {
-				defer handlerWG.Done()
-				defer func() { <-sem }()
-				safeHandler("terminal-close", func() {
-					termMgr.HandleTerminalClose(msg)
-				})
-			}()
+			dispatch("terminal-close", func() {
+				termMgr.HandleTerminalClose(msg)
+			})
 		case protocol.MsgSSHKeyInstall:
-			sem <- struct{}{}
-			handlerWG.Add(1)
-			go func() {
-				defer handlerWG.Done()
-				defer func() { <-sem }()
-				safeHandler("ssh-key-install", func() {
-					handleSSHKeyInstall(transport, msg)
-				})
-			}()
+			dispatch("ssh-key-install", func() {
+				handleSSHKeyInstall(transport, msg)
+			})
 		case protocol.MsgSSHKeyRemove:
-			sem <- struct{}{}
-			handlerWG.Add(1)
-			go func() {
-				defer handlerWG.Done()
-				defer func() { <-sem }()
-				safeHandler("ssh-key-remove", func() {
-					handleSSHKeyRemove(transport, msg)
-				})
-			}()
+			dispatch("ssh-key-remove", func() {
+				handleSSHKeyRemove(transport, msg)
+			})
 		case protocol.MsgDesktopStart:
-			sem <- struct{}{}
-			handlerWG.Add(1)
-			go func() {
-				defer handlerWG.Done()
-				defer func() { <-sem }()
-				safeHandler("desktop-start", func() {
-					deskMgr.HandleDesktopStart(transport, msg)
-				})
-			}()
+			dispatch("desktop-start", func() {
+				deskMgr.HandleDesktopStart(transport, msg)
+			})
 		case protocol.MsgDesktopData:
-			sem <- struct{}{}
-			handlerWG.Add(1)
-			go func() {
-				defer handlerWG.Done()
-				defer func() { <-sem }()
-				safeHandler("desktop-data", func() {
-					deskMgr.HandleDesktopData(msg)
-				})
-			}()
+			dispatch("desktop-data", func() {
+				deskMgr.HandleDesktopData(msg)
+			})
 		case protocol.MsgDesktopClose:
-			sem <- struct{}{}
-			handlerWG.Add(1)
-			go func() {
-				defer handlerWG.Done()
-				defer func() { <-sem }()
-				safeHandler("desktop-close", func() {
-					deskMgr.HandleDesktopClose(msg)
-				})
-			}()
+			dispatch("desktop-close", func() {
+				deskMgr.HandleDesktopClose(msg)
+			})
 		case protocol.MsgDesktopListDisplays:
-			sem <- struct{}{}
-			handlerWG.Add(1)
-			go func() {
-				defer handlerWG.Done()
-				defer func() { <-sem }()
-				safeHandler("desktop-list-displays", func() {
-					handleListDisplays(transport, msg)
-				})
-			}()
+			dispatch("desktop-list-displays", func() {
+				handleListDisplays(transport, msg)
+			})
 		case protocol.MsgDesktopDiagnose:
-			sem <- struct{}{}
-			handlerWG.Add(1)
-			go func() {
-				defer handlerWG.Done()
-				defer func() { <-sem }()
-				safeHandler("desktop-diagnose", func() {
-					handleDesktopDiagnose(transport, msg, deskMgr, webrtcMgr)
-				})
-			}()
+			dispatch("desktop-diagnose", func() {
+				handleDesktopDiagnose(transport, msg, deskMgr, webrtcMgr)
+			})
 		case protocol.MsgWebRTCStart:
 			if webrtcMgr != nil {
-				sem <- struct{}{}
-				handlerWG.Add(1)
-				go func() {
-					defer handlerWG.Done()
-					defer func() { <-sem }()
-					safeHandler("webrtc-start", func() {
-						webrtcMgr.HandleWebRTCStart(transport, msg)
-					})
-				}()
+				dispatch("webrtc-start", func() {
+					webrtcMgr.HandleWebRTCStart(transport, msg)
+				})
 			}
 		case protocol.MsgWebRTCOffer:
 			if webrtcMgr != nil {
-				sem <- struct{}{}
-				handlerWG.Add(1)
-				go func() {
-					defer handlerWG.Done()
-					defer func() { <-sem }()
-					safeHandler("webrtc-offer", func() {
-						webrtcMgr.HandleWebRTCOffer(msg, transport)
-					})
-				}()
+				dispatch("webrtc-offer", func() {
+					webrtcMgr.HandleWebRTCOffer(msg, transport)
+				})
 			}
 		case protocol.MsgWebRTCICE:
 			if webrtcMgr != nil {
-				sem <- struct{}{}
-				handlerWG.Add(1)
-				go func() {
-					defer handlerWG.Done()
-					defer func() { <-sem }()
-					safeHandler("webrtc-ice", func() {
-						webrtcMgr.HandleWebRTCICE(msg)
-					})
-				}()
+				dispatch("webrtc-ice", func() {
+					webrtcMgr.HandleWebRTCICE(msg)
+				})
 			}
 		case protocol.MsgWebRTCInput:
 			if webrtcMgr != nil {
-				sem <- struct{}{}
-				handlerWG.Add(1)
-				go func() {
-					defer handlerWG.Done()
-					defer func() { <-sem }()
-					safeHandler("webrtc-input", func() {
-						webrtcMgr.HandleWebRTCInput(msg)
-					})
-				}()
+				dispatch("webrtc-input", func() {
+					webrtcMgr.HandleWebRTCInput(msg)
+				})
 			}
 		case protocol.MsgWebRTCStop:
 			if webrtcMgr != nil {
-				sem <- struct{}{}
-				handlerWG.Add(1)
-				go func() {
-					defer handlerWG.Done()
-					defer func() { <-sem }()
-					safeHandler("webrtc-stop", func() {
-						webrtcMgr.HandleWebRTCStop(msg, transport)
-					})
-				}()
+				dispatch("webrtc-stop", func() {
+					webrtcMgr.HandleWebRTCStop(msg, transport)
+				})
 			}
 		case protocol.MsgWoLSend:
-			sem <- struct{}{}
-			handlerWG.Add(1)
-			go func() {
-				defer handlerWG.Done()
-				defer func() { <-sem }()
-				safeHandler("wol-send", func() {
-					system.HandleWoLSend(transport, msg)
-				})
-			}()
+			dispatch("wol-send", func() {
+				system.HandleWoLSend(transport, msg)
+			})
 		case protocol.MsgFileList:
-			sem <- struct{}{}
-			handlerWG.Add(1)
-			go func() {
-				defer handlerWG.Done()
-				defer func() { <-sem }()
-				safeHandler("file-list", func() {
-					fileMgr.HandleFileList(transport, msg)
-				})
-			}()
+			dispatch("file-list", func() {
+				fileMgr.HandleFileList(transport, msg)
+			})
 		case protocol.MsgFileRead:
 			if !startFileReadHandler(ctx, transport, fileMgr, msg, sem, &handlerWG) {
 				return
@@ -463,288 +324,66 @@ func receiveLoop(ctx context.Context, transport *wsTransport, cfg RuntimeConfig,
 				return
 			}
 		case protocol.MsgFileMkdir:
-			sem <- struct{}{}
-			handlerWG.Add(1)
-			go func() {
-				defer handlerWG.Done()
-				defer func() { <-sem }()
-				safeHandler("file-mkdir", func() {
-					fileMgr.HandleFileMkdir(transport, msg)
-				})
-			}()
+			dispatch("file-mkdir", func() {
+				fileMgr.HandleFileMkdir(transport, msg)
+			})
 		case protocol.MsgFileDelete:
-			sem <- struct{}{}
-			handlerWG.Add(1)
-			go func() {
-				defer handlerWG.Done()
-				defer func() { <-sem }()
-				safeHandler("file-delete", func() {
-					fileMgr.HandleFileDelete(transport, msg)
-				})
-			}()
+			dispatch("file-delete", func() {
+				fileMgr.HandleFileDelete(transport, msg)
+			})
 		case protocol.MsgFileRename:
-			sem <- struct{}{}
-			handlerWG.Add(1)
-			go func() {
-				defer handlerWG.Done()
-				defer func() { <-sem }()
-				safeHandler("file-rename", func() {
-					fileMgr.HandleFileRename(transport, msg)
-				})
-			}()
+			dispatch("file-rename", func() {
+				fileMgr.HandleFileRename(transport, msg)
+			})
 		case protocol.MsgFileCopy:
-			sem <- struct{}{}
-			handlerWG.Add(1)
-			go func() {
-				defer handlerWG.Done()
-				defer func() { <-sem }()
-				safeHandler("file-copy", func() {
-					fileMgr.HandleFileCopyContext(ctx, transport, msg)
-				})
-			}()
+			dispatch("file-copy", func() {
+				fileMgr.HandleFileCopyContext(ctx, transport, msg)
+			})
 		case protocol.MsgFileSearch:
-			sem <- struct{}{}
-			handlerWG.Add(1)
-			go func() {
-				defer handlerWG.Done()
-				defer func() { <-sem }()
-				safeHandler("file-search", func() {
-					fileMgr.HandleFileSearch(transport, msg)
-				})
-			}()
-		case protocol.MsgProcessList:
-			if processMgr != nil {
-				sem <- struct{}{}
-				handlerWG.Add(1)
-				go func() {
-					defer handlerWG.Done()
-					defer func() { <-sem }()
-					safeHandler("process-list", func() {
-						processMgr.HandleProcessList(transport, msg)
-					})
-				}()
-			}
-		case protocol.MsgProcessKill:
-			if processMgr != nil {
-				sem <- struct{}{}
-				handlerWG.Add(1)
-				go func() {
-					defer handlerWG.Done()
-					defer func() { <-sem }()
-					safeHandler("process-kill", func() {
-						processMgr.HandleProcessKill(transport, msg)
-					})
-				}()
-			}
-		case protocol.MsgServiceList:
-			if serviceMgr != nil {
-				sem <- struct{}{}
-				handlerWG.Add(1)
-				go func() {
-					defer handlerWG.Done()
-					defer func() { <-sem }()
-					safeHandler("service-list", func() {
-						serviceMgr.HandleServiceList(transport, msg)
-					})
-				}()
-			}
-		case protocol.MsgServiceAction:
-			if serviceMgr != nil {
-				sem <- struct{}{}
-				handlerWG.Add(1)
-				go func() {
-					defer handlerWG.Done()
-					defer func() { <-sem }()
-					safeHandler("service-action", func() {
-						serviceMgr.HandleServiceAction(transport, msg)
-					})
-				}()
-			}
-		case protocol.MsgJournalQuery:
-			if journalMgr != nil {
-				sem <- struct{}{}
-				handlerWG.Add(1)
-				go func() {
-					defer handlerWG.Done()
-					defer func() { <-sem }()
-					safeHandler("journal-query", func() {
-						journalMgr.HandleJournalQuery(transport, msg)
-					})
-				}()
-			}
-		case protocol.MsgDiskList:
-			if diskMgr != nil {
-				sem <- struct{}{}
-				handlerWG.Add(1)
-				go func() {
-					defer handlerWG.Done()
-					defer func() { <-sem }()
-					safeHandler("disk-list", func() {
-						diskMgr.HandleDiskList(transport, msg)
-					})
-				}()
-			}
-		case protocol.MsgNetworkList:
-			if networkMgr != nil {
-				sem <- struct{}{}
-				handlerWG.Add(1)
-				go func() {
-					defer handlerWG.Done()
-					defer func() { <-sem }()
-					safeHandler("network-list", func() {
-						networkMgr.HandleNetworkList(transport, msg)
-					})
-				}()
-			}
-		case protocol.MsgNetworkAction:
-			if networkMgr != nil {
-				sem <- struct{}{}
-				handlerWG.Add(1)
-				go func() {
-					defer handlerWG.Done()
-					defer func() { <-sem }()
-					safeHandler("network-action", func() {
-						networkMgr.HandleNetworkAction(transport, msg)
-					})
-				}()
-			}
-		case protocol.MsgPackageList:
-			if packageMgr != nil {
-				sem <- struct{}{}
-				handlerWG.Add(1)
-				go func() {
-					defer handlerWG.Done()
-					defer func() { <-sem }()
-					safeHandler("package-list", func() {
-						packageMgr.HandlePackageList(transport, msg)
-					})
-				}()
-			}
-		case protocol.MsgPackageAction:
-			if packageMgr != nil {
-				sem <- struct{}{}
-				handlerWG.Add(1)
-				go func() {
-					defer handlerWG.Done()
-					defer func() { <-sem }()
-					safeHandler("package-action", func() {
-						packageMgr.HandlePackageAction(transport, msg)
-					})
-				}()
-			}
-		case protocol.MsgCronList:
-			if cronMgr != nil {
-				sem <- struct{}{}
-				handlerWG.Add(1)
-				go func() {
-					defer handlerWG.Done()
-					defer func() { <-sem }()
-					safeHandler("cron-list", func() {
-						cronMgr.HandleCronList(transport, msg)
-					})
-				}()
-			}
-		case protocol.MsgUsersList:
-			if usersMgr != nil {
-				sem <- struct{}{}
-				handlerWG.Add(1)
-				go func() {
-					defer handlerWG.Done()
-					defer func() { <-sem }()
-					safeHandler("users-list", func() {
-						usersMgr.HandleUsersList(transport, msg)
-					})
-				}()
-			}
+			dispatch("file-search", func() {
+				fileMgr.HandleFileSearch(transport, msg)
+			})
 		case protocol.MsgAlertNotify:
-			sem <- struct{}{}
-			handlerWG.Add(1)
-			go func() {
-				defer handlerWG.Done()
-				defer func() { <-sem }()
-				safeHandler("alert-notify", func() {
-					handleAlertNotify(msg, runtime)
-				})
-			}()
+			dispatch("alert-notify", func() {
+				handleAlertNotify(msg, runtime)
+			})
 		case protocol.MsgEnrollmentChallenge:
-			sem <- struct{}{}
-			handlerWG.Add(1)
-			go func() {
-				defer handlerWG.Done()
-				defer func() { <-sem }()
-				safeHandler("enrollment-challenge", func() {
-					handleEnrollmentChallenge(transport, msg, cfg)
-				})
-			}()
+			dispatch("enrollment-challenge", func() {
+				handleEnrollmentChallenge(transport, msg, cfg)
+			})
 		case protocol.MsgEnrollmentApproved:
-			sem <- struct{}{}
-			handlerWG.Add(1)
-			go func() {
-				defer handlerWG.Done()
-				defer func() { <-sem }()
-				safeHandler("enrollment-approved", func() {
-					handleEnrollmentApproved(transport, msg, cfg)
-				})
-			}()
+			dispatch("enrollment-approved", func() {
+				handleEnrollmentApproved(transport, msg, cfg)
+			})
 		case protocol.MsgEnrollmentRejected:
-			sem <- struct{}{}
-			handlerWG.Add(1)
-			go func() {
-				defer handlerWG.Done()
-				defer func() { <-sem }()
-				safeHandler("enrollment-rejected", func() {
-					handleEnrollmentRejected(msg)
-				})
-			}()
+			dispatch("enrollment-rejected", func() {
+				handleEnrollmentRejected(msg)
+			})
 		// Clipboard messages.
 		case protocol.MsgClipboardGet:
 			if clipMgr != nil {
-				sem <- struct{}{}
-				handlerWG.Add(1)
-				go func() {
-					defer handlerWG.Done()
-					defer func() { <-sem }()
-					safeHandler("clipboard-get", func() {
-						clipMgr.HandleClipboardGet(transport, msg)
-					})
-				}()
+				dispatch("clipboard-get", func() {
+					clipMgr.HandleClipboardGet(transport, msg)
+				})
 			}
 		case protocol.MsgClipboardSet:
 			if clipMgr != nil {
-				sem <- struct{}{}
-				handlerWG.Add(1)
-				go func() {
-					defer handlerWG.Done()
-					defer func() { <-sem }()
-					safeHandler("clipboard-set", func() {
-						clipMgr.HandleClipboardSet(transport, msg)
-					})
-				}()
+				dispatch("clipboard-set", func() {
+					clipMgr.HandleClipboardSet(transport, msg)
+				})
 			}
 		// Desktop audio sideband messages.
 		case protocol.MsgDesktopAudioStart:
 			if audioMgr != nil {
-				sem <- struct{}{}
-				handlerWG.Add(1)
-				go func() {
-					defer handlerWG.Done()
-					defer func() { <-sem }()
-					safeHandler("desktop-audio-start", func() {
-						audioMgr.HandleAudioStart(transport, msg)
-					})
-				}()
+				dispatch("desktop-audio-start", func() {
+					audioMgr.HandleAudioStart(transport, msg)
+				})
 			}
 		case protocol.MsgDesktopAudioStop:
 			if audioMgr != nil {
-				sem <- struct{}{}
-				handlerWG.Add(1)
-				go func() {
-					defer handlerWG.Done()
-					defer func() { <-sem }()
-					safeHandler("desktop-audio-stop", func() {
-						audioMgr.HandleAudioStop(transport, msg)
-					})
-				}()
+				dispatch("desktop-audio-stop", func() {
+					audioMgr.HandleAudioStop(transport, msg)
+				})
 			}
 		// Docker container management messages.
 		case protocol.MsgDockerEndpointTest:
@@ -770,131 +409,61 @@ func receiveLoop(ctx context.Context, transport *wsTransport, cfg RuntimeConfig,
 			}
 		case protocol.MsgDockerAction:
 			if dockerCollector != nil {
-				sem <- struct{}{}
-				handlerWG.Add(1)
-				go func() {
-					defer handlerWG.Done()
-					defer func() { <-sem }()
-					safeHandler("docker-action", func() {
-						dockerCollector.HandleDockerAction(transport, msg)
-					})
-				}()
+				dispatch("docker-action", func() {
+					dockerCollector.HandleDockerAction(transport, msg)
+				})
 			}
 		case protocol.MsgDockerExecStart:
 			if execMgr != nil {
-				sem <- struct{}{}
-				handlerWG.Add(1)
-				go func() {
-					defer handlerWG.Done()
-					defer func() { <-sem }()
-					safeHandler("docker-exec-start", func() {
-						execMgr.HandleExecStart(transport, msg)
-					})
-				}()
+				dispatch("docker-exec-start", func() {
+					execMgr.HandleExecStart(transport, msg)
+				})
 			}
 		case protocol.MsgDockerExecInput:
 			if execMgr != nil {
-				sem <- struct{}{}
-				handlerWG.Add(1)
-				go func() {
-					defer handlerWG.Done()
-					defer func() { <-sem }()
-					safeHandler("docker-exec-input", func() {
-						execMgr.HandleExecInput(msg)
-					})
-				}()
+				dispatch("docker-exec-input", func() {
+					execMgr.HandleExecInput(msg)
+				})
 			}
 		case protocol.MsgDockerExecResize:
 			if execMgr != nil {
-				sem <- struct{}{}
-				handlerWG.Add(1)
-				go func() {
-					defer handlerWG.Done()
-					defer func() { <-sem }()
-					safeHandler("docker-exec-resize", func() {
-						execMgr.HandleExecResize(msg)
-					})
-				}()
+				dispatch("docker-exec-resize", func() {
+					execMgr.HandleExecResize(msg)
+				})
 			}
 		case protocol.MsgDockerExecClose:
 			if execMgr != nil {
-				sem <- struct{}{}
-				handlerWG.Add(1)
-				go func() {
-					defer handlerWG.Done()
-					defer func() { <-sem }()
-					safeHandler("docker-exec-close", func() {
-						execMgr.HandleExecClose(msg)
-					})
-				}()
+				dispatch("docker-exec-close", func() {
+					execMgr.HandleExecClose(msg)
+				})
 			}
 		case protocol.MsgDockerLogsStart:
 			if dockerLogMgr != nil {
-				sem <- struct{}{}
-				handlerWG.Add(1)
-				go func() {
-					defer handlerWG.Done()
-					defer func() { <-sem }()
-					safeHandler("docker-logs-start", func() {
-						dockerLogMgr.HandleLogsStart(ctx, transport, msg)
-					})
-				}()
+				dispatch("docker-logs-start", func() {
+					dockerLogMgr.HandleLogsStart(ctx, transport, msg)
+				})
 			}
 		case protocol.MsgDockerLogsStop:
 			if dockerLogMgr != nil {
-				sem <- struct{}{}
-				handlerWG.Add(1)
-				go func() {
-					defer handlerWG.Done()
-					defer func() { <-sem }()
-					safeHandler("docker-logs-stop", func() {
-						dockerLogMgr.HandleLogsStop(msg)
-					})
-				}()
+				dispatch("docker-logs-stop", func() {
+					dockerLogMgr.HandleLogsStop(msg)
+				})
 			}
 		case protocol.MsgDockerComposeAction:
 			if dockerCollector != nil {
-				sem <- struct{}{}
-				handlerWG.Add(1)
-				go func() {
-					defer handlerWG.Done()
-					defer func() { <-sem }()
-					safeHandler("docker-compose-action", func() {
-						dockerCollector.HandleComposeAction(transport, msg)
-					})
-				}()
+				dispatch("docker-compose-action", func() {
+					dockerCollector.HandleComposeAction(transport, msg)
+				})
 			}
 		case protocol.MsgWebServiceSync:
 			if webServiceCollector != nil {
-				sem <- struct{}{}
-				handlerWG.Add(1)
-				go func() {
-					defer handlerWG.Done()
-					defer func() { <-sem }()
-					safeHandler("web-service-sync", func() {
-						webServiceCollector.RunCycle(ctx)
-					})
-				}()
+				dispatch("web-service-sync", func() {
+					webServiceCollector.RunCycle(ctx)
+				})
 			}
 		default:
 			log.Printf("agentws: unknown message type from hub: %s", msg.Type)
 		}
-	}
-}
-
-// inboundMessageAllowed limits tokenless WebSockets to the three hub-to-agent
-// enrollment control messages required to complete or reject enrollment.
-// Operational messages must never reach their handlers until a subsequent
-// WebSocket has authenticated with the approved bearer token.
-func inboundMessageAllowed(enrollmentPending bool, messageType string) bool {
-	if !enrollmentPending {
-		return true
-	}
-	switch messageType {
-	case protocol.MsgEnrollmentChallenge, protocol.MsgEnrollmentApproved, protocol.MsgEnrollmentRejected:
-		return true
-	default:
-		return false
 	}
 }
 
@@ -908,107 +477,6 @@ func runtimeConfigWithCurrentIdentity(cfg RuntimeConfig, transport *wsTransport)
 	cfg.WSBaseURL = identity.WSBaseURL
 	cfg.APIBaseURL = identity.APIBaseURL
 	return cfg
-}
-
-func startFileReadHandler(ctx context.Context, transport files.MessageSender, fileMgr *files.Manager, msg protocol.Message, sem chan struct{}, handlerWG *sync.WaitGroup) bool {
-	select {
-	case sem <- struct{}{}:
-	case <-ctx.Done():
-		return false
-	}
-
-	handlerWG.Add(1)
-	go func() {
-		defer handlerWG.Done()
-		defer func() { <-sem }()
-		safeHandler("file-read", func() {
-			fileMgr.HandleFileReadContext(ctx, transport, msg)
-		})
-	}()
-	return true
-}
-
-func enqueueOrderedFileWrite(ctx context.Context, transport files.MessageSender, messages chan<- protocol.Message, msg protocol.Message) bool {
-	messageSize := len(msg.Type) + len(msg.ID) + len(msg.Data)
-	if messageSize > files.MaxFileWriteQueuedMessageSize {
-		requestID := strings.TrimSpace(msg.ID)
-		if len(requestID) > 256 {
-			requestID = requestID[:256]
-		}
-		errMessage := fmt.Sprintf("file.write message exceeds %d byte limit", files.MaxFileWriteQueuedMessageSize)
-		log.Printf(
-			"agentws: rejected file.write message for request %q: %d bytes exceeds %d byte limit",
-			requestID,
-			messageSize,
-			files.MaxFileWriteQueuedMessageSize,
-		)
-		data, err := json.Marshal(protocol.FileWrittenData{RequestID: requestID, Error: errMessage})
-		if err == nil {
-			_ = transport.Send(protocol.Message{Type: protocol.MsgFileWritten, ID: requestID, Data: data})
-		}
-		return true
-	}
-	select {
-	case messages <- msg:
-		return true
-	case <-ctx.Done():
-		return false
-	}
-}
-
-func runOrderedFileWriteWorker(ctx context.Context, transport *wsTransport, fileMgr *files.Manager, messages <-chan protocol.Message) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case msg, ok := <-messages:
-			if !ok {
-				return
-			}
-			safeHandler("file-write", func() {
-				fileMgr.HandleFileWrite(transport, msg)
-			})
-		}
-	}
-}
-
-// requiredCapabilitiesForMessage maps privileged hub-to-agent operations to
-// token claims. Opaque legacy agent tokens continue to be authenticated by the
-// hub, while capability-bearing JWTs are constrained at the endpoint as a
-// second authorization boundary.
-func requiredCapabilitiesForMessage(messageType string) []string {
-	switch {
-	case messageType == protocol.MsgConfigUpdate || messageType == protocol.MsgAgentSettingsApply:
-		return []string{"agent.settings.apply", "agent.settings", "settings.apply"}
-	case strings.HasPrefix(messageType, "terminal."):
-		return []string{"agent.terminal", "terminal.connect", "terminal"}
-	case strings.HasPrefix(messageType, "desktop.") || strings.HasPrefix(messageType, "webrtc.") || strings.HasPrefix(messageType, "clipboard."):
-		return []string{"agent.desktop", "desktop.connect", "desktop"}
-	case strings.HasPrefix(messageType, "file."):
-		return []string{"agent.files", "files.manage", "files"}
-	case strings.HasPrefix(messageType, "ssh_key."):
-		return []string{"agent.ssh_keys", "ssh_keys.manage", "ssh_keys"}
-	case messageType == protocol.MsgWoLSend:
-		return []string{"agent.network.manage", "network.manage", "agent.operations"}
-	case messageType == msgPowerAction:
-		return []string{"agent.power", "power.manage", "agent.operations"}
-	case strings.HasPrefix(messageType, "process."):
-		return []string{"agent.processes", "processes.manage", "agent.operations"}
-	case strings.HasPrefix(messageType, "service."):
-		return []string{"agent.services", "services.manage", "agent.operations"}
-	case strings.HasPrefix(messageType, "network."):
-		return []string{"agent.network", "network.manage", "agent.operations"}
-	case strings.HasPrefix(messageType, "package.") || strings.HasPrefix(messageType, "update."):
-		return []string{"agent.update.apply", "update.apply", "agent.update"}
-	case strings.HasPrefix(messageType, "cron.") || strings.HasPrefix(messageType, "users.") || strings.HasPrefix(messageType, "disk.") || strings.HasPrefix(messageType, "journal."):
-		return []string{"agent.inspect", "agent.operations", "operations.read"}
-	case strings.HasPrefix(messageType, "docker."):
-		return []string{"agent.docker", "docker.manage", "agent.operations"}
-	case messageType == protocol.MsgWebServiceSync:
-		return []string{"agent.services", "services.manage", "agent.operations"}
-	default:
-		return nil
-	}
 }
 
 // handleAlertNotify processes an alert notification from the hub and caches it locally.

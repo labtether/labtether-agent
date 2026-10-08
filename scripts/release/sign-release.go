@@ -1,6 +1,6 @@
 // sign-release signs agent release metadata with a local-only ed25519 key.
 //
-// Payload format (must match internal/agentcore/self_update.go
+// Payload format (must match internal/agentcore/self_update_verification.go
 // selfUpdateSignaturePayload): version\nos\narch\nsha256\nsize, joined by
 // single newlines, with sha256 lowercased.
 //
@@ -13,7 +13,6 @@ package main
 import (
 	"bytes"
 	"crypto/ed25519"
-	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
@@ -21,12 +20,13 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"hash"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"unicode"
+
+	"github.com/labtether/labtether-agent/scripts/release/internal/releasecontract"
 )
 
 const (
@@ -77,6 +77,9 @@ type stagedOutput struct {
 }
 
 func main() {
+	// Owner-requested signing pause. Remove only after explicit approval.
+	fmt.Fprintln(os.Stderr, "Code signing is paused by owner request (2026-09-05).")
+	os.Exit(1)
 	version := flag.String("version", "", "release version (e.g. v1.2.3)")
 	goos := flag.String("os", "", "target GOOS")
 	arch := flag.String("arch", "", "target GOARCH")
@@ -159,7 +162,7 @@ func signRelease(cfg releaseSigningConfig, keyReader io.Reader) (signingResult, 
 		}
 	}
 
-	shaHex, size, err := hashReleaseBinary(binaryPath, maxReleaseBinaryBytes)
+	shaHex, size, err := releasecontract.HashReleaseBinary(binaryPath, maxReleaseBinaryBytes)
 	if err != nil {
 		return result, err
 	}
@@ -318,66 +321,6 @@ func decodeBase64(encoded []byte) ([]byte, error) {
 		zeroBytes(decoded)
 	}
 	return nil, errors.New("invalid base64")
-}
-
-func hashReleaseBinary(path string, maxBytes int64) (string, int64, error) {
-	if maxBytes <= 0 {
-		return "", 0, errors.New("release binary size limit must be positive")
-	}
-	pathInfo, err := os.Lstat(path)
-	if err != nil {
-		return "", 0, fmt.Errorf("inspect release binary: %w", err)
-	}
-	if pathInfo.Mode()&os.ModeSymlink != 0 || !pathInfo.Mode().IsRegular() {
-		return "", 0, errors.New("release binary must be a regular non-symlink file")
-	}
-	if pathInfo.Size() <= 0 {
-		return "", 0, errors.New("release binary must not be empty")
-	}
-	if pathInfo.Size() > maxBytes {
-		return "", 0, fmt.Errorf("release binary exceeds %d bytes", maxBytes)
-	}
-
-	// #nosec G304 -- the caller-selected release artifact is validated with
-	// Lstat, SameFile, regular-file, size, and before/after stability checks.
-	file, err := os.Open(path)
-	if err != nil {
-		return "", 0, fmt.Errorf("open release binary: %w", err)
-	}
-	defer file.Close()
-
-	openedInfo, err := file.Stat()
-	if err != nil {
-		return "", 0, fmt.Errorf("stat opened release binary: %w", err)
-	}
-	if !openedInfo.Mode().IsRegular() || !os.SameFile(pathInfo, openedInfo) {
-		return "", 0, errors.New("release binary changed while it was opened")
-	}
-
-	hasher := sha256.New()
-	size, err := copyBoundedHash(hasher, file, maxBytes)
-	if err != nil {
-		return "", 0, err
-	}
-	afterInfo, err := file.Stat()
-	if err != nil {
-		return "", 0, fmt.Errorf("restat release binary: %w", err)
-	}
-	if size != openedInfo.Size() || afterInfo.Size() != openedInfo.Size() || !afterInfo.ModTime().Equal(openedInfo.ModTime()) {
-		return "", 0, errors.New("release binary changed while it was hashed")
-	}
-	return hex.EncodeToString(hasher.Sum(nil)), size, nil
-}
-
-func copyBoundedHash(destination hash.Hash, source io.Reader, maxBytes int64) (int64, error) {
-	written, err := io.Copy(destination, io.LimitReader(source, maxBytes+1))
-	if err != nil {
-		return 0, fmt.Errorf("hash release binary: %w", err)
-	}
-	if written > maxBytes {
-		return 0, fmt.Errorf("release binary exceeds %d bytes", maxBytes)
-	}
-	return written, nil
 }
 
 func canonicalReleasePayload(version, goos, arch, shaHex string, size int64) string {
