@@ -264,6 +264,7 @@ func (t *wsTransport) connectWithResponse(ctx context.Context) (*http.Response, 
 			connectionIdentity = adopted
 			if err := saveEnrollmentState(t.tokenFilePath, enrollmentState{
 				AssetID:   adopted.AssetID,
+				GroupID:   canonicalGroupIDPointer(adopted.GroupID, adopted.GroupKnown),
 				HubWSURL:  adopted.WSBaseURL,
 				HubAPIURL: adopted.APIBaseURL,
 			}); err != nil {

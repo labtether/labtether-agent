@@ -5,6 +5,7 @@ import (
 	"crypto/x509"
 	"fmt"
 	"os"
+	"strings"
 )
 
 var loadSystemCertPool = x509.SystemCertPool
@@ -15,20 +16,22 @@ func buildTLSConfig(cfg *RuntimeConfig) *tls.Config {
 	if cfg == nil {
 		return nil
 	}
-	if cfg.TLSCAFile == "" && !cfg.TLSSkipVerify {
+	caFile := strings.TrimSpace(cfg.TLSCAFile)
+	if caFile == "" && !cfg.TLSSkipVerify {
 		return nil
 	}
 
 	tlsCfg := &tls.Config{
 		MinVersion: tls.VersionTLS12,
-		// #nosec G402 -- operator opt-in for local/dev self-signed deployments.
-		InsecureSkipVerify: cfg.TLSSkipVerify, //nolint:gosec // #nosec G402 -- operator opt-in for dev/self-signed
+		// A configured CA wins over a stale skip-verify setting from a wrapper.
+		// #nosec G402 -- operator opt-in for local/dev without a configured CA.
+		InsecureSkipVerify: cfg.TLSSkipVerify && caFile == "", //nolint:gosec // #nosec G402 -- operator opt-in for dev/self-signed
 	}
 
-	if cfg.TLSCAFile != "" {
-		caCert, err := readBoundedRegularFile(cfg.TLSCAFile, maxLocalCAFileBytes)
+	if caFile != "" {
+		caCert, err := readBoundedRegularFile(caFile, maxLocalCAFileBytes)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "agent: warning: failed to read TLS CA file %s: %v\n", cfg.TLSCAFile, err)
+			fmt.Fprintf(os.Stderr, "agent: warning: failed to read TLS CA file %s: %v\n", caFile, err)
 			return tlsCfg
 		}
 		pool, err := loadSystemCertPool()
@@ -36,7 +39,7 @@ func buildTLSConfig(cfg *RuntimeConfig) *tls.Config {
 			pool = x509.NewCertPool()
 		}
 		if !pool.AppendCertsFromPEM(caCert) {
-			fmt.Fprintf(os.Stderr, "agent: warning: no valid certs found in %s\n", cfg.TLSCAFile)
+			fmt.Fprintf(os.Stderr, "agent: warning: no valid certs found in %s\n", caFile)
 			return tlsCfg
 		}
 		tlsCfg.RootCAs = pool

@@ -32,7 +32,6 @@ func newHeartbeatPublisherWithRuntimeIdentity(cfg RuntimeConfig, staticMetadata 
 			Transport: transport,
 		},
 		source:   cfg.Source,
-		groupID:  cfg.GroupID,
 		meta:     cloneStringMap(staticMetadata),
 		identity: identity,
 	}
@@ -41,7 +40,6 @@ func newHeartbeatPublisherWithRuntimeIdentity(cfg RuntimeConfig, staticMetadata 
 type apiHeartbeatPublisher struct {
 	client   *http.Client
 	source   string
-	groupID  string
 	meta     map[string]string
 	identity *runtimeIdentitySource
 }
@@ -76,7 +74,7 @@ func (p *apiHeartbeatPublisher) Publish(ctx context.Context, sample TelemetrySam
 		Type:     "host",
 		Name:     identity.AssetID,
 		Source:   p.source,
-		GroupID:  p.groupID,
+		GroupID:  identity.GroupID,
 		Status:   "online",
 		Platform: resolvedPlatform,
 		Metadata: metadata,

@@ -33,6 +33,8 @@ func normalizeIssuedAgentToken(raw string) (string, error) {
 type runtimeIdentitySnapshot struct {
 	BearerToken string
 	AssetID     string
+	GroupID     string
+	GroupKnown  bool
 	WSBaseURL   string
 	APIBaseURL  string
 	generation  uint64
@@ -52,6 +54,8 @@ func newRuntimeIdentitySource(cfg RuntimeConfig) *runtimeIdentitySource {
 	return &runtimeIdentitySource{current: runtimeIdentitySnapshot{
 		BearerToken: strings.TrimSpace(cfg.APIToken),
 		AssetID:     strings.TrimSpace(cfg.AssetID),
+		GroupID:     strings.TrimSpace(cfg.GroupID),
+		GroupKnown:  cfg.groupIDCanonical,
 		WSBaseURL:   wsBaseURL,
 		APIBaseURL:  apiBaseURL,
 		generation:  1,
@@ -75,7 +79,7 @@ func (s *runtimeIdentitySource) AssetID() string {
 // identity. Empty origins preserve the currently active origin. When a new WS
 // origin is supplied without an API origin, the API origin is derived from it
 // so HTTP fallback cannot remain pinned to a previous hub.
-func (s *runtimeIdentitySource) AdoptCredential(token, assetID, wsBaseURL, apiBaseURL string) (runtimeIdentitySnapshot, error) {
+func (s *runtimeIdentitySource) AdoptCredential(token, assetID, wsBaseURL, apiBaseURL string, canonicalGroupID *string) (runtimeIdentitySnapshot, error) {
 	if s == nil {
 		return runtimeIdentitySnapshot{}, fmt.Errorf("runtime identity source is unavailable")
 	}
@@ -97,6 +101,10 @@ func (s *runtimeIdentitySource) AdoptCredential(token, assetID, wsBaseURL, apiBa
 	next := s.current
 	next.BearerToken = token
 	next.AssetID = assetID
+	if canonicalGroupID != nil {
+		next.GroupID = strings.TrimSpace(*canonicalGroupID)
+		next.GroupKnown = true
+	}
 	if normalizedWS != "" {
 		next.WSBaseURL = normalizedWS
 	}
