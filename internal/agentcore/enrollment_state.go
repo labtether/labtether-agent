@@ -94,14 +94,23 @@ func restoreEnrollmentState(cfg *RuntimeConfig) error {
 		return err
 	}
 
-	// The token-bound canonical asset ID is authoritative. Endpoint settings
-	// remain operator-overridable, so saved URLs only fill absent values.
+	// The token-bound canonical asset ID is authoritative. A single endpoint
+	// override moves both transports to the chosen origin. A deliberately split
+	// WS/API setup must provide both endpoints explicitly.
 	cfg.AssetID = strings.TrimSpace(state.AssetID)
-	if cfg.WSBaseURL == "" {
-		cfg.WSBaseURL = normalizeWSBaseURL(state.HubWSURL)
-	}
-	if cfg.APIBaseURL == "" {
-		cfg.APIBaseURL = normalizeAPIBaseURL(state.HubAPIURL)
+	configuredWS := normalizeWSBaseURL(cfg.WSBaseURL)
+	configuredAPI := normalizeAPIBaseURL(cfg.APIBaseURL)
+	savedWS := normalizeWSBaseURL(state.HubWSURL)
+	savedAPI := normalizeAPIBaseURL(state.HubAPIURL)
+	switch {
+	case configuredWS != "" && configuredAPI != "":
+		cfg.WSBaseURL, cfg.APIBaseURL = configuredWS, configuredAPI
+	case configuredWS != "":
+		cfg.WSBaseURL, cfg.APIBaseURL = configuredWS, apiBaseURLFromWS(configuredWS)
+	case configuredAPI != "":
+		cfg.WSBaseURL, cfg.APIBaseURL = wsBaseURLFromAPI(configuredAPI, savedWS), configuredAPI
+	default:
+		cfg.WSBaseURL, cfg.APIBaseURL = savedWS, savedAPI
 		if cfg.APIBaseURL == "" {
 			cfg.APIBaseURL = apiBaseURLFromWS(cfg.WSBaseURL)
 		}
@@ -169,4 +178,27 @@ func apiBaseURLFromWS(raw string) string {
 	parsed.RawQuery = ""
 	parsed.Fragment = ""
 	return strings.TrimRight(parsed.String(), "/")
+}
+
+func wsBaseURLFromAPI(rawAPI, savedWS string) string {
+	api, err := url.Parse(normalizeAPIBaseURL(rawAPI))
+	if err != nil || api.Host == "" || api.User != nil {
+		return ""
+	}
+	ws := &url.URL{Host: api.Host, Path: "/ws/agent"}
+	if saved, err := url.Parse(normalizeWSBaseURL(savedWS)); err == nil && saved.Path != "" {
+		ws.Path, ws.RawPath = saved.Path, saved.RawPath
+	}
+	switch api.Scheme {
+	case "https":
+		ws.Scheme = "wss"
+	case "http":
+		if !allowInsecureTransportOptIn() {
+			return ""
+		}
+		ws.Scheme = "ws"
+	default:
+		return ""
+	}
+	return ws.String()
 }

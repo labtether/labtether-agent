@@ -8,6 +8,8 @@ import (
 	"sort"
 )
 
+const requiredReleaseGoVersion = "go1.26.9"
+
 func PrepareUnsignedAssets(
 	stage, tag, commit, builderGoVersion string,
 ) (BuildRecord, error) {
@@ -20,6 +22,9 @@ func PrepareUnsignedAssets(
 	}
 	if !goVersionPattern.MatchString(builderGoVersion) {
 		return record, errors.New("builder Go version has an invalid format")
+	}
+	if builderGoVersion != requiredReleaseGoVersion {
+		return record, fmt.Errorf("release binaries must use %s", requiredReleaseGoVersion)
 	}
 	resolvedStage, err := ValidateStage(stage)
 	if err != nil {

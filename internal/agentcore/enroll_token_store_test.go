@@ -81,8 +81,8 @@ func TestResolveToken_FromFileRestoresCanonicalEnrollmentState(t *testing.T) {
 	if cfg.WSBaseURL != "wss://operator-override.example.test:9443/ws/agent" {
 		t.Fatalf("WSBaseURL=%q, want explicit operator endpoint preserved", cfg.WSBaseURL)
 	}
-	if cfg.APIBaseURL != "https://saved.example.test:8443" {
-		t.Fatalf("APIBaseURL=%q, want saved enrollment API endpoint", cfg.APIBaseURL)
+	if cfg.APIBaseURL != "https://operator-override.example.test:9443" {
+		t.Fatalf("APIBaseURL=%q, want API origin derived from explicit WS endpoint", cfg.APIBaseURL)
 	}
 }
 
