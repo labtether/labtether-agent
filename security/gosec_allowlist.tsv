@@ -25,6 +25,6 @@ G304	scripts/release/internal/releasecontract/verify_manifest.go	186	Sealed rele
 G304	scripts/release/internal/releasecontract/verify_binary.go	30	Release binary is validated as a bounded regular file with executable magic, architecture, and Go build-info checks.
 G304	scripts/release/internal/releasecontract/verify_binary.go	134	Signed metadata path is derived from validated asset names and read only after small regular-file validation.
 G304	scripts/release/internal/releasecontract/verify_binary.go	172	Detached signature path is derived from validated asset names and read only after small regular-file validation.
-G304	scripts/release/internal/releasecontract/verify.go	166	Checksum path is derived from a validated manifest asset and read only after small regular-file validation.
+G304	scripts/release/internal/releasecontract/verify.go	171	Checksum path is derived from a validated manifest asset and read only after small regular-file validation.
 G304	scripts/release/internal/releasecontract/verify_binary.go	187	Build record path is fixed in the private release-control directory and validated as a small regular file before strict JSON decoding.
 G304	scripts/release/internal/releasecontract/verify_manifest.go	219	Release manifest path is fixed in the private release-control directory and validated as a small regular file before strict JSON decoding.
