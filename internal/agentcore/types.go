@@ -32,6 +32,7 @@ type RuntimeConfig struct {
 	WSBaseURL                                 string
 	AssetID                                   string
 	GroupID                                   string
+	groupIDCanonical                          bool
 	Source                                    string
 	CollectInterval                           time.Duration
 	HeartbeatInterval                         time.Duration

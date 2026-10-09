@@ -21,6 +21,7 @@ func TestRuntimeIdentityConcurrentSnapshotsRemainCoherent(t *testing.T) {
 	identity := newRuntimeIdentitySource(RuntimeConfig{
 		APIToken:   "token-a",
 		AssetID:    "asset-a",
+		GroupID:    "group-a",
 		WSBaseURL:  "wss://hub-a.example.test/ws/agent",
 		APIBaseURL: "https://hub-a.example.test",
 	})
@@ -30,10 +31,11 @@ func TestRuntimeIdentityConcurrentSnapshotsRemainCoherent(t *testing.T) {
 		asset string
 		ws    string
 		api   string
+		group string
 	}
 	sets := []credentialSet{
-		{"token-a", "asset-a", "wss://hub-a.example.test/ws/agent", "https://hub-a.example.test"},
-		{"token-b", "asset-b", "wss://hub-b.example.test/ws/agent", "https://hub-b.example.test"},
+		{"token-a", "asset-a", "wss://hub-a.example.test/ws/agent", "https://hub-a.example.test", "group-a"},
+		{"token-b", "asset-b", "wss://hub-b.example.test/ws/agent", "https://hub-b.example.test", "group-b"},
 	}
 
 	var wg sync.WaitGroup
@@ -50,7 +52,7 @@ func TestRuntimeIdentityConcurrentSnapshotsRemainCoherent(t *testing.T) {
 			defer wg.Done()
 			for i := 0; i < 2000; i++ {
 				set := sets[(i+offset)%len(sets)]
-				if _, err := identity.AdoptCredential(set.token, set.asset, set.ws, set.api); err != nil {
+				if _, err := identity.AdoptCredential(set.token, set.asset, set.ws, set.api, &set.group); err != nil {
 					recordErr(err)
 					return
 				}
@@ -65,7 +67,7 @@ func TestRuntimeIdentityConcurrentSnapshotsRemainCoherent(t *testing.T) {
 				snapshot := identity.Snapshot()
 				coherent := false
 				for _, set := range sets {
-					if snapshot.BearerToken == set.token && snapshot.AssetID == set.asset && snapshot.WSBaseURL == set.ws && snapshot.APIBaseURL == set.api {
+					if snapshot.BearerToken == set.token && snapshot.AssetID == set.asset && snapshot.WSBaseURL == set.ws && snapshot.APIBaseURL == set.api && snapshot.GroupID == set.group {
 						coherent = true
 						break
 					}
@@ -89,11 +91,12 @@ func TestRuntimeIdentityRejectsStaleHandshakeCanonicalization(t *testing.T) {
 	identity := newRuntimeIdentitySource(RuntimeConfig{
 		APIToken:   "old-token",
 		AssetID:    "old-asset",
+		GroupID:    "old-group",
 		WSBaseURL:  "wss://old.example.test/ws/agent",
 		APIBaseURL: "https://old.example.test",
 	})
 	staleHandshake := identity.Snapshot()
-	if _, err := identity.AdoptCredential("new-token", "new-asset", "wss://new.example.test/ws/agent", "https://new.example.test"); err != nil {
+	if _, err := identity.AdoptCredential("new-token", "new-asset", "wss://new.example.test/ws/agent", "https://new.example.test", nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, applied, err := identity.AdoptCanonicalAsset(staleHandshake, "stale-canonical-asset"); err != nil {
@@ -165,7 +168,8 @@ func TestRotatedIdentityDrivesDisconnectedHTTPFallback(t *testing.T) {
 	publisher := newWSHeartbeatPublisher(transport, fallback, cfg, map[string]string{"platform": "linux"}, nil)
 
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/agent"
-	if _, err := identity.AdoptCredential("new-token", "new-asset", wsURL, server.URL); err != nil {
+	canonicalGroup := "hub-group"
+	if _, err := identity.AdoptCredential("new-token", "new-asset", wsURL, server.URL, &canonicalGroup); err != nil {
 		t.Fatal(err)
 	}
 	if err := publisher.Publish(context.Background(), TelemetrySample{AssetID: "stale-sample-asset"}); err != nil {
@@ -179,6 +183,9 @@ func TestRotatedIdentityDrivesDisconnectedHTTPFallback(t *testing.T) {
 		}
 		if got.payload.AssetID != "new-asset" || got.payload.Name != "new-asset" {
 			t.Fatalf("fallback heartbeat identity=%q/%q, want new-asset", got.payload.AssetID, got.payload.Name)
+		}
+		if got.payload.GroupID != canonicalGroup {
+			t.Fatalf("fallback heartbeat group=%q, want %q", got.payload.GroupID, canonicalGroup)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for fallback heartbeat")
@@ -208,6 +215,7 @@ func TestPendingApprovalActivatesPreviouslyCredentiallessFallback(t *testing.T) 
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/agent"
 	identity := newRuntimeIdentitySource(RuntimeConfig{
 		AssetID:    "pending-asset",
+		GroupID:    "requested-group",
 		WSBaseURL:  wsURL,
 		APIBaseURL: server.URL,
 	})
@@ -233,6 +241,9 @@ func TestPendingApprovalActivatesPreviouslyCredentiallessFallback(t *testing.T) 
 		if payload.AssetID != "canonical-approved-asset" {
 			t.Fatalf("approved fallback asset_id=%q", payload.AssetID)
 		}
+		if payload.GroupID != "" {
+			t.Fatalf("approved unplaced asset retained requested group=%q", payload.GroupID)
+		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for approved fallback heartbeat")
 	}
@@ -246,10 +257,11 @@ func TestCanonicalIdentityReachesLocalAndBufferedTelemetryImmediately(t *testing
 	identity := newRuntimeIdentitySource(RuntimeConfig{
 		APIToken:   "token",
 		AssetID:    "startup-asset",
+		GroupID:    "stale-group",
 		WSBaseURL:  "wss://hub.example.test/ws/agent",
 		APIBaseURL: "https://hub.example.test",
 	})
-	runtime := newRuntimeWithIdentity(RuntimeConfig{Name: "agent", AssetID: "startup-asset"}, nil, &recordingHeartbeatPublisher{}, identity)
+	runtime := newRuntimeWithIdentity(RuntimeConfig{Name: "agent", AssetID: "startup-asset", GroupID: "stale-group"}, nil, &recordingHeartbeatPublisher{}, identity)
 	runtime.mu.Lock()
 	runtime.sample = TelemetrySample{AssetID: "startup-asset", CPUPercent: 42, CollectedAt: time.Now().UTC()}
 	runtime.mu.Unlock()
@@ -259,6 +271,10 @@ func TestCanonicalIdentityReachesLocalAndBufferedTelemetryImmediately(t *testing
 		t.Fatal(err)
 	} else if !applied {
 		t.Fatal("canonical handshake identity was not applied")
+	}
+	canonicalGroup := "hub-group"
+	if _, err := identity.AdoptCredential("token", "canonical-asset", "", "", &canonicalGroup); err != nil {
+		t.Fatal(err)
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/agent/status", bytes.NewReader(nil))
@@ -271,8 +287,8 @@ func TestCanonicalIdentityReachesLocalAndBufferedTelemetryImmediately(t *testing
 	if err := json.NewDecoder(rec.Body).Decode(&status); err != nil {
 		t.Fatal(err)
 	}
-	if status.AssetID != "canonical-asset" || status.Metrics.AssetID != "canonical-asset" {
-		t.Fatalf("local status identity=%q metrics=%q", status.AssetID, status.Metrics.AssetID)
+	if status.AssetID != "canonical-asset" || status.Metrics.AssetID != "canonical-asset" || status.GroupID != canonicalGroup {
+		t.Fatalf("local status identity=%q group=%q metrics=%q", status.AssetID, status.GroupID, status.Metrics.AssetID)
 	}
 
 	transport, messages, cleanup := newAgentcoreCapturedTransport(t)
@@ -301,8 +317,8 @@ func TestCanonicalIdentityReachesLocalAndBufferedTelemetryImmediately(t *testing
 	if err := json.Unmarshal(heartbeatMessage.Data, &heartbeat); err != nil {
 		t.Fatal(err)
 	}
-	if heartbeat.AssetID != "canonical-asset" || heartbeat.Name != "canonical-asset" {
-		t.Fatalf("websocket heartbeat identity=%q/%q", heartbeat.AssetID, heartbeat.Name)
+	if heartbeat.AssetID != "canonical-asset" || heartbeat.Name != "canonical-asset" || heartbeat.GroupID != canonicalGroup {
+		t.Fatalf("websocket heartbeat identity=%q/%q group=%q", heartbeat.AssetID, heartbeat.Name, heartbeat.GroupID)
 	}
 }
 
@@ -335,7 +351,7 @@ func TestWSTransportConnectReadsLatestRuntimeIdentitySnapshot(t *testing.T) {
 	})
 	transport := newWSTransportWithRuntimeIdentity(identity, "linux", "test", nil, "", nil)
 	newWSURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/agent"
-	if _, err := identity.AdoptCredential("new-token", "new-asset", newWSURL, server.URL); err != nil {
+	if _, err := identity.AdoptCredential("new-token", "new-asset", newWSURL, server.URL, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := transport.connectWithResponse(context.Background()); err != nil {

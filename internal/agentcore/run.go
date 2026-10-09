@@ -63,6 +63,10 @@ func Run(ctx context.Context, cfg RuntimeConfig, provider TelemetryProvider) err
 		}
 	}
 
+	if cfg.TLSSkipVerify && strings.TrimSpace(cfg.TLSCAFile) != "" {
+		log.Printf("%s: configured TLS CA takes priority; ignoring LABTETHER_TLS_SKIP_VERIFY", cfg.Name)
+		cfg.TLSSkipVerify = false
+	}
 	if cfg.TLSSkipVerify {
 		log.Printf("%s: WARNING: TLS certificate verification is disabled (LABTETHER_TLS_SKIP_VERIFY=true). This is insecure and should only be used for initial setup. Configure LABTETHER_TLS_CA_FILE to trust the hub CA.", cfg.Name)
 	}
@@ -301,6 +305,7 @@ func reEnrollAgainstActiveHub(ctx context.Context, cfg RuntimeConfig, transport 
 
 	cfgCopy := cfg
 	cfgCopy.APIToken = ""
+	cfgCopy.GroupID = currentIdentity.GroupID
 	// APIBaseURL may still name a previous hub. Derive the enrollment endpoint
 	// from the active, failed WebSocket origin so the returned token is valid for
 	// the connection that will be retried.
@@ -330,6 +335,7 @@ func reEnrollAgainstActiveHub(ctx context.Context, cfg RuntimeConfig, transport 
 		resp.AssetID,
 		responseWSURL,
 		normalizeAPIBaseURL(resp.HubAPIURL),
+		resp.GroupID,
 	)
 	if err != nil {
 		return "", err
@@ -350,6 +356,7 @@ func reEnrollAgainstActiveHub(ctx context.Context, cfg RuntimeConfig, transport 
 		} else {
 			if err := saveEnrollmentState(cfg.TokenFilePath, enrollmentState{
 				AssetID:   adoptedIdentity.AssetID,
+				GroupID:   canonicalGroupIDPointer(adoptedIdentity.GroupID, adoptedIdentity.GroupKnown),
 				HubWSURL:  adoptedIdentity.WSBaseURL,
 				HubAPIURL: adoptedIdentity.APIBaseURL,
 			}); err != nil {

@@ -17,10 +17,19 @@ const (
 )
 
 type enrollmentState struct {
-	Version   int    `json:"version"`
-	AssetID   string `json:"asset_id"`
-	HubWSURL  string `json:"hub_ws_url,omitempty"`
-	HubAPIURL string `json:"hub_api_url,omitempty"`
+	Version   int     `json:"version"`
+	AssetID   string  `json:"asset_id"`
+	GroupID   *string `json:"group_id,omitempty"`
+	HubWSURL  string  `json:"hub_ws_url,omitempty"`
+	HubAPIURL string  `json:"hub_api_url,omitempty"`
+}
+
+func canonicalGroupIDPointer(groupID string, known bool) *string {
+	if !known {
+		return nil
+	}
+	normalized := strings.TrimSpace(groupID)
+	return &normalized
 }
 
 func enrollmentStatePath(tokenFilePath string) string {
@@ -37,6 +46,9 @@ func saveEnrollmentState(tokenFilePath string, state enrollmentState) error {
 	}
 	state.Version = enrollmentStateVersion
 	state.AssetID = strings.TrimSpace(state.AssetID)
+	if state.GroupID != nil {
+		state.GroupID = canonicalGroupIDPointer(*state.GroupID, true)
+	}
 	state.HubWSURL = normalizeWSBaseURL(state.HubWSURL)
 	state.HubAPIURL = normalizeAPIBaseURL(state.HubAPIURL)
 	if state.HubAPIURL == "" {
@@ -98,6 +110,10 @@ func restoreEnrollmentState(cfg *RuntimeConfig) error {
 	// override moves both transports to the chosen origin. A deliberately split
 	// WS/API setup must provide both endpoints explicitly.
 	cfg.AssetID = strings.TrimSpace(state.AssetID)
+	if state.GroupID != nil {
+		cfg.GroupID = strings.TrimSpace(*state.GroupID)
+		cfg.groupIDCanonical = true
+	}
 	configuredWS := normalizeWSBaseURL(cfg.WSBaseURL)
 	configuredAPI := normalizeAPIBaseURL(cfg.APIBaseURL)
 	savedWS := normalizeWSBaseURL(state.HubWSURL)

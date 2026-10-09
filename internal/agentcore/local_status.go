@@ -76,7 +76,7 @@ func (r *Runtime) statusHandler() http.HandlerFunc {
 		resp := StatusResponse{
 			AgentName:         r.cfg.Name,
 			AssetID:           sample.AssetID,
-			GroupID:           r.cfg.GroupID,
+			GroupID:           r.identity.Snapshot().GroupID,
 			Port:              r.cfg.Port,
 			Connected:         connected,
 			ConnectionState:   connState,

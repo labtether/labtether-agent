@@ -84,13 +84,19 @@ func (p *wsHeartbeatPublisher) Publish(ctx context.Context, sample TelemetrySamp
 		// always wired to the shared runtime identity source.
 		assetID = sample.AssetID
 	}
+	identity := p.transport.identitySource().Snapshot()
+	groupID := identity.GroupID
+	if groupID == "" && !identity.GroupKnown {
+		// Isolated transport tests may not install their runtime config source.
+		groupID = p.groupID
+	}
 
 	heartbeat := protocol.HeartbeatData{
 		AssetID:      assetID,
 		Type:         "host",
 		Name:         assetID,
 		Source:       p.source,
-		GroupID:      p.groupID,
+		GroupID:      groupID,
 		Status:       "online",
 		Platform:     resolvedPlatform,
 		Metadata:     metadata,

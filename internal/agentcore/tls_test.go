@@ -139,7 +139,18 @@ func TestBuildTLSConfig_CAFileAndSkipVerify(t *testing.T) {
 	if tlsCfg == nil {
 		t.Fatalf("expected non-nil TLS config")
 	}
-	if !tlsCfg.InsecureSkipVerify {
-		t.Fatalf("expected InsecureSkipVerify=true")
+	if tlsCfg.InsecureSkipVerify {
+		t.Fatalf("configured CA must keep certificate verification enabled")
+	}
+}
+
+func TestBuildTLSConfig_ValidCAOverridesSkipVerify(t *testing.T) {
+	caFile := filepath.Join(t.TempDir(), "ca.crt")
+	if err := os.WriteFile(caFile, generateTestCACert(t), 0600); err != nil {
+		t.Fatalf("write CA file: %v", err)
+	}
+	tlsCfg := buildTLSConfig(&RuntimeConfig{TLSCAFile: caFile, TLSSkipVerify: true})
+	if tlsCfg == nil || tlsCfg.InsecureSkipVerify || tlsCfg.RootCAs == nil {
+		t.Fatalf("configured CA must load roots and verify peers")
 	}
 }

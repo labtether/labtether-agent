@@ -90,6 +90,8 @@ func handleEnrollmentApproved(transport *wsTransport, msg protocol.Message, cfg 
 
 	log.Printf("agentws: enrollment APPROVED! asset_id=%s", data.AssetID)
 	currentIdentity := transport.identitySource().Snapshot()
+	// The current Hub finalizes a pending approval as an unplaced asset.
+	unplacedGroupID := ""
 	currentAPIOrigin := apiBaseURLFromWS(currentIdentity.WSBaseURL)
 	if currentAPIOrigin == "" {
 		currentAPIOrigin = currentIdentity.APIBaseURL
@@ -99,6 +101,7 @@ func handleEnrollmentApproved(transport *wsTransport, msg protocol.Message, cfg 
 		data.AssetID,
 		currentIdentity.WSBaseURL,
 		currentAPIOrigin,
+		&unplacedGroupID,
 	)
 	if err != nil {
 		log.Printf("agentws: enrollment.approved identity update failed: %v", err)
@@ -119,6 +122,7 @@ func handleEnrollmentApproved(transport *wsTransport, msg protocol.Message, cfg 
 			log.Printf("agentws: token saved to %s", cfg.TokenFilePath)
 			if err := saveEnrollmentState(cfg.TokenFilePath, enrollmentState{
 				AssetID:   adoptedIdentity.AssetID,
+				GroupID:   canonicalGroupIDPointer(adoptedIdentity.GroupID, adoptedIdentity.GroupKnown),
 				HubWSURL:  adoptedIdentity.WSBaseURL,
 				HubAPIURL: adoptedIdentity.APIBaseURL,
 			}); err != nil {

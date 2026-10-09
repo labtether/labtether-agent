@@ -95,6 +95,10 @@ func resolveTokenWithIdentity(ctx context.Context, cfg *RuntimeConfig, identity 
 	if resp.AssetID != "" {
 		cfg.AssetID = resp.AssetID
 	}
+	if resp.GroupID != nil {
+		cfg.GroupID = strings.TrimSpace(*resp.GroupID)
+		cfg.groupIDCanonical = true
+	}
 	if normalized := normalizeWSBaseURL(resp.HubWSURL); normalized != "" {
 		cfg.WSBaseURL = normalized
 	}
@@ -120,6 +124,7 @@ func resolveTokenWithIdentity(ctx context.Context, cfg *RuntimeConfig, identity 
 		log.Printf("agent: token persisted to %s", cfg.TokenFilePath)
 		if err := saveEnrollmentState(cfg.TokenFilePath, enrollmentState{
 			AssetID:   cfg.AssetID,
+			GroupID:   canonicalGroupIDPointer(cfg.GroupID, cfg.groupIDCanonical),
 			HubWSURL:  cfg.WSBaseURL,
 			HubAPIURL: cfg.APIBaseURL,
 		}); err != nil {
@@ -205,9 +210,11 @@ type enrollRequest struct {
 type enrollResponse struct {
 	AgentToken string `json:"agent_token"`
 	AssetID    string `json:"asset_id"`
-	HubWSURL   string `json:"hub_ws_url"`
-	HubAPIURL  string `json:"hub_api_url"`
-	CACertPEM  string `json:"ca_cert_pem,omitempty"`
+	// Present even when empty on current Hubs. Nil preserves older-Hub behavior.
+	GroupID   *string `json:"group_id"`
+	HubWSURL  string  `json:"hub_ws_url"`
+	HubAPIURL string  `json:"hub_api_url"`
+	CACertPEM string  `json:"ca_cert_pem,omitempty"`
 }
 
 func enrollWithHub(ctx context.Context, cfg *RuntimeConfig) (*enrollResponse, error) {

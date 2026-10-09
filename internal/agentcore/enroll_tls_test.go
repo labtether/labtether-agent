@@ -2,8 +2,8 @@ package agentcore
 
 import (
 	"context"
-	"crypto/tls"
 	"encoding/json"
+	"encoding/pem"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -51,7 +51,7 @@ func TestEnrollWithHub_TLS(t *testing.T) {
 	}
 }
 
-func TestEnrollWithHub_TLSWithCA(t *testing.T) {
+func TestEnrollWithHub_TLSWithCAOverridesSkipVerify(t *testing.T) {
 	t.Setenv("LABTETHER_OUTBOUND_ALLOW_LOOPBACK", "true")
 
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -69,32 +69,31 @@ func TestEnrollWithHub_TLSWithCA(t *testing.T) {
 	}))
 	defer server.Close()
 
-	// Get the test server's CA certificate and create a custom transport
-	// We'll test that TLSSkipVerify works alongside CA, since httptest certs
-	// won't validate against a random CA file anyway
+	caPath := filepath.Join(t.TempDir(), "hub-ca.crt")
+	caPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw})
+	if err := os.WriteFile(caPath, caPEM, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	cfg := &RuntimeConfig{
 		EnrollmentToken: "ca-enroll-token",
 		APIBaseURL:      server.URL,
+		TLSCAFile:       caPath,
 		TLSSkipVerify:   true,
 	}
-
-	// Manually build a client with the test server's cert pool to prove CA flow works
-	client := &http.Client{
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{
-				MinVersion: tls.VersionTLS12,
-				RootCAs:    server.Client().Transport.(*http.Transport).TLSClientConfig.RootCAs,
-			},
-		},
-	}
-	_ = client // Demonstrates the pattern; actual test uses skip-verify
-
 	resp, err := enrollWithHub(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if resp.AgentToken != "ca-agent-token" {
 		t.Fatalf("expected 'ca-agent-token', got %q", resp.AgentToken)
+	}
+	wrongCAPath := filepath.Join(t.TempDir(), "wrong-ca.crt")
+	if err := os.WriteFile(wrongCAPath, generateTestCACert(t), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg.TLSCAFile = wrongCAPath
+	if _, err := enrollWithHub(context.Background(), cfg); err == nil {
+		t.Fatal("untrusted Hub certificate was accepted while CA and skip-verify were both set")
 	}
 }
 
