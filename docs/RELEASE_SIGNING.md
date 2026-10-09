@@ -78,6 +78,10 @@ The release has five separate local gates:
 5. Create a draft release, inspect its exact 20 assets, then publish only from a
    separate invocation that rechecks the fresh draft and the inspection receipt.
 
+Build the raw binaries with `GOTOOLCHAIN=go1.26.9` and pass
+`--go-version go1.26.9` to `release-contract prepare`. The prepare gate checks
+each binary's embedded Go version and rejects older or unpinned builders.
+
 The public contract is exactly 20 release assets:
 
 - four raw binaries: Linux amd64, Linux arm64, Windows amd64, Windows arm64

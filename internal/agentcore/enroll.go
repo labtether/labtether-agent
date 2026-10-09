@@ -131,12 +131,14 @@ func resolveTokenWithIdentity(ctx context.Context, cfg *RuntimeConfig, identity 
 		log.Printf("agent: ERROR: consumed enrollment token cleanup failed: %v", consumedTokenCleanupErr)
 	}
 
-	// Save hub CA certificate if provided (validate it's actually a CA cert first).
-	if resp.CACertPEM != "" && cfg.TokenFilePath != "" {
+	// Preserve an operator-supplied CA for a TLS proxy in front of the Hub.
+	// The Hub's returned internal CA may not trust that public endpoint.
+	caPath := filepath.Join(filepath.Dir(cfg.TokenFilePath), "ca.crt")
+	if resp.CACertPEM != "" && cfg.TokenFilePath != "" &&
+		(cfg.TLSCAFile == "" || filepath.Clean(cfg.TLSCAFile) == filepath.Clean(caPath)) {
 		if err := validateCACertPEM(resp.CACertPEM); err != nil {
 			log.Printf("agent: warning: hub returned invalid CA certificate: %v (ignoring)", err)
 		} else {
-			caPath := filepath.Join(filepath.Dir(cfg.TokenFilePath), "ca.crt")
 			if err := writeManagedFileAtomic(caPath, []byte(resp.CACertPEM), 0o644, false); err != nil {
 				log.Printf("agent: warning: could not save hub CA to %s: %v", caPath, err)
 			} else {
