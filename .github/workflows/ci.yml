@@ -6,6 +6,10 @@ on:
     branches: [main]
   pull_request:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || (github.event_name == 'push' && github.ref_type == 'branch' && github.ref) || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref_type == 'branch') }}
+
 permissions:
   contents: read
 
@@ -28,6 +32,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
+      checks_required: ${{ steps.select.outputs.checks_required }}
       agent_cross_platform: ${{ steps.select.outputs.agent_cross_platform }}
       agent_hub_transport: ${{ steps.select.outputs.agent_hub_transport }}
       agent_installed_container: ${{ steps.select.outputs.agent_installed_container }}
@@ -57,17 +62,19 @@ jobs:
           "${selector[@]}"
 
   go-checks:
-    needs: [line-limit]
-    if: always()
+    needs: [line-limit, qa-select]
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - name: Require source-size gate
+      - name: Require source-size and selection gates
         shell: bash
         env:
           LINE_LIMIT_RESULT: ${{ needs.line-limit.result }}
+          SELECTION_RESULT: ${{ needs.qa-select.result }}
         run: |
           test "${LINE_LIMIT_RESULT}" = success
+          test "${SELECTION_RESULT}" = success
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -75,6 +82,7 @@ jobs:
         with:
           go-version: '1.26.9'
       - name: Check formatting
+        if: needs.qa-select.outputs.checks_required != 'false'
         run: |
           UNFORMATTED=$(gofmt -l .)
           if [ -n "$UNFORMATTED" ]; then
@@ -84,19 +92,26 @@ jobs:
           fi
       - run: go vet ./...
         name: Vet
+        if: needs.qa-select.outputs.checks_required != 'false'
       - run: go test -race ./...
         name: Race test
+        if: needs.qa-select.outputs.checks_required != 'false'
       - run: go build ./cmd/labtether-agent/
         name: Build
+        if: needs.qa-select.outputs.checks_required != 'false'
       - name: Install pinned source-quality tools
         env:
           GOBIN: ${{ runner.temp }}/quality-bin
+          CHECKS_REQUIRED: ${{ needs.qa-select.outputs.checks_required }}
         run: |
-          go install github.com/securego/gosec/v2/cmd/gosec@v2.25.0
+          if [[ "${CHECKS_REQUIRED}" != "false" ]]; then
+            go install github.com/securego/gosec/v2/cmd/gosec@v2.25.0
+          fi
           go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
           go install github.com/zricethezav/gitleaks/v8@v8.30.1
           echo "${GOBIN}" >> "${GITHUB_PATH}"
       - name: Go security scan
+        if: needs.qa-select.outputs.checks_required != 'false'
         run: bash ./scripts/check-gosec-allowlist.sh
       - name: Lint GitHub Actions workflows
         run: actionlint
@@ -108,7 +123,7 @@ jobs:
   agent-hub-transport:
     name: Contract / Agent-to-Hub transport
     needs: qa-select
-    if: needs.qa-select.outputs.agent_hub_transport == 'true'
+    if: needs.qa-select.outputs.checks_required != 'false' && needs.qa-select.outputs.agent_hub_transport == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -129,8 +144,9 @@ jobs:
   cross-build:
     # FreeBSD is a source-portability gate only; this does not add a release artifact.
     needs: qa-select
-    if: needs.qa-select.outputs.agent_cross_platform == 'true'
+    if: needs.qa-select.outputs.checks_required != 'false' && needs.qa-select.outputs.agent_cross_platform == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -163,7 +179,7 @@ jobs:
   installed-container:
     name: Contract / Installed Linux container
     needs: qa-select
-    if: needs.qa-select.outputs.agent_installed_container == 'true'
+    if: needs.qa-select.outputs.checks_required != 'false' && needs.qa-select.outputs.agent_installed_container == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
