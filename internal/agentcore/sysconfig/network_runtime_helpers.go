@@ -60,7 +60,17 @@ func RunCommandWithTimeout(timeout time.Duration, name string, args ...string) (
 	return out, err
 }
 
+func requireConnectivityProbe() error {
+	if !NetworkHasCommand("ping") {
+		return errors.New("cannot verify network connectivity: ping is not installed")
+	}
+	return nil
+}
+
 func VerifyConnectivity(rawTarget string) error {
+	if err := requireConnectivityProbe(); err != nil {
+		return err
+	}
 	routeOut, routeErr := NetworkRunCommandWithTimeout(5*time.Second, "ip", "route", "show", "default")
 	if routeErr != nil {
 		trimmed := TruncateCommandOutput(routeOut, MaxCommandOutputBytes)
@@ -91,9 +101,6 @@ func VerifyConnectivity(rawTarget string) error {
 		target = DefaultConnectivityProbeHost
 	}
 
-	if !NetworkHasCommand("ping") {
-		return nil
-	}
 	pingOut, pingErr := NetworkRunCommandWithTimeout(NetworkConnectivityTimeout, "ping", "-c", "1", "-W", "2", target)
 	if pingErr != nil {
 		trimmed := TruncateCommandOutput(pingOut, MaxCommandOutputBytes)

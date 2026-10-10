@@ -48,7 +48,7 @@ func (p *wsHeartbeatPublisher) Publish(ctx context.Context, sample TelemetrySamp
 		return fmt.Errorf("websocket disconnected and no http fallback")
 	}
 
-	metadata := cloneStringMap(p.meta)
+	metadata := heartbeatMetadata(p.meta, sample)
 
 	// Inject transport self-diagnostics.
 	sent, received, reconnects, uptime := p.transport.Stats()

@@ -17,6 +17,11 @@ type MetadataProvider interface {
 	StaticMetadata() map[string]string
 }
 
+// HeartbeatMetadataProvider returns changing metadata for each heartbeat.
+type HeartbeatMetadataProvider interface {
+	HeartbeatMetadata() map[string]string
+}
+
 // AgentInfoProvider returns endpoint-helper identity/runtime info.
 type AgentInfoProvider interface {
 	AgentInfo() AgentInfo

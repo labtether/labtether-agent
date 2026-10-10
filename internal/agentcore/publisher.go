@@ -51,7 +51,7 @@ func (p *apiHeartbeatPublisher) Publish(ctx context.Context, sample TelemetrySam
 	if identity.APIBaseURL == "" || identity.BearerToken == "" || identity.AssetID == "" {
 		return errHeartbeatCredentialsUnavailable
 	}
-	metadata := cloneStringMap(p.meta)
+	metadata := heartbeatMetadata(p.meta, sample)
 	metadata[metricschema.HeartbeatKeyCPUPercent] = fmt.Sprintf("%.2f", sample.CPUPercent)
 	metadata[metricschema.HeartbeatKeyCPUUsedPercent] = fmt.Sprintf("%.2f", sample.CPUPercent)
 	metadata[metricschema.HeartbeatKeyMemoryPercent] = fmt.Sprintf("%.2f", sample.MemoryPercent)

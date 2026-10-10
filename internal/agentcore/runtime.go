@@ -256,7 +256,11 @@ func (r *Runtime) collectOnce(now time.Time) {
 
 func (r *Runtime) publishOnce(ctx context.Context) {
 	sample := r.current()
-	if err := r.publisher.Publish(ctx, sample); err != nil {
+	heartbeatSample := sample
+	if provider, ok := r.provider.(HeartbeatMetadataProvider); ok {
+		heartbeatSample.heartbeatMetadata = provider.HeartbeatMetadata()
+	}
+	if err := r.publisher.Publish(ctx, heartbeatSample); err != nil {
 		r.logPublishWarning(err)
 	}
 

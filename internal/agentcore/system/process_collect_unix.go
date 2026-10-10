@@ -13,60 +13,57 @@ import (
 	"github.com/labtether/protocol"
 )
 
-// CollectProcesses runs `ps aux --no-header` and parses the output.
-// This command works on both Linux and macOS.
-//
-// ps aux column layout (POSIX-compatible):
-//
-//	USER   PID  %CPU  %MEM    VSZ   RSS  TTY  STAT  START  TIME  COMMAND
-//	  0     1     2     3      4     5    6     7     8      9     10+
+// CollectProcesses requests explicit columns so ps variants cannot silently
+// change the field positions. BusyBox lacks CPU and memory percentage columns.
 func CollectProcesses() ([]protocol.ProcessInfo, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	out, err := securityruntime.CaptureCombinedOutput(
-		exec.CommandContext(ctx, "ps", "aux", "--no-header"),
-		securityruntime.DefaultCommandOutputLimit,
-	)
-	if err != nil {
-		// macOS ps does not support --no-header; fall back to plain `ps aux`
-		// and skip the first header line.
-		out, err = securityruntime.CaptureCombinedOutput(
-			exec.CommandContext(ctx, "ps", "aux"),
+	return collectProcessesWithPS(func(args ...string) ([]byte, error) {
+		return securityruntime.CaptureCombinedOutput(
+			exec.CommandContext(ctx, "ps", args...), // #nosec G204 -- Fixed ps executable and literal flags from collectProcessesWithPS; no user input.
 			securityruntime.DefaultCommandOutputLimit,
 		)
-		if err != nil {
-			return nil, err
-		}
-		// Drop the header line.
-		if idx := strings.IndexByte(string(out), '\n'); idx >= 0 {
-			out = out[idx+1:]
-		}
-	}
+	})
+}
 
+func collectProcessesWithPS(run func(...string) ([]byte, error)) ([]protocol.ProcessInfo, error) {
+	out, err := run("-axo", "user=,pid=,%cpu=,%mem=,rss=,command=")
+	if err == nil {
+		return parseProcessRows(out, true), nil
+	}
+	out, err = run("-o", "user=,pid=,rss=,args=")
+	if err != nil {
+		return nil, err
+	}
+	return parseProcessRows(out, false), nil
+}
+
+func parseProcessRows(out []byte, withPercentages bool) []protocol.ProcessInfo {
 	var processes []protocol.ProcessInfo
 	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-
-		// Split into at most 11 fields; the last field is the full command string.
 		fields := strings.Fields(line)
-		if len(fields) < 11 {
+		minimumFields := 4
+		if withPercentages {
+			minimumFields = 6
+		}
+		if len(fields) < minimumFields {
 			continue
 		}
-
 		user := fields[0]
 		pid, pidErr := strconv.Atoi(fields[1])
 		if pidErr != nil {
 			continue
 		}
-		cpuPct := parseProcessFloat(fields[2])
-		memPct := parseProcessFloat(fields[3])
-		memRSS, _ := strconv.ParseInt(fields[5], 10, 64) // RSS in KB
-		// fields[10:] is the command and its arguments.
-		command := strings.Join(fields[10:], " ")
+		var cpuPct, memPct float64
+		rssIndex, commandIndex := 2, 3
+		if withPercentages {
+			cpuPct = parseProcessFloat(fields[2])
+			memPct = parseProcessFloat(fields[3])
+			rssIndex, commandIndex = 4, 5
+		}
+		memRSS := parsePSRSSKB(fields[rssIndex])
+		command := strings.Join(fields[commandIndex:], " ")
 		// Derive a short name from the command path (last path component).
 		name := command
 		if parts := strings.Fields(command); len(parts) > 0 {
@@ -87,6 +84,28 @@ func CollectProcesses() ([]protocol.ProcessInfo, error) {
 			Command: command,
 		})
 	}
+	return processes
+}
 
-	return processes, nil
+func parsePSRSSKB(raw string) int64 {
+	if size, err := strconv.ParseInt(raw, 10, 64); err == nil && size >= 0 {
+		return size
+	}
+	if len(raw) < 2 {
+		return 0
+	}
+	factor := float64(0)
+	switch raw[len(raw)-1] {
+	case 'k', 'K':
+		factor = 1
+	case 'm', 'M':
+		factor = 1024
+	case 'g', 'G':
+		factor = 1024 * 1024
+	}
+	size, err := strconv.ParseFloat(raw[:len(raw)-1], 64)
+	if err != nil || size < 0 || factor == 0 || size*factor > 1<<50 {
+		return 0
+	}
+	return int64(size*factor + 0.5)
 }
