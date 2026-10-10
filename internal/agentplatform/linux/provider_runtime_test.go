@@ -110,6 +110,33 @@ func TestNewCollectsStaticMetadataAndClonesResponses(t *testing.T) {
 	}
 }
 
+func TestHeartbeatMetadataRefreshesOnlyDiskAvailability(t *testing.T) {
+	oldReadDiskCapacityBytesFunc := readDiskCapacityBytesFunc
+	t.Cleanup(func() { readDiskCapacityBytesFunc = oldReadDiskCapacityBytesFunc })
+	available := uint64(10)
+	readDiskCapacityBytesFunc = func(path string) (uint64, uint64) {
+		if path != "/" {
+			t.Fatalf("disk path=%q, want /", path)
+		}
+		return 100, available
+	}
+	provider := &Provider{staticMetadata: map[string]string{"hostname": "unchanged"}}
+	if got := provider.HeartbeatMetadata()["disk_root_available_bytes"]; got != "10" {
+		t.Fatalf("initial available bytes=%q, want 10", got)
+	}
+	available = 90
+	if got := provider.HeartbeatMetadata()["disk_root_available_bytes"]; got != "90" {
+		t.Fatalf("refreshed available bytes=%q, want 90", got)
+	}
+	if got := provider.StaticMetadata()["hostname"]; got != "unchanged" {
+		t.Fatalf("static hostname=%q, want unchanged", got)
+	}
+	readDiskCapacityBytesFunc = func(string) (uint64, uint64) { return 0, 0 }
+	if got := provider.HeartbeatMetadata()["disk_root_available_bytes"]; got != "" {
+		t.Fatalf("unavailable disk reading=%q, want empty", got)
+	}
+}
+
 func TestCollectReadsTelemetryFixturesAndCachesSlowSensors(t *testing.T) {
 	restore := swapProviderTelemetryFixtures(t)
 	defer restore()

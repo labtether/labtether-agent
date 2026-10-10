@@ -4,6 +4,7 @@ package linux
 
 import (
 	"os"
+	"strconv"
 	"sync"
 	"time"
 
@@ -70,6 +71,14 @@ func (p *Provider) AgentInfo() agentcore.AgentInfo {
 
 func (p *Provider) StaticMetadata() map[string]string {
 	return cloneStringMap(p.staticMetadata)
+}
+
+func (*Provider) HeartbeatMetadata() map[string]string {
+	totalBytes, availableBytes := readDiskCapacityBytesFunc("/")
+	if totalBytes == 0 {
+		return map[string]string{"disk_root_available_bytes": ""}
+	}
+	return map[string]string{"disk_root_available_bytes": strconv.FormatUint(availableBytes, 10)}
 }
 
 func (p *Provider) Collect(now time.Time) (agentcore.TelemetrySample, error) {

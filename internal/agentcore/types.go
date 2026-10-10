@@ -4,16 +4,17 @@ import "time"
 
 // TelemetrySample is the canonical endpoint-helper sample model shared across platform providers.
 type TelemetrySample struct {
-	AssetID          string    `json:"asset_id"`
-	CPUPercent       float64   `json:"cpu_percent"`
-	MemoryPercent    float64   `json:"memory_percent"`
-	DiskPercent      float64   `json:"disk_percent"`
-	NetRXBytes       float64   `json:"net_rx_bytes"`
-	NetTXBytes       float64   `json:"net_tx_bytes"`
-	NetRXBytesPerSec float64   `json:"net_rx_bytes_per_sec"`
-	NetTXBytesPerSec float64   `json:"net_tx_bytes_per_sec"`
-	TempCelsius      *float64  `json:"temp_celsius,omitempty"`
-	CollectedAt      time.Time `json:"collected_at"`
+	AssetID           string    `json:"asset_id"`
+	CPUPercent        float64   `json:"cpu_percent"`
+	MemoryPercent     float64   `json:"memory_percent"`
+	DiskPercent       float64   `json:"disk_percent"`
+	NetRXBytes        float64   `json:"net_rx_bytes"`
+	NetTXBytes        float64   `json:"net_tx_bytes"`
+	NetRXBytesPerSec  float64   `json:"net_rx_bytes_per_sec"`
+	NetTXBytesPerSec  float64   `json:"net_tx_bytes_per_sec"`
+	TempCelsius       *float64  `json:"temp_celsius,omitempty"`
+	CollectedAt       time.Time `json:"collected_at"`
+	heartbeatMetadata map[string]string
 }
 
 // AgentInfo is the public health/info payload served by endpoint-helpers.

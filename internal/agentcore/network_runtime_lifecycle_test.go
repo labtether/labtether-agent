@@ -82,23 +82,67 @@ func TestNetworkManagerHandleNetworkListUsesCollectorAndReportsErrors(t *testing
 	})
 }
 
+func TestNetworkSnapshotActionCapturesPreEditFiles(t *testing.T) {
+	restoreNetworkActionSeams := stubNetworkActionSeams(t)
+	defer restoreNetworkActionSeams()
+	sysconfig.ResolveNetworkMethodFn = func(string) (string, error) { return "netplan", nil }
+	sysconfig.BackupNetplanConfigFn = func() (string, error) { return "/tmp/netplan-before-edit", nil }
+
+	transport, messages, cleanup := newDesktopRuntimeTransport(t)
+	defer cleanup()
+	nm := &networkManager{Backend: linuxNetworkBackend{}}
+	nm.HandleNetworkAction(transport, protocol.Message{
+		Type: protocol.MsgNetworkAction,
+		Data: mustMarshalDesktopRuntime(t, protocol.NetworkActionData{RequestID: "req-snapshot", Action: "snapshot", Method: "netplan"}),
+	})
+	msg := readDesktopRuntimeMessage(t, messages)
+	var result protocol.NetworkResultData
+	if err := json.Unmarshal(msg.Data, &result); err != nil {
+		t.Fatal(err)
+	}
+	if !result.OK || result.RollbackReference != "/tmp/netplan-before-edit" || nm.NetplanBaseline != result.RollbackReference {
+		t.Fatalf("snapshot was not captured before editing: result=%+v pending=%q", result, nm.NetplanBaseline)
+	}
+}
+
 func TestApplyActionNetplanSuccessStoresRollbackState(t *testing.T) {
 	restoreNetworkActionSeams := stubNetworkActionSeams(t)
 
 	sysconfig.ResolveNetworkMethodFn = func(string) (string, error) { return "netplan", nil }
-	sysconfig.BackupNetplanConfigFn = func() (string, error) { return "/tmp/netplan-backup", nil }
+	backups := []string{"/tmp/netplan-before-edit", "/tmp/netplan-staged"}
+	sysconfig.BackupNetplanConfigFn = func() (string, error) {
+		ref := backups[0]
+		backups = backups[1:]
+		return ref, nil
+	}
+	var restoredRef string
+	sysconfig.RestoreNetplanConfigFn = func(ref string) error {
+		restoredRef = ref
+		return nil
+	}
 	sysconfig.NetworkRunCommandWithTimeout = func(time.Duration, string, ...string) ([]byte, error) {
 		return []byte("applied"), nil
 	}
 	sysconfig.VerifyNetworkConnectivity = func(string) error { return nil }
 
 	nm := &networkManager{Backend: linuxNetworkBackend{}}
+	if err := nm.CaptureNetplanBaseline(); err != nil {
+		t.Fatal(err)
+	}
 	result := nm.ApplyActionLinux(protocol.NetworkActionData{
 		RequestID:    "req-netplan",
 		Action:       "apply",
 		Method:       "netplan",
 		VerifyTarget: "1.1.1.1",
 	})
+	if nm.NetplanBaseline != "" || nm.LastAppliedNetplan != "/tmp/netplan-staged" {
+		t.Fatalf("snapshot must be consumed after apply: pending=%q applied=%q", nm.NetplanBaseline, nm.LastAppliedNetplan)
+	}
+	second := nm.ApplyActionLinux(protocol.NetworkActionData{Action: "apply", Method: "netplan"})
+	if second.OK || !strings.Contains(second.Error, "no pre-change netplan snapshot") {
+		t.Fatalf("second apply must require a fresh snapshot, got %+v", second)
+	}
+	rollback := nm.RollbackActionLinux(protocol.NetworkActionData{Action: "rollback", Method: "netplan"})
 
 	restoreNetworkActionSeams()
 
@@ -108,11 +152,33 @@ func TestApplyActionNetplanSuccessStoresRollbackState(t *testing.T) {
 	if result.Output != "applied" {
 		t.Fatalf("output=%q, want applied", result.Output)
 	}
-	if result.RollbackReference != "/tmp/netplan-backup" {
-		t.Fatalf("rollback reference=%q, want /tmp/netplan-backup", result.RollbackReference)
+	if result.RollbackReference != "/tmp/netplan-before-edit" {
+		t.Fatalf("rollback reference=%q, want pre-edit snapshot", result.RollbackReference)
 	}
-	if nm.LastMethod != "netplan" || nm.LastNetplanBackup != "/tmp/netplan-backup" {
+	if nm.LastMethod != "netplan" || nm.LastNetplanBackup != "/tmp/netplan-before-edit" {
 		t.Fatalf("unexpected rollback state method=%q backup=%q", nm.LastMethod, nm.LastNetplanBackup)
+	}
+	if !rollback.OK || restoredRef != "/tmp/netplan-before-edit" || nm.NetplanBaseline != "" {
+		t.Fatalf("rollback did not restore the pre-edit snapshot: result=%+v ref=%q pending=%q", rollback, restoredRef, nm.NetplanBaseline)
+	}
+}
+
+func TestApplyActionNetplanWithoutPreEditSnapshotFailsClosed(t *testing.T) {
+	restoreNetworkActionSeams := stubNetworkActionSeams(t)
+	defer restoreNetworkActionSeams()
+	sysconfig.ResolveNetworkMethodFn = func(string) (string, error) { return "netplan", nil }
+	sysconfig.BackupNetplanConfigFn = func() (string, error) {
+		t.Fatal("apply must not snapshot already staged files as its rollback target")
+		return "", nil
+	}
+	sysconfig.NetworkRunCommandWithTimeout = func(time.Duration, string, ...string) ([]byte, error) {
+		t.Fatal("apply must not run without a pre-edit snapshot")
+		return nil, nil
+	}
+	nm := &networkManager{Backend: linuxNetworkBackend{}}
+	result := nm.ApplyActionLinux(protocol.NetworkActionData{Action: "apply", Method: "netplan"})
+	if result.OK || !strings.Contains(result.Error, "no pre-change netplan snapshot") {
+		t.Fatalf("expected a clear fail-closed result, got %+v", result)
 	}
 }
 
@@ -120,7 +186,12 @@ func TestApplyActionNetplanConnectivityFailureTriggersRollback(t *testing.T) {
 	restoreNetworkActionSeams := stubNetworkActionSeams(t)
 
 	sysconfig.ResolveNetworkMethodFn = func(string) (string, error) { return "netplan", nil }
-	sysconfig.BackupNetplanConfigFn = func() (string, error) { return "/tmp/netplan-backup", nil }
+	backups := []string{"/tmp/netplan-before-edit", "/tmp/netplan-staged"}
+	sysconfig.BackupNetplanConfigFn = func() (string, error) {
+		ref := backups[0]
+		backups = backups[1:]
+		return ref, nil
+	}
 
 	var restoreRef string
 	sysconfig.RestoreNetplanConfigFn = func(ref string) error {
@@ -128,17 +199,26 @@ func TestApplyActionNetplanConnectivityFailureTriggersRollback(t *testing.T) {
 		return nil
 	}
 	sysconfig.NetworkRunCommandWithTimeout = func(_ time.Duration, name string, args ...string) ([]byte, error) {
-		if name == "netplan" && len(args) == 1 && args[0] == "apply" {
-			if restoreRef == "" {
-				return []byte("applied"), nil
-			}
-			return []byte("rollback applied"), nil
+		if name != "netplan" || len(args) == 0 || args[0] != "apply" {
+			t.Fatalf("unexpected network command %s %v", name, args)
 		}
-		return nil, nil
+		if restoreRef == "" {
+			if len(args) != 1 {
+				t.Fatalf("initial apply args=%v", args)
+			}
+			return []byte("applied"), nil
+		}
+		if strings.Join(args, " ") != "apply --state /tmp/netplan-staged" {
+			t.Fatalf("rollback args=%v, want staged state for virtual-link cleanup", args)
+		}
+		return []byte("rollback applied"), nil
 	}
 	sysconfig.VerifyNetworkConnectivity = func(string) error { return errors.New("ping failed") }
 
 	nm := &networkManager{Backend: linuxNetworkBackend{}}
+	if err := nm.CaptureNetplanBaseline(); err != nil {
+		t.Fatal(err)
+	}
 	result := nm.ApplyActionLinux(protocol.NetworkActionData{
 		RequestID:    "req-netplan-rollback",
 		Action:       "apply",
@@ -154,14 +234,55 @@ func TestApplyActionNetplanConnectivityFailureTriggersRollback(t *testing.T) {
 	if !result.RollbackAttempted || !result.RollbackSucceeded {
 		t.Fatalf("expected successful rollback, got %+v", result)
 	}
-	if restoreRef != "/tmp/netplan-backup" {
-		t.Fatalf("restore ref=%q, want /tmp/netplan-backup", restoreRef)
+	if restoreRef != "/tmp/netplan-before-edit" {
+		t.Fatalf("restore ref=%q, want pre-edit snapshot", restoreRef)
 	}
 	if !strings.Contains(result.Error, "rollback applied") {
 		t.Fatalf("error=%q, want rollback applied", result.Error)
 	}
 	if result.RollbackOutput != "rollback applied" {
 		t.Fatalf("rollback output=%q, want rollback applied", result.RollbackOutput)
+	}
+}
+
+func TestNetplanFailedRollbackRequiresNewSnapshotBeforeApply(t *testing.T) {
+	restoreNetworkActionSeams := stubNetworkActionSeams(t)
+	defer restoreNetworkActionSeams()
+	sysconfig.ResolveNetworkMethodFn = func(string) (string, error) { return "netplan", nil }
+	backups := []string{"/tmp/netplan-before-edit", "/tmp/netplan-staged"}
+	sysconfig.BackupNetplanConfigFn = func() (string, error) {
+		ref := backups[0]
+		backups = backups[1:]
+		return ref, nil
+	}
+	sysconfig.RestoreNetplanConfigFn = func(string) error { return errors.New("restore unavailable") }
+	sysconfig.NetworkRunCommandWithTimeout = func(time.Duration, string, ...string) ([]byte, error) {
+		return nil, errors.New("apply failed")
+	}
+
+	nm := &networkManager{Backend: linuxNetworkBackend{}}
+	if err := nm.CaptureNetplanBaseline(); err != nil {
+		t.Fatal(err)
+	}
+	failed := nm.ApplyActionLinux(protocol.NetworkActionData{Action: "apply", Method: "netplan"})
+	if failed.OK || !failed.RollbackAttempted || failed.RollbackSucceeded || nm.NetplanBaseline != "" {
+		t.Fatalf("uncertain network state must consume snapshot: result=%+v pending=%q", failed, nm.NetplanBaseline)
+	}
+	second := nm.ApplyActionLinux(protocol.NetworkActionData{Action: "apply", Method: "netplan"})
+	if second.OK || !strings.Contains(second.Error, "no pre-change netplan snapshot") {
+		t.Fatalf("apply reused an uncertain snapshot: %+v", second)
+	}
+	var restoredRef string
+	sysconfig.RestoreNetplanConfigFn = func(ref string) error { restoredRef = ref; return nil }
+	sysconfig.NetworkRunCommandWithTimeout = func(_ time.Duration, name string, args ...string) ([]byte, error) {
+		if name != "netplan" || strings.Join(args, " ") != "apply --state /tmp/netplan-staged" {
+			t.Fatalf("retry rollback command=%s %v", name, args)
+		}
+		return []byte("restored"), nil
+	}
+	retry := nm.RollbackActionLinux(protocol.NetworkActionData{Action: "rollback", Method: "netplan"})
+	if !retry.OK || restoredRef != "/tmp/netplan-before-edit" {
+		t.Fatalf("explicit rollback retry failed: result=%+v ref=%q", retry, restoredRef)
 	}
 }
 
@@ -232,9 +353,10 @@ func TestRollbackActionUsesSnapshotsAndReportsMissingState(t *testing.T) {
 		}
 
 		nm := &networkManager{
-			Backend:           linuxNetworkBackend{},
-			LastMethod:        "netplan",
-			LastNetplanBackup: "/tmp/netplan-backup",
+			Backend:            linuxNetworkBackend{},
+			LastMethod:         "netplan",
+			LastNetplanBackup:  "/tmp/netplan-backup",
+			LastAppliedNetplan: "/tmp/netplan-staged",
 		}
 		result := nm.RollbackActionLinux(protocol.NetworkActionData{
 			RequestID: "req-rollback-netplan",

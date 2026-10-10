@@ -9,7 +9,7 @@
 The cross-platform agent for [LabTether](https://labtether.com) -- reports telemetry, executes actions, and enables remote access for your machines.
 
 [![CI](https://github.com/labtether/labtether-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/labtether/labtether-agent/actions/workflows/ci.yml)
-[![Go](https://img.shields.io/badge/Go-1.26+-00ADD8?style=flat-square&logo=go&logoColor=white)](https://go.dev)
+[![Go](https://img.shields.io/badge/Go-1.27.2+-00ADD8?style=flat-square&logo=go&logoColor=white)](https://go.dev)
 
 ---
 
@@ -85,7 +85,7 @@ Pre-built Windows binaries (amd64, arm64) are also available from [Releases](htt
 | Linux | amd64, arm64 | Primary platform. Pre-built binaries in Releases. |
 | Windows | amd64, arm64 | Pre-built binaries in Releases. See also [labtether-win](https://github.com/labtether/labtether-win) for the native tray app. |
 | macOS | -- | See [labtether-mac](https://github.com/labtether/labtether-mac) for the native menu bar app (bundles this agent). |
-| FreeBSD | -- | Managed agentlessly via hub connectors. No agent install required. |
+| FreeBSD | -- | Planned. Add hosts to inventory manually and use a separate SSH client today; Hub connector management and a supported agent are not available yet. |
 
 Typed host power is advertised only when both native reboot and shutdown
 commands are present. The fixed implementations use systemd on Linux,
@@ -98,7 +98,7 @@ completed the transition.
 
 ## Build From Source
 
-Requires Go 1.26+.
+Requires Go 1.27.2+.
 
 ```bash
 go build -o labtether-agent ./cmd/labtether-agent/

@@ -13,12 +13,15 @@ import (
 
 // NetworkManager handles network interface info and network actions from the hub.
 type NetworkManager struct {
-	mu sync.Mutex
+	mu       sync.Mutex
+	actionMu sync.Mutex
 
 	Backend NetworkBackend
 
 	LastMethod          string
 	LastNetplanBackup   string
+	NetplanBaseline     string
+	LastAppliedNetplan  string
 	LastNMConnections   []string
 	LastDarwinSnapshot  *DarwinNetworkSnapshot
 	LastWindowsSnapshot *WindowsNetworkSnapshot
@@ -86,6 +89,21 @@ func (nm *NetworkManager) HandleNetworkAction(transport MessageSender, msg proto
 
 	action := strings.ToLower(strings.TrimSpace(req.Action))
 	switch action {
+	case "snapshot":
+		if _, ok := nm.Backend.(LinuxNetworkBackend); !ok {
+			result.Error = "pre-edit network snapshots are supported only for Linux netplan"
+		} else if method, err := ResolveNetworkMethodFn(req.Method); err != nil {
+			result.Error = err.Error()
+		} else if method != "netplan" {
+			result.Error = "pre-edit network snapshots are supported only for netplan"
+		} else if err := nm.CaptureNetplanBaseline(); err != nil {
+			result.Error = fmt.Sprintf("failed to save pre-edit netplan snapshot: %v", err)
+		} else {
+			nm.mu.Lock()
+			result.RollbackReference = nm.NetplanBaseline
+			nm.mu.Unlock()
+			result.OK = true
+		}
 	case "apply":
 		result = nm.Backend.ApplyAction(nm, req)
 	case "rollback":

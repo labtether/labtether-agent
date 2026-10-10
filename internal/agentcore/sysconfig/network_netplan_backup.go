@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 )
 
 const netplanConfigDir = "/etc/netplan"
@@ -21,10 +20,13 @@ func BackupNetplanConfig() (string, error) {
 		return "", fmt.Errorf("%s is not a directory", netplanConfigDir)
 	}
 
-	stamp := time.Now().UTC().Format("20060102-150405.000000000")
-	root := filepath.Join(os.TempDir(), "labtether-network-backups", stamp)
-	dst := filepath.Join(root, "netplan")
+	root, err := os.MkdirTemp(os.TempDir(), "labtether-network-")
+	if err != nil {
+		return "", err
+	}
+	dst := filepath.Join(root, "etc", "netplan")
 	if err := copyDir(netplanConfigDir, dst); err != nil {
+		_ = os.RemoveAll(root)
 		return "", err
 	}
 	return root, nil
@@ -41,7 +43,7 @@ func RestoreNetplanConfig(backupRef string) error {
 		return fmt.Errorf("backup reference %q is outside the temp directory", backupRef)
 	}
 
-	source := filepath.Join(cleanRef, "netplan")
+	source := filepath.Join(cleanRef, "etc", "netplan")
 	info, err := os.Stat(source)
 	if err != nil {
 		return err
@@ -62,7 +64,7 @@ func RestoreNetplanConfig(backupRef string) error {
 }
 
 func copyDir(src, dst string) error {
-	srcInfo, err := os.Stat(src)
+	srcInfo, err := os.Lstat(src)
 	if err != nil {
 		return err
 	}
@@ -83,13 +85,29 @@ func copyDir(src, dst string) error {
 		srcPath := filepath.Join(src, entry.Name())
 		dstPath := filepath.Join(dst, entry.Name())
 
-		if entry.IsDir() {
+		info, err := os.Lstat(srcPath)
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
 			if err := copyDir(srcPath, dstPath); err != nil {
 				return err
 			}
 			continue
 		}
-
+		if info.Mode()&os.ModeSymlink != 0 {
+			target, err := os.Readlink(srcPath)
+			if err != nil {
+				return err
+			}
+			if err := os.Symlink(target, dstPath); err != nil {
+				return err
+			}
+			continue
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("unsupported netplan entry %s: %s", srcPath, info.Mode().Type())
+		}
 		if err := copyFile(srcPath, dstPath); err != nil {
 			return err
 		}
@@ -99,12 +117,12 @@ func copyDir(src, dst string) error {
 }
 
 func copyFile(src, dst string) error {
-	srcInfo, err := os.Stat(src)
+	srcInfo, err := os.Lstat(src)
 	if err != nil {
 		return err
 	}
 	if !srcInfo.Mode().IsRegular() {
-		return nil
+		return fmt.Errorf("unsupported netplan file %s: %s", src, srcInfo.Mode().Type())
 	}
 
 	input, err := os.Open(src) // #nosec G304 -- Source path is validated within the netplan backup tree before copy.
@@ -121,5 +139,8 @@ func copyFile(src, dst string) error {
 		_ = output.Close()
 		return err
 	}
-	return output.Close()
+	if err := output.Close(); err != nil {
+		return err
+	}
+	return os.Chtimes(dst, srcInfo.ModTime(), srcInfo.ModTime())
 }
