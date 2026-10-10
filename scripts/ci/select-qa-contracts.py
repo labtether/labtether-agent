@@ -25,8 +25,9 @@ def _changed_paths(args: argparse.Namespace) -> list[str]:
                 "git",
                 "diff",
                 "--name-only",
+                "--no-renames",
                 "-z",
-                "--diff-filter=ACMRTUXB",
+                "--diff-filter=ACDMRTUXB",
                 args.base,
                 args.head,
             ],
@@ -154,6 +155,14 @@ def main() -> int:
         output_path = Path(os.environ["GITHUB_OUTPUT"])
     if output_path is not None:
         _write_outputs(output_path, list(manifest["contracts"]), selected_set)
+        prose_names = {"README.md", "CHANGELOG.md", "AGENTS.md", "CLAUDE.md", "LICENSE"}
+        checks_required = args.full or any(
+            path not in prose_names
+            and not (path.startswith(("docs/", "notes/")) and path.endswith(".md"))
+            for path in paths
+        )
+        with output_path.open("a", encoding="utf-8") as handle:
+            handle.write(f"checks_required={str(checks_required).lower()}\n")
 
     if os.environ.get("GITHUB_STEP_SUMMARY"):
         summary_path = Path(os.environ["GITHUB_STEP_SUMMARY"])
