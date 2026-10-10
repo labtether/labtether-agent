@@ -435,7 +435,7 @@ func TestResolveNetworkMethodAndVerifyConnectivity(t *testing.T) {
 		}
 	})
 
-	t.Run("verify skips ping when unavailable", func(t *testing.T) {
+	t.Run("verify rejects missing ping", func(t *testing.T) {
 		sysconfig.NetworkHasCommand = func(name string) bool { return name != "ping" }
 		sysconfig.NetworkRunCommandWithTimeout = func(_ time.Duration, name string, args ...string) ([]byte, error) {
 			if name != "ip" {
@@ -443,8 +443,8 @@ func TestResolveNetworkMethodAndVerifyConnectivity(t *testing.T) {
 			}
 			return []byte("default via 10.0.0.1 dev eth0"), nil
 		}
-		if err := sysconfig.VerifyConnectivity(""); err != nil {
-			t.Fatalf("verify connectivity: %v", err)
+		if err := sysconfig.VerifyConnectivity(""); err == nil || !strings.Contains(err.Error(), "ping is not installed") {
+			t.Fatalf("expected missing ping error, got %v", err)
 		}
 	})
 
