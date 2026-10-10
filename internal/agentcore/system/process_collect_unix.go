@@ -21,7 +21,7 @@ func CollectProcesses() ([]protocol.ProcessInfo, error) {
 
 	return collectProcessesWithPS(func(args ...string) ([]byte, error) {
 		return securityruntime.CaptureCombinedOutput(
-			exec.CommandContext(ctx, "ps", args...),
+			exec.CommandContext(ctx, "ps", args...), // #nosec G204 -- Fixed ps executable and literal flags from collectProcessesWithPS; no user input.
 			securityruntime.DefaultCommandOutputLimit,
 		)
 	})
