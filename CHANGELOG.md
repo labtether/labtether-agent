@@ -29,6 +29,10 @@ Changes since v1.5.1, the last public binary release.
 - X11 WebRTC keyboard control that follows the active keymap (needs
   `xdotool` and `xmodmap`).
 - Docker over a Windows named pipe, and Docker container log streaming.
+- Docker Compose actions (protocol v2) run against the exact project the Hub
+  showed: its working directory and ordered config files from the Compose
+  labels, on the collector's own Docker endpoint, including HTTPS endpoints
+  with verified TLS. See `docs/DOCKER_COMPOSE.md`.
 - The container image keeps its state in `/var/lib/labtether` (mount a volume
   there) and accepts a read-only enrollment token file. A consumed token that
   cannot be deleted is remembered and never used again.

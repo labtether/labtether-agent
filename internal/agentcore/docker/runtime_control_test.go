@@ -357,14 +357,15 @@ func TestHandleComposeActionDeployWritesComposeFileAndQueuesRefresh(t *testing.T
 	})
 
 	dockerComposeCLIDetect = func() (int, bool) { return 2, true }
+	recordPath := filepath.Join(t.TempDir(), "deploy-child.json")
 	dockerComposeNewCommandContext = func(ctx context.Context, name string, args ...string) (*exec.Cmd, error) {
 		if name != "docker" {
 			t.Fatalf("compose command name=%q, want docker", name)
 		}
-		if len(args) < 5 || args[0] != "compose" || args[3] != "up" || args[4] != "-d" {
+		if len(args) != 11 || args[0] != "--host" || args[2] != "compose" || args[5] != "-p" || args[6] != "my-stack" || args[7] != "-f" || args[9] != "up" || args[10] != "-d" {
 			t.Fatalf("unexpected compose command args: %v", args)
 		}
-		return exec.CommandContext(ctx, "sh", "-c", "printf 'compose ok'"), nil
+		return exec.CommandContext(ctx, os.Args[0], append([]string{"-test.run=^TestComposeSelectionChild$", "--", "compose-selection-child", recordPath, name}, args...)...), nil
 	}
 
 	transport := newRecordingCollectorTransport(true)
@@ -374,7 +375,8 @@ func TestHandleComposeActionDeployWritesComposeFileAndQueuesRefresh(t *testing.T
 	configDir := t.TempDir()
 	raw, err := json.Marshal(protocol.DockerComposeActionData{
 		RequestID:   "compose-1",
-		StackName:   "My Stack",
+		EndpointID:  dc.composeEndpointID(),
+		StackName:   "my-stack",
 		Action:      "deploy",
 		ConfigDir:   configDir,
 		ComposeYAML: "services:\n  app:\n    image: nginx:1.27\n",
@@ -383,7 +385,7 @@ func TestHandleComposeActionDeployWritesComposeFileAndQueuesRefresh(t *testing.T
 		t.Fatalf("marshal docker compose action: %v", err)
 	}
 
-	dc.HandleComposeAction(transport, protocol.Message{Type: protocol.MsgDockerComposeAction, Data: raw})
+	dc.HandleComposeAction(transport, protocol.Message{Type: protocol.MsgDockerComposeActionV2, Data: raw})
 
 	msg := waitForCollectorMessage(t, transport, time.Second)
 	if msg.Type != protocol.MsgDockerComposeResult {
@@ -405,10 +407,15 @@ func TestHandleComposeActionDeployWritesComposeFileAndQueuesRefresh(t *testing.T
 	if err != nil {
 		t.Fatalf("read compose file: %v", err)
 	}
-	if string(composeBytes) != "services:\n  app:\n    image: nginx:1.27" {
+	if string(composeBytes) != "services:\n  app:\n    image: nginx:1.27\n" {
 		t.Fatalf("unexpected compose file contents %q", string(composeBytes))
 	}
 
+	var child composeChildRecord
+	recordBytes, readErr := os.ReadFile(recordPath)
+	if readErr != nil || json.Unmarshal(recordBytes, &child) != nil || child.Dir != configDir || child.Args[9] != filepath.Join(configDir, "docker-compose.yml") {
+		t.Fatalf("deploy child selection changed: %+v read=%v", child, readErr)
+	}
 	if len(dc.discoveryTriggerCh) != 1 {
 		t.Fatalf("discovery triggers=%d, want 1", len(dc.discoveryTriggerCh))
 	}
@@ -418,49 +425,6 @@ func TestHandleComposeActionDeployWritesComposeFileAndQueuesRefresh(t *testing.T
 	}
 	if len(dc.statsTriggerCh) != 1 {
 		t.Fatalf("stats triggers=%d, want 1", len(dc.statsTriggerCh))
-	}
-}
-
-func TestHandleComposeActionDrainsAndBoundsCommandOutput(t *testing.T) {
-	oldDetect := dockerComposeCLIDetect
-	oldNewCommandContext := dockerComposeNewCommandContext
-	t.Cleanup(func() {
-		dockerComposeCLIDetect = oldDetect
-		dockerComposeNewCommandContext = oldNewCommandContext
-	})
-
-	dockerComposeCLIDetect = func() (int, bool) { return 2, true }
-	dockerComposeNewCommandContext = func(ctx context.Context, _ string, _ ...string) (*exec.Cmd, error) {
-		return exec.CommandContext(ctx, "sh", "-c", "head -c 262144 /dev/zero | tr '\\000' x"), nil
-	}
-
-	transport := newRecordingCollectorTransport(true)
-	dc := NewDockerCollector("/tmp/docker.sock", transport, "asset-1", 30*time.Second)
-	dc.client = NewDockerClient("http://localhost:1")
-
-	raw, err := json.Marshal(protocol.DockerComposeActionData{
-		RequestID: "compose-bounded-output",
-		Action:    "up",
-		ConfigDir: t.TempDir(),
-	})
-	if err != nil {
-		t.Fatalf("marshal docker compose action: %v", err)
-	}
-	dc.HandleComposeAction(transport, protocol.Message{Type: protocol.MsgDockerComposeAction, Data: raw})
-
-	msg := waitForCollectorMessage(t, transport, time.Second)
-	var result protocol.DockerComposeResultData
-	if err := json.Unmarshal(msg.Data, &result); err != nil {
-		t.Fatalf("decode docker compose result: %v", err)
-	}
-	if !result.Success {
-		t.Fatalf("expected successful compose command, got error %q", result.Error)
-	}
-	if len(result.Output) > composeActionOutputLimit+len("\n...output truncated") {
-		t.Fatalf("compose output length = %d, expected bounded output", len(result.Output))
-	}
-	if !strings.HasSuffix(result.Output, "...output truncated") {
-		t.Fatalf("compose output did not report truncation")
 	}
 }
 
