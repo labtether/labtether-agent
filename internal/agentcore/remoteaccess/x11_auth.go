@@ -10,7 +10,7 @@ var DiscoverDisplayXAuthorityFn = DiscoverDisplayXAuthority
 var X11ProcRoot = "/proc"
 
 func DiscoverDisplayXAuthority(display string) string {
-	display = NormalizeX11DisplayIdentifier(display)
+	display = x11ServerIdentity(display)
 	if display == "" {
 		return ""
 	}
@@ -32,6 +32,10 @@ func DiscoverDisplayXAuthority(display string) string {
 }
 
 func DiscoverDisplayXAuthorityFromProc(display string) string {
+	display = x11ServerIdentity(display)
+	if display == "" {
+		return ""
+	}
 	entries, err := os.ReadDir(X11ProcRoot)
 	if err != nil {
 		return ""
@@ -45,7 +49,7 @@ func DiscoverDisplayXAuthorityFromProc(display string) string {
 		if err != nil || len(args) == 0 {
 			continue
 		}
-		if !LooksLikeXServerProcess(args[0]) || !ArgsContainExactValue(args, display) {
+		if !LooksLikeXServerProcess(args[0]) || !argsContainX11Server(args, display) {
 			continue
 		}
 		if authPath := ExtractXAuthorityArg(args); authPath != "" {
@@ -59,6 +63,10 @@ func DiscoverDisplayXAuthorityFromProc(display string) string {
 }
 
 func DisplayXAuthorityCandidates(display string) []string {
+	display = x11ServerIdentity(display)
+	if display == "" {
+		return nil
+	}
 	return []string{
 		filepath.Join("/run/lightdm/root", display),
 		filepath.Join("/var/run/lightdm/root", display),
@@ -66,6 +74,15 @@ func DisplayXAuthorityCandidates(display string) []string {
 		"/var/lib/gdm3/.Xauthority",
 		"/run/gdm3/auth-for-gdm-X/database",
 	}
+}
+
+func argsContainX11Server(args []string, server string) bool {
+	for _, arg := range args {
+		if x11ServerIdentity(arg) == server {
+			return true
+		}
+	}
+	return false
 }
 
 func ReadProcCmdline(path string) ([]string, error) {

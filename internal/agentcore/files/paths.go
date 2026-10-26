@@ -38,7 +38,7 @@ func ResolveFileBaseDir(fileRootMode string) string {
 // ResolveFileBaseDirWithHome resolves the file base directory given a mode and pre-resolved home.
 func ResolveFileBaseDirWithHome(fileRootMode, homeDir string) string {
 	mode := strings.TrimSpace(strings.ToLower(fileRootMode))
-	home := strings.TrimSpace(homeDir)
+	home := homeDir
 	if home == "" {
 		home = string(filepath.Separator)
 	}
@@ -48,7 +48,7 @@ func ResolveFileBaseDirWithHome(fileRootMode, homeDir string) string {
 	if home != "" {
 		return filepath.Clean(home)
 	}
-	if cwd, err := FileGetwdFn(); err == nil && strings.TrimSpace(cwd) != "" {
+	if cwd, err := FileGetwdFn(); err == nil && cwd != "" {
 		return filepath.Clean(cwd)
 	}
 	return string(filepath.Separator)
@@ -56,12 +56,12 @@ func ResolveFileBaseDirWithHome(fileRootMode, homeDir string) string {
 
 // ResolveAgentFileHomeDir resolves the agent's effective home directory.
 func ResolveAgentFileHomeDir() string {
-	if home := strings.TrimSpace(resolveProcessUserHomeDir()); home != "" && FileIsWritableDirFn(home) {
+	if home := resolveProcessUserHomeDir(); home != "" && FileIsWritableDirFn(home) {
 		return filepath.Clean(home)
 	}
 
 	session := DetectDesktopSessionFn()
-	if home := strings.TrimSpace(resolveDesktopSessionHomeDir(session)); home != "" && FileIsWritableDirFn(home) {
+	if home := resolveDesktopSessionHomeDir(session); home != "" && FileIsWritableDirFn(home) {
 		return filepath.Clean(home)
 	}
 
@@ -70,11 +70,11 @@ func ResolveAgentFileHomeDir() string {
 		return filepath.Clean(stagingHome)
 	}
 
-	if cwd, err := FileGetwdFn(); err == nil && strings.TrimSpace(cwd) != "" && FileIsWritableDirFn(cwd) {
+	if cwd, err := FileGetwdFn(); err == nil && cwd != "" && FileIsWritableDirFn(cwd) {
 		return filepath.Clean(cwd)
 	}
 
-	if home := strings.TrimSpace(resolveProcessUserHomeDir()); home != "" {
+	if home := resolveProcessUserHomeDir(); home != "" {
 		return filepath.Clean(home)
 	}
 
@@ -86,20 +86,20 @@ func resolveProcessUserHomeDir() string {
 	if err != nil {
 		return ""
 	}
-	return strings.TrimSpace(home)
+	return home
 }
 
 func resolveDesktopSessionHomeDir(session DesktopSessionInfo) string {
 	if username := strings.TrimSpace(session.Username); username != "" {
 		if usr, err := FileLookupUserByUsernameFn(username); err == nil {
-			if home := strings.TrimSpace(usr.HomeDir); home != "" {
+			if home := usr.HomeDir; home != "" {
 				return home
 			}
 		}
 	}
 	if session.UID > 0 {
 		if usr, err := FileLookupUserByUIDFn(fmt.Sprintf("%d", session.UID)); err == nil {
-			if home := strings.TrimSpace(usr.HomeDir); home != "" {
+			if home := usr.HomeDir; home != "" {
 				return home
 			}
 		}
@@ -109,7 +109,6 @@ func resolveDesktopSessionHomeDir(session DesktopSessionInfo) string {
 
 // IsWritableDirectory checks whether path is an existing writable directory.
 func IsWritableDirectory(path string) bool {
-	path = strings.TrimSpace(path)
 	if path == "" {
 		return false
 	}
@@ -129,7 +128,7 @@ func IsWritableDirectory(path string) bool {
 
 // FilesystemRootForPath returns the filesystem root for a given path.
 func FilesystemRootForPath(path string) string {
-	cleaned := filepath.Clean(strings.TrimSpace(path))
+	cleaned := filepath.Clean(path)
 	volume := filepath.VolumeName(cleaned)
 	if volume != "" {
 		return volume + string(filepath.Separator)
@@ -146,9 +145,9 @@ func (fm *Manager) ValidatePath(rawPath string) (string, error) {
 
 	// Expand ~ to home directory.
 	if strings.HasPrefix(rawPath, "~/") || rawPath == "~" {
-		home := strings.TrimSpace(fm.HomeDir)
+		home := fm.HomeDir
 		if home == "" {
-			home = strings.TrimSpace(ResolveAgentFileHomeDir())
+			home = ResolveAgentFileHomeDir()
 		}
 		if home == "" {
 			return "", fmt.Errorf("cannot resolve home directory")
@@ -208,9 +207,9 @@ func (fm *Manager) ValidatePathNoFollowFinal(rawPath string) (string, error) {
 		rawPath = fm.BaseDir
 	}
 	if strings.HasPrefix(rawPath, "~/") || rawPath == "~" {
-		home := strings.TrimSpace(fm.HomeDir)
+		home := fm.HomeDir
 		if home == "" {
-			home = strings.TrimSpace(ResolveAgentFileHomeDir())
+			home = ResolveAgentFileHomeDir()
 		}
 		if home == "" {
 			return "", fmt.Errorf("cannot resolve home directory")
@@ -252,9 +251,9 @@ func (fm *Manager) OpenRootPath(rawPath string) (*os.Root, string, string, error
 		rawPath = fm.BaseDir
 	}
 	if strings.HasPrefix(rawPath, "~/") || rawPath == "~" {
-		home := strings.TrimSpace(fm.HomeDir)
+		home := fm.HomeDir
 		if home == "" {
-			home = strings.TrimSpace(ResolveAgentFileHomeDir())
+			home = ResolveAgentFileHomeDir()
 		}
 		if home == "" {
 			return nil, "", "", fmt.Errorf("cannot resolve home directory")

@@ -39,7 +39,7 @@ func validateAuthorizedKey(pubKey string) (string, error) {
 
 // handleSSHKeyInstall installs the hub's SSH public key into the current user's
 // authorized_keys file, enabling zero-config SSH access from the hub.
-func handleSSHKeyInstall(transport *wsTransport, msg protocol.Message) {
+func handleSSHKeyInstall(transport agentMessageSender, msg protocol.Message) {
 	var req protocol.SSHKeyInstallData
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		log.Printf("ssh-key: invalid install request: %v", err)
@@ -89,7 +89,7 @@ func handleSSHKeyInstall(transport *wsTransport, msg protocol.Message) {
 
 // handleSSHKeyRemove removes the hub's SSH public key from the current user's
 // authorized_keys file, used during asset decommissioning.
-func handleSSHKeyRemove(transport *wsTransport, msg protocol.Message) {
+func handleSSHKeyRemove(transport agentMessageSender, msg protocol.Message) {
 	var req protocol.SSHKeyRemoveData
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		log.Printf("ssh-key: invalid remove request: %v", err)

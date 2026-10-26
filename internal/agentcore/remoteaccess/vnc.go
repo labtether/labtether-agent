@@ -23,7 +23,8 @@ var StartDesktopBootstrap = StartDesktopBootstrapShell
 // startVNCServer launches a local VNC server and returns the VNC command,
 // an optional Xvfb command and bootstrap shell (non-nil only when the headless
 // fallback was used),
-// the port the VNC server is listening on, and an optional x11vnc auth file path.
+// the port the VNC server is listening on, and the private x11vnc auth
+// directory to remove with RemoveVNCAuthDir when the session stops.
 func StartVNCServer(display, quality, vncPassword string) (*exec.Cmd, *exec.Cmd, *exec.Cmd, int, string, error) {
 	port, err := FindFreePort()
 	if err != nil {
@@ -37,6 +38,9 @@ func StartVNCServer(display, quality, vncPassword string) (*exec.Cmd, *exec.Cmd,
 	alreadyReady := false
 	switch runtime.GOOS {
 	case "linux", "freebsd":
+		if err := validateX11VNCPassword(strings.TrimSpace(vncPassword)); err != nil {
+			return nil, nil, nil, 0, "", err
+		}
 		cmd, xvfbCmd, bootstrapCmd, vncAuthFile, err = StartLinuxVNCServer(display, port, quality, vncPassword)
 		alreadyReady = true
 	case "darwin":
@@ -69,8 +73,7 @@ func StartVNCServer(display, quality, vncPassword string) (*exec.Cmd, *exec.Cmd,
 func StartLinuxVNCServer(display string, port int, quality, vncPassword string) (*exec.Cmd, *exec.Cmd, *exec.Cmd, string, error) {
 	requestedDisplay := strings.TrimSpace(display)
 	if requestedDisplay != "" && NormalizeX11DisplayIdentifier(requestedDisplay) == "" {
-		log.Printf("desktop: ignoring non-X11 display selection %q; defaulting to primary X display", requestedDisplay)
-		display = ""
+		return startLinuxVNCMonitor(requestedDisplay, port, quality, vncPassword)
 	}
 	if strings.TrimSpace(display) == "" {
 		session := DetectDesktopSessionFn()
@@ -173,17 +176,21 @@ func BuildX11ClientEnv(display, xauthPath string) []string {
 }
 
 func LaunchX11VNCReady(display string, port int, quality, vncPassword, xauthPath string, timeout time.Duration) (*exec.Cmd, string, string, error) {
-	cmd, logPath, authPath, err := StartX11VNC(display, port, quality, vncPassword, xauthPath)
+	return launchX11VNCReady(display, port, quality, vncPassword, xauthPath, timeout, "")
+}
+
+func launchX11VNCReady(display string, port int, quality, vncPassword, xauthPath string, timeout time.Duration, clip string) (*exec.Cmd, string, string, error) {
+	cmd, logPath, authPath, err := startX11VNC(display, port, quality, vncPassword, xauthPath, clip)
 	if err != nil {
 		RemoveProcessLog(logPath)
-		RemoveProcessLog(authPath)
+		RemoveVNCAuthDir(authPath)
 		return nil, "", "", err
 	}
 	if waitErr := WaitForVNC(port, timeout); waitErr != nil {
 		logTail := ReadProcessLogTail(logPath, 4096)
 		TerminateProcess(cmd)
 		RemoveProcessLog(logPath)
-		RemoveProcessLog(authPath)
+		RemoveVNCAuthDir(authPath)
 		return nil, "", logTail, fmt.Errorf("VNC server not ready: %w", waitErr)
 	}
 	// Log initial x11vnc output for debugging.
@@ -246,26 +253,29 @@ func IsDisplayStartupError(err error, logTail string) bool {
 
 // startX11VNC launches x11vnc for Linux/FreeBSD.
 func StartX11VNC(display string, port int, quality, vncPassword, xauthPath string) (*exec.Cmd, string, string, error) {
+	return startX11VNC(display, port, quality, vncPassword, xauthPath, "")
+}
+
+func startX11VNC(display string, port int, quality, vncPassword, xauthPath, clip string) (*exec.Cmd, string, string, error) {
 	x11vncPath, err := exec.LookPath("x11vnc")
 	if err != nil {
 		return nil, "", "", fmt.Errorf("x11vnc not found: install with 'apt install x11vnc' or 'pkg install x11vnc'")
 	}
 
-	authPath, err := CreateX11VNCPasswordFile(x11vncPath, vncPassword)
+	args, authPath, err := prepareX11VNCLaunch(display, port, quality, vncPassword, xauthPath, clip)
 	if err != nil {
 		return nil, "", "", err
 	}
-	args := BuildX11VNCArgs(display, port, quality, authPath, xauthPath)
 
 	cmd, err := securityruntime.NewCommand(x11vncPath, args...)
 	if err != nil {
-		RemoveProcessLog(authPath)
+		RemoveVNCAuthDir(authPath)
 		return nil, "", "", fmt.Errorf("failed to build x11vnc command: %w", err)
 	}
 
 	logFile, err := os.CreateTemp("", "labtether-x11vnc-*.log")
 	if err != nil {
-		RemoveProcessLog(authPath)
+		RemoveVNCAuthDir(authPath)
 		return nil, "", "", fmt.Errorf("failed to create x11vnc log file: %w", err)
 	}
 	logPath := logFile.Name()
@@ -274,7 +284,7 @@ func StartX11VNC(display string, port int, quality, vncPassword, xauthPath strin
 	if err := cmd.Start(); err != nil {
 		_ = logFile.Close()
 		RemoveProcessLog(logPath)
-		RemoveProcessLog(authPath)
+		RemoveVNCAuthDir(authPath)
 		return nil, "", "", fmt.Errorf("failed to start x11vnc: %w", err)
 	}
 	if closeErr := logFile.Close(); closeErr != nil {
@@ -284,42 +294,14 @@ func StartX11VNC(display string, port int, quality, vncPassword, xauthPath strin
 	return cmd, logPath, authPath, nil
 }
 
-func CreateX11VNCPasswordFile(x11vncPath, password string) (string, error) {
-	password = strings.TrimSpace(password)
-	if password == "" {
-		return "", nil
+// BuildX11VNCArgs builds the x11vnc command line. passwordFile must name a
+// private password file; x11vnc deletes it after reading ("rm:" prefix). The
+// password itself is never part of the arguments, and there is no -nopw mode.
+func BuildX11VNCArgs(display string, port int, quality, passwordFile, xauthPath string) ([]string, error) {
+	passwordFile = strings.TrimSpace(passwordFile)
+	if passwordFile == "" {
+		return nil, errVNCPasswordRequired
 	}
-
-	file, err := os.CreateTemp("", "labtether-x11vnc-pass-*.rfbauth")
-	if err != nil {
-		return "", fmt.Errorf("failed to create x11vnc password file path: %w", err)
-	}
-	path := file.Name()
-	if closeErr := file.Close(); closeErr != nil {
-		RemoveProcessLog(path)
-		return "", fmt.Errorf("failed to prepare x11vnc password file path: %w", closeErr)
-	}
-
-	storeCmd, err := securityruntime.NewCommand(x11vncPath, "-storepasswd", password, path)
-	if err != nil {
-		RemoveProcessLog(path)
-		return "", fmt.Errorf("failed to build x11vnc password command: %w", err)
-	}
-	if output, runErr := securityruntime.CaptureCombinedOutput(storeCmd, securityruntime.DefaultCommandOutputLimit); runErr != nil {
-		RemoveProcessLog(path)
-		if summary := strings.TrimSpace(string(output)); summary != "" {
-			return "", fmt.Errorf("failed to create x11vnc password file: %w (%s)", runErr, SummarizeProcessLogTail(summary))
-		}
-		return "", fmt.Errorf("failed to create x11vnc password file: %w", runErr)
-	}
-	if chmodErr := os.Chmod(path, 0o600); chmodErr != nil { // #nosec G703 -- Path is a package-created temp password file.
-		RemoveProcessLog(path)
-		return "", fmt.Errorf("failed to secure x11vnc password file permissions: %w", chmodErr)
-	}
-	return path, nil
-}
-
-func BuildX11VNCArgs(display string, port int, quality, rfbAuthPath, xauthPath string) []string {
 	display = strings.TrimSpace(display)
 	if display == "" {
 		display = ":0"
@@ -339,11 +321,7 @@ func BuildX11VNCArgs(display string, port int, quality, rfbAuthPath, xauthPath s
 	args := []string{
 		"-display", display,
 		"-rfbport", fmt.Sprintf("%d", port),
-	}
-	if strings.TrimSpace(rfbAuthPath) != "" {
-		args = append(args, "-rfbauth", rfbAuthPath)
-	} else {
-		args = append(args, "-nopw")
+		"-passwdfile", "rm:" + passwordFile,
 	}
 
 	args = append(args,
@@ -367,7 +345,7 @@ func BuildX11VNCArgs(display string, port int, quality, rfbAuthPath, xauthPath s
 	args = append(args,
 		"-speeds", speeds,
 	)
-	return args
+	return args, nil
 }
 
 // isDisplayError checks if the error is related to X11 display connectivity.

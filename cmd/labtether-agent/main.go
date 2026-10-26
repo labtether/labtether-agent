@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -10,12 +11,20 @@ import (
 
 	"github.com/labtether/labtether-agent/internal/agentcore"
 	"github.com/labtether/labtether-agent/internal/agentplatform"
+	"github.com/labtether/labtether-agent/internal/x11input"
 )
 
 // version is injected at build time via -ldflags "-X main.version=..."
 var version string
 
 func main() {
+	if handled, err := x11input.Dispatch(os.Args[1:], x11input.Run); handled {
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "X11 input helper:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if strings.EqualFold(strings.TrimSpace(os.Getenv("LABTETHER_ALLOW_INSECURE_TRANSPORT")), "true") {
 		log.Printf("labtether-agent: WARNING: insecure transport mode is enabled (LABTETHER_ALLOW_INSECURE_TRANSPORT=true)")
 	}

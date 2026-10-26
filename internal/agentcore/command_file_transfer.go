@@ -16,6 +16,11 @@ func startFileReadHandler(ctx context.Context, transport files.MessageSender, fi
 	case sem <- struct{}{}:
 	case <-ctx.Done():
 		return false
+	default:
+		if owner, ok := transport.(interface{ Close() }); ok {
+			owner.Close()
+		}
+		return true
 	}
 
 	handlerWG.Add(1)
@@ -29,7 +34,13 @@ func startFileReadHandler(ctx context.Context, transport files.MessageSender, fi
 	return true
 }
 
-func enqueueOrderedFileWrite(ctx context.Context, transport files.MessageSender, messages chan<- protocol.Message, msg protocol.Message) bool {
+type orderedFileWrite struct {
+	ctx       context.Context
+	transport files.MessageSender
+	message   protocol.Message
+}
+
+func enqueueOrderedFileWrite(ctx context.Context, transport files.MessageSender, messages chan<- orderedFileWrite, msg protocol.Message) bool {
 	messageSize := len(msg.Type) + len(msg.ID) + len(msg.Data)
 	if messageSize > files.MaxFileWriteQueuedMessageSize {
 		requestID := strings.TrimSpace(msg.ID)
@@ -50,14 +61,21 @@ func enqueueOrderedFileWrite(ctx context.Context, transport files.MessageSender,
 		return true
 	}
 	select {
-	case messages <- msg:
+	case messages <- orderedFileWrite{ctx: ctx, transport: transport, message: msg}:
 		return true
 	case <-ctx.Done():
 		return false
+	default:
+		// A blocked disk must not keep the socket reader from seeing close.
+		// Fail the originating transport so its pending upload is canceled.
+		if owner, ok := transport.(interface{ Close() }); ok {
+			owner.Close()
+		}
+		return true
 	}
 }
 
-func runOrderedFileWriteWorker(ctx context.Context, transport *wsTransport, fileMgr *files.Manager, messages <-chan protocol.Message) {
+func runOrderedFileWriteWorker(ctx context.Context, fileMgr *files.Manager, messages <-chan orderedFileWrite) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -67,7 +85,9 @@ func runOrderedFileWriteWorker(ctx context.Context, transport *wsTransport, file
 				return
 			}
 			safeHandler("file-write", func() {
-				fileMgr.HandleFileWrite(transport, msg)
+				if msg.ctx.Err() == nil {
+					fileMgr.HandleFileWriteContext(msg.ctx, msg.transport, msg.message)
+				}
 			})
 		}
 	}

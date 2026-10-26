@@ -145,10 +145,10 @@ var wakeX11Display = remoteaccess.WakeX11Display
 var startAudioCapture = &remoteaccess.StartAudioCapture
 
 // Exec/command handler aliases.
-var handleCommandRequest = func(transport *wsTransport, msg protocol.Message, cfg RuntimeConfig) {
+var handleCommandRequest = func(transport remoteaccess.MessageSender, msg protocol.Message, cfg RuntimeConfig) {
 	remoteaccess.HandleCommandRequest(transport, msg, execConfigFromRuntimeConfig(cfg))
 }
-var handleUpdateRequest = func(transport *wsTransport, msg protocol.Message, cfg RuntimeConfig) {
+var handleUpdateRequest = func(transport remoteaccess.MessageSender, msg protocol.Message, cfg RuntimeConfig) {
 	remoteaccess.HandleUpdateRequest(transport, msg, execConfigFromRuntimeConfig(cfg))
 }
 
@@ -181,7 +181,7 @@ var validateUpdatePackages = remoteaccess.ValidateUpdatePackages
 
 // Diagnostic aliases.
 var collectDesktopDiagnostic = remoteaccess.CollectDesktopDiagnostic
-var handleDesktopDiagnose = func(transport *wsTransport, msg protocol.Message, deskMgr *desktopManager, webrtcMgr *webrtcManager) {
+var handleDesktopDiagnose = func(transport remoteaccess.MessageSender, msg protocol.Message, deskMgr *desktopManager, webrtcMgr *webrtcManager) {
 	remoteaccess.HandleDesktopDiagnose(transport, msg, deskMgr, webrtcMgr)
 }
 

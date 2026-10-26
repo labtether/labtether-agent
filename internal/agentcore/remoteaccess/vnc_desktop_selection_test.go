@@ -102,58 +102,31 @@ func TestStartLinuxVNCServerUsesExistingDisplayWhenAvailable(t *testing.T) {
 	}
 }
 
-func TestStartLinuxVNCServerIgnoresNonX11DisplaySelection(t *testing.T) {
-	originalLaunch := LaunchDesktopVNCReady
-	originalStartXvfb := StartDesktopXvfb
-	originalFind := FindDesktopFreeDisplay
-	originalBootstrap := StartDesktopBootstrap
-	originalCollectUserSessions := system.CollectUserSessionsFn
+func TestStartLinuxVNCServerRejectsUnknownMonitorWithoutFallback(t *testing.T) {
+	originalDetect, originalResolve := DetectDesktopSessionFn, ResolveDesktopVNCMonitor
+	originalLaunch, originalXvfb := LaunchDesktopVNCReady, StartDesktopXvfb
+	originalDiscover := DiscoverDisplayXAuthorityFn
 	t.Cleanup(func() {
-		LaunchDesktopVNCReady = originalLaunch
-		StartDesktopXvfb = originalStartXvfb
-		FindDesktopFreeDisplay = originalFind
-		StartDesktopBootstrap = originalBootstrap
-		system.CollectUserSessionsFn = originalCollectUserSessions
+		DetectDesktopSessionFn, ResolveDesktopVNCMonitor = originalDetect, originalResolve
+		LaunchDesktopVNCReady, StartDesktopXvfb = originalLaunch, originalXvfb
+		DiscoverDisplayXAuthorityFn = originalDiscover
 	})
-	system.CollectUserSessionsFn = func() ([]protocol.UserSession, error) { return nil, nil }
-
-	lockFile := "/tmp/.X0-lock"
-	if err := os.WriteFile(lockFile, []byte("99999\n"), 0o644); err != nil {
-		t.Fatalf("failed to create mock lock file: %v", err)
+	DetectDesktopSessionFn = func() DesktopSessionInfo { return DesktopSessionInfo{Type: DesktopSessionTypeX11, Display: ":93.1"} }
+	DiscoverDisplayXAuthorityFn = func(string) string { return "none" }
+	ResolveDesktopVNCMonitor = func(name, display, xauth string) (string, error) {
+		return "", fmt.Errorf("monitor %q is not available", name)
 	}
-	defer os.Remove(lockFile)
-
-	primaryCmd := &exec.Cmd{}
-	LaunchDesktopVNCReady = func(display string, port int, quality, vncPassword, xauthPath string, timeout time.Duration) (*exec.Cmd, string, string, error) {
-		if display != ":0" {
-			t.Fatalf("expected invalid monitor label to resolve to preferred X display, got %q", display)
-		}
-		return primaryCmd, "/tmp/auth-primary", "", nil
+	LaunchDesktopVNCReady = func(string, int, string, string, string, time.Duration) (*exec.Cmd, string, string, error) {
+		t.Fatal("unknown monitor fell back to whole desktop")
+		return nil, "", "", nil
 	}
 	StartDesktopXvfb = func(int, int, int) (*exec.Cmd, string, error) {
-		t.Fatal("did not expect Xvfb fallback when :0 is available")
+		t.Fatal("unknown monitor fell back to a new desktop")
 		return nil, "", nil
 	}
-	StartDesktopBootstrap = func(string, string) (*exec.Cmd, error) {
-		t.Fatal("did not expect fallback bootstrap when :0 is available")
-		return nil, nil
-	}
-
-	cmd, xvfbCmd, bootstrapCmd, authPath, err := StartLinuxVNCServer("DP-1", 5901, "medium", "")
-	if err != nil {
-		t.Fatalf("StartLinuxVNCServer returned error: %v", err)
-	}
-	if cmd != primaryCmd {
-		t.Fatalf("cmd=%p, want %p", cmd, primaryCmd)
-	}
-	if xvfbCmd != nil {
-		t.Fatalf("expected no Xvfb command, got %v", xvfbCmd)
-	}
-	if bootstrapCmd != nil {
-		t.Fatalf("expected no bootstrap command, got %v", bootstrapCmd)
-	}
-	if authPath != "/tmp/auth-primary" {
-		t.Fatalf("authPath=%q, want /tmp/auth-primary", authPath)
+	_, _, _, _, err := StartLinuxVNCServer("missing-monitor", 5901, "medium", "")
+	if err == nil || !strings.Contains(err.Error(), "not available") {
+		t.Fatalf("unknown monitor error = %v", err)
 	}
 }
 

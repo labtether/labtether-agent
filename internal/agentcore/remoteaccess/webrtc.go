@@ -10,31 +10,36 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"time"
 )
 
 type WebRTCSession struct {
-	sessionID      string
-	pc             *webrtc.PeerConnection
-	videoTrack     *webrtc.TrackLocalStaticRTP
-	audioTrack     *webrtc.TrackLocalStaticRTP
-	gstVideoCmd    *exec.Cmd
-	gstAudioCmd    *exec.Cmd
-	videoLogPath   string
-	audioLogPath   string
-	videoPort      int
-	audioPort      int
-	inputCh        chan WebRTCInputEvent
-	cancel         context.CancelFunc
-	done           chan struct{}
-	closeOnce      sync.Once
-	resourceMu     sync.Mutex
-	closed         bool
-	ManagedDisplay string          // non-empty if display was acquired from DisplayManager
-	xauthPath      string          // Xauthority for ManagedDisplay when one was created
-	dispMgr        *DisplayManager // reference for release on close
-	desktopBackend string
-	sessionInfo    DesktopSessionInfo
-	inputBackend   string
+	sessionID        string
+	pc               *webrtc.PeerConnection
+	videoTrack       *webrtc.TrackLocalStaticRTP
+	audioTrack       *webrtc.TrackLocalStaticRTP
+	gstVideoCmd      *exec.Cmd
+	gstAudioCmd      *exec.Cmd
+	videoLogPath     string
+	audioLogPath     string
+	videoPort        int
+	audioPort        int
+	inputCh          chan WebRTCInputEvent
+	inputDone        chan struct{}
+	inputFailureOnce sync.Once
+	onInputFailure   func(string)
+	cancel           context.CancelFunc
+	done             chan struct{}
+	closeOnce        sync.Once
+	resourceMu       sync.Mutex
+	closed           bool
+	ManagedDisplay   string          // non-empty if display was acquired from DisplayManager
+	xauthPath        string          // Xauthority for ManagedDisplay when one was created
+	dispMgr          *DisplayManager // reference for release on close
+	desktopBackend   string
+	sessionInfo      DesktopSessionInfo
+	inputBackend     string
+	inputGeometry    webRTCCaptureGeometry
 }
 
 const MaxWebRTCSessions = 10
@@ -72,6 +77,15 @@ func (s *WebRTCSession) close(reason string) {
 		if s.cancel != nil {
 			s.cancel()
 		}
+		// Release held input before destroying the display/input backend. The
+		// input loop has a separate cleanup deadline after session cancellation.
+		if s.inputDone != nil {
+			select {
+			case <-s.inputDone:
+			case <-time.After(webRTCInputCleanupTimeout + 500*time.Millisecond):
+				log.Printf("webrtc: input cleanup timed out for session %s", s.sessionID)
+			}
+		}
 		if videoCmd != nil && videoCmd.Process != nil {
 			_ = videoCmd.Process.Kill()
 		}
@@ -86,7 +100,9 @@ func (s *WebRTCSession) close(reason string) {
 		}
 		RemoveProcessLog(videoLogPath)
 		RemoveProcessLog(audioLogPath)
-		close(s.done)
+		if s.done != nil {
+			close(s.done)
+		}
 	})
 }
 
@@ -150,7 +166,11 @@ func NewWebRTCManager(caps protocol.WebRTCCapabilitiesData, settings SettingsPro
 }
 
 func (wm *WebRTCManager) reserveSessionStart(sessionID string) (*pendingWebRTCStart, string) {
-	ctx, cancel := context.WithCancel(context.Background()) // #nosec G118 -- Cancel is retained until promotion, stop, or manager shutdown.
+	return wm.reserveSessionStartContext(context.Background(), sessionID)
+}
+
+func (wm *WebRTCManager) reserveSessionStartContext(parent context.Context, sessionID string) (*pendingWebRTCStart, string) {
+	ctx, cancel := context.WithCancel(parent) // #nosec G118 -- Cancel is retained until promotion, stop, or manager shutdown.
 	pending := &pendingWebRTCStart{ctx: ctx, cancel: cancel}
 
 	wm.Mu.Lock()
@@ -236,16 +256,46 @@ func (wm *WebRTCManager) sessionIsCurrent(sessionID string, expected *WebRTCSess
 }
 
 func (wm *WebRTCManager) HandleWebRTCStop(msg protocol.Message, transport MessageSender) {
+	if stop := wm.PrepareWebRTCStop(msg, transport); stop != nil {
+		stop()
+	}
+}
+
+// Claim the exact owner before dispatch returns. A delayed stop must never
+// resolve its ID against a newer connection's session.
+func (wm *WebRTCManager) PrepareWebRTCStop(msg protocol.Message, transport MessageSender) func() {
 	var req protocol.WebRTCStoppedData
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
-		return
+		return nil
 	}
 	req.SessionID = strings.TrimSpace(req.SessionID)
 	if req.SessionID == "" {
-		return
+		return nil
 	}
-	wm.CleanupWithReason(req.SessionID, "stopped by hub")
-	SendWebRTCStopped(transport, req.SessionID, "stopped by hub")
+	wm.Mu.Lock()
+	sess := wm.Sessions[req.SessionID]
+	pending := wm.pending[req.SessionID]
+	delete(wm.Sessions, req.SessionID)
+	delete(wm.pending, req.SessionID)
+	wm.Mu.Unlock()
+	if pending != nil {
+		pending.cancel()
+		if sess == nil {
+			sess = pending.session
+		}
+	}
+	if sess == nil && pending == nil {
+		return nil
+	}
+	if sess != nil && sess.cancel != nil {
+		sess.cancel()
+	}
+	return func() {
+		if sess != nil {
+			sess.close("stopped by hub")
+		}
+		SendWebRTCStopped(transport, req.SessionID, "stopped by hub")
+	}
 }
 
 func (wm *WebRTCManager) Cleanup(sessionID string) {

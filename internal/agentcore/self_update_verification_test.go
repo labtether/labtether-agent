@@ -29,10 +29,10 @@ func TestValidateReleaseMetadataRejectsCrossOriginByDefault(t *testing.T) {
 }
 
 func TestShouldAttachUpdateTokenOnlyForSameOrigin(t *testing.T) {
-	if !shouldAttachUpdateToken("https://hub.example.com/api/v1/agent/releases/latest", "https://hub.example.com/api/v1/agent/binary") {
+	if !shouldAttachUpdateToken(RuntimeConfig{APIBaseURL: "https://hub.example.com"}, "https://hub.example.com/api/v1/agent/binary") {
 		t.Fatalf("expected token forwarding for same-origin download")
 	}
-	if shouldAttachUpdateToken("https://hub.example.com/api/v1/agent/releases/latest", "https://cdn.example.com/agent.bin") {
+	if shouldAttachUpdateToken(RuntimeConfig{APIBaseURL: "https://hub.example.com"}, "https://cdn.example.com/agent.bin") {
 		t.Fatalf("expected token forwarding to be disabled for cross-origin download")
 	}
 }
@@ -273,7 +273,7 @@ func TestDownloadReleaseBinary(t *testing.T) {
 		}))
 		defer server.Close()
 
-		payload, err := downloadReleaseBinary(RuntimeConfig{APIToken: "token-123"}, server.URL+"/release", server.URL+"/binary", int64(len("same-origin-binary")))
+		payload, err := downloadReleaseBinary(RuntimeConfig{APIBaseURL: server.URL, APIToken: "token-123"}, server.URL+"/binary", int64(len("same-origin-binary")))
 		if err != nil {
 			t.Fatalf("downloadReleaseBinary returned error: %v", err)
 		}
@@ -294,7 +294,7 @@ func TestDownloadReleaseBinary(t *testing.T) {
 		}))
 		defer server.Close()
 
-		payload, err := downloadReleaseBinary(RuntimeConfig{APIToken: "token-123"}, "https://hub.example.com/release", server.URL+"/binary", int64(len("cross-origin-binary")))
+		payload, err := downloadReleaseBinary(RuntimeConfig{APIBaseURL: "https://hub.example.com", APIToken: "token-123"}, server.URL+"/binary", int64(len("cross-origin-binary")))
 		if err != nil {
 			t.Fatalf("downloadReleaseBinary returned error: %v", err)
 		}
@@ -313,7 +313,7 @@ func TestDownloadReleaseBinary(t *testing.T) {
 		}))
 		defer server.Close()
 
-		if _, err := downloadReleaseBinary(RuntimeConfig{}, server.URL+"/release", server.URL+"/binary", 0); err == nil {
+		if _, err := downloadReleaseBinary(RuntimeConfig{}, server.URL+"/binary", 0); err == nil {
 			t.Fatalf("expected status error")
 		}
 	})
@@ -325,7 +325,7 @@ func TestDownloadReleaseBinary(t *testing.T) {
 		}))
 		defer server.Close()
 
-		if _, err := downloadReleaseBinary(RuntimeConfig{}, server.URL+"/release", server.URL+"/binary", 99); err == nil {
+		if _, err := downloadReleaseBinary(RuntimeConfig{}, server.URL+"/binary", 99); err == nil {
 			t.Fatalf("expected size mismatch error")
 		}
 	})
@@ -342,7 +342,7 @@ func TestDownloadReleaseBinary(t *testing.T) {
 		}))
 		defer server.Close()
 
-		if _, err := downloadReleaseBinary(RuntimeConfig{}, server.URL+"/release", server.URL+"/binary", 0); err == nil {
+		if _, err := downloadReleaseBinary(RuntimeConfig{}, server.URL+"/binary", 0); err == nil {
 			t.Fatalf("expected oversized download to be rejected")
 		}
 	})

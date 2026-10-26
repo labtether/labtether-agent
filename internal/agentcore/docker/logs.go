@@ -1,7 +1,6 @@
 package docker
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"log"
@@ -16,6 +15,7 @@ const maxLogStreams = 5
 type dockerLogStream struct {
 	sessionID string
 	cancel    context.CancelFunc
+	done      chan struct{}
 }
 
 // dockerLogManager manages container log streams on the agent.
@@ -33,28 +33,37 @@ func NewDockerLogManager(client *dockerClient) *DockerLogManager {
 }
 
 func (lm *DockerLogManager) HandleLogsStart(ctx context.Context, transport Transport, msg protocol.Message) {
+	if start := lm.PrepareLogsStart(ctx, transport, msg); start != nil {
+		start()
+	}
+}
+
+func (lm *DockerLogManager) PrepareLogsStart(ctx context.Context, transport Transport, msg protocol.Message) func() {
 	var req protocol.DockerLogsStartData
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		log.Printf("docker-logs: invalid start request: %v", err)
-		return
+		return nil
 	}
 
 	if req.SessionID == "" || req.ContainerID == "" {
 		log.Printf("docker-logs: missing session_id or container_id")
-		return
+		return nil
 	}
 
 	lm.mu.Lock()
 	if len(lm.streams) >= maxLogStreams {
 		lm.mu.Unlock()
 		log.Printf("docker-logs: max streams (%d) reached", maxLogStreams)
-		return
+		return nil
 	}
 	if _, exists := lm.streams[req.SessionID]; exists {
 		lm.mu.Unlock()
-		return
+		return nil
 	}
-	lm.mu.Unlock()
+	if ctx.Err() != nil {
+		lm.mu.Unlock()
+		return nil
+	}
 
 	tail := req.Tail
 	if tail <= 0 {
@@ -65,67 +74,64 @@ func (lm *DockerLogManager) HandleLogsStart(ctx context.Context, transport Trans
 	stream := &dockerLogStream{
 		sessionID: req.SessionID,
 		cancel:    cancel,
+		done:      make(chan struct{}),
 	}
 
-	lm.mu.Lock()
 	lm.streams[req.SessionID] = stream
 	lm.mu.Unlock()
 
-	go func() {
-		defer func() {
-			lm.mu.Lock()
-			delete(lm.streams, req.SessionID)
-			lm.mu.Unlock()
-		}()
-
-		body, err := lm.client.containerLogs(ctx, req.ContainerID, tail, req.Follow, req.Timestamps)
-		if err != nil {
-			log.Printf("docker-logs: failed to open log stream: %v", err)
-			return
-		}
-		defer body.Close()
-
-		scanner := bufio.NewScanner(body)
-		scanner.Buffer(make([]byte, 0, 64*1024), 64*1024) // 64 KB max line
-		for scanner.Scan() {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-			}
-
-			line := scanner.Text()
-
-			// Docker multiplexed log stream prepends an 8-byte header per frame:
-			//   byte 0: stream type (1 = stdout, 2 = stderr)
-			//   bytes 1-3: reserved (zero)
-			//   bytes 4-7: frame size (big-endian uint32)
-			// TTY containers omit the header entirely.
-			streamName := "stdout"
-			content := line
-			if len(line) >= 8 {
-				headerByte := line[0]
-				if headerByte == 1 || headerByte == 2 {
-					if headerByte == 2 {
-						streamName = "stderr"
-					}
-					content = line[8:] // strip the 8-byte binary header
+	return func() {
+		go func() {
+			defer cancel()
+			defer close(stream.done)
+			defer func() {
+				lm.mu.Lock()
+				if lm.streams[req.SessionID] == stream {
+					delete(lm.streams, req.SessionID)
 				}
+				lm.mu.Unlock()
+			}()
+
+			if ctx.Err() != nil {
+				return
+			}
+			send := func(streamName, content string) error {
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+				lm.mu.Lock()
+				current := lm.streams[req.SessionID] == stream
+				lm.mu.Unlock()
+				if !current {
+					return context.Canceled
+				}
+				data, _ := json.Marshal(protocol.DockerLogsStreamData{SessionID: req.SessionID, Stream: streamName, Data: content})
+				return transport.Send(protocol.Message{Type: protocol.MsgDockerLogsStream, ID: req.SessionID, Data: data})
+			}
+			fail := func(err error) {
+				if ctx.Err() != nil {
+					return
+				}
+				log.Printf("docker-logs: session %s failed: %v", req.SessionID, err)
+				_ = send("stderr", "[LabTether] Docker log stream failed: "+err.Error())
+			}
+			tty, err := lm.client.containerLogTTY(ctx, req.ContainerID)
+			if err != nil {
+				fail(err)
+				return
+			}
+			body, err := lm.client.containerLogs(ctx, req.ContainerID, tail, req.Follow, req.Timestamps)
+			if err != nil {
+				fail(err)
+				return
+			}
+			defer body.Close()
+			if err := streamDockerLogLines(ctx, body, tty, send); err != nil {
+				fail(err)
 			}
 
-			logData := protocol.DockerLogsStreamData{
-				SessionID: req.SessionID,
-				Stream:    streamName,
-				Data:      content,
-			}
-			data, _ := json.Marshal(logData)
-			_ = transport.Send(protocol.Message{
-				Type: protocol.MsgDockerLogsStream,
-				ID:   req.SessionID,
-				Data: data,
-			})
-		}
-	}()
+		}()
+	}
 }
 
 func (lm *DockerLogManager) HandleLogsStop(msg protocol.Message) {
@@ -136,6 +142,9 @@ func (lm *DockerLogManager) HandleLogsStop(msg protocol.Message) {
 
 	lm.mu.Lock()
 	stream, ok := lm.streams[req.SessionID]
+	if ok {
+		delete(lm.streams, req.SessionID)
+	}
 	lm.mu.Unlock()
 	if !ok {
 		return

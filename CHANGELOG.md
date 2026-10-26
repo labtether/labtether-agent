@@ -2,7 +2,67 @@
 
 All notable changes to `labtether-agent` are documented in this file.
 
-## [Unreleased]
+## [1.7.0] - unreleased
+
+Changes since v1.5.1, the last public binary release.
+
+### Security
+
+- Linux VNC desktop sessions now refuse to start without a password, and the
+  password is passed to x11vnc through a private file that is deleted after
+  use, never on the command line.
+- On Windows, the agent token, enrollment state and device key are private to
+  the agent, SYSTEM and Administrators from the moment the file is created.
+- Self-update sends the Hub token only to the Hub's own release endpoint,
+  never to a custom mirror or a redirected download host.
+- TLS certificate and hostname checks stay on through enrollment, reconnect
+  and Hub address changes, including trusted IPv6 redirect hosts.
+- Timed-out or canceled remote commands and package updates now stop their
+  whole process group on Linux, so child processes do not keep running.
+- Command output, log reads and session input are bounded, so a misbehaving
+  process or peer cannot exhaust agent memory or hang a handler.
+- Dependency, CodeQL and runtime trust-boundary fixes.
+
+### Added
+
+- Single-monitor VNC capture on multi-monitor X11 desktops.
+- X11 WebRTC keyboard control that follows the active keymap (needs
+  `xdotool` and `xmodmap`).
+- Docker over a Windows named pipe, and Docker container log streaming.
+- Docker Compose actions (protocol v2) run against the exact project the Hub
+  showed: its working directory and ordered config files from the Compose
+  labels, on the collector's own Docker endpoint, including HTTPS endpoints
+  with verified TLS. See `docs/DOCKER_COMPOSE.md`.
+- The container image keeps its state in `/var/lib/labtether` (mount a volume
+  there) and accepts a read-only enrollment token file. A consumed token that
+  cannot be deleted is remembered and never used again.
+
+### Changed
+
+- Licensed under the Apache License 2.0.
+- Release binaries are built and signed locally with the Ed25519 release key
+  (`.sig` and `.metadata.json` assets) instead of in GitHub Actions; the README
+  shows how to verify them. The container image keeps its GitHub attestation.
+- Needs a Hub that speaks protocol v1.7.0. Built with Go 1.27.2.
+- Releases ship Linux and Windows binaries for amd64 and arm64. macOS uses the
+  native app; FreeBSD is not shipped.
+
+### Fixed
+
+- A stale or slow session start can no longer close or replace a newer
+  terminal, desktop, Docker exec, WebRTC or audio session; input arrives in
+  order.
+- Terminal and desktop streams stop when the Hub connection fails.
+- Fixes for clipboard on macOS, Linux and Windows, Docker stats, macOS logs and
+  package inventory, disk metadata, BusyBox process lists, Netplan rollback and
+  network connectivity probes.
+- Restarted agents keep the Hub addresses, group and CA trust saved at
+  enrollment.
+
+## Before 1.7.0
+
+These changes shipped in v1.5.1 or earlier. In 1.7.0, release signing moved
+from GitHub Actions to the maintainers' local release process.
 
 ### Security
 

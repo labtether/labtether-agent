@@ -5,49 +5,22 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/labtether/labtether-agent/internal/securityruntime"
+	"github.com/labtether/labtether-agent/internal/x11input"
 	"github.com/labtether/protocol"
-	"log"
 	"strconv"
 	"strings"
 )
 
 type WebRTCInputEvent struct {
-	Type    string `json:"type"`
-	KeyCode int    `json:"keyCode,omitempty"`
-	Code    string `json:"code,omitempty"`
-	Key     string `json:"key,omitempty"`
-	X       int    `json:"x,omitempty"`
-	Y       int    `json:"y,omitempty"`
-	Button  int    `json:"button,omitempty"`
-	DeltaY  int    `json:"deltaY,omitempty"`
-}
-
-func InjectInputEvents(ctx context.Context, ch <-chan WebRTCInputEvent, display, xauthPath string, sess *WebRTCSession) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case evt, ok := <-ch:
-			if !ok {
-				return
-			}
-			if err := InjectSingleInput(evt, display, xauthPath, sess); err != nil {
-				sessionID := ""
-				backend := DesktopBackendX11
-				if sess != nil {
-					sessionID = strings.TrimSpace(sess.sessionID)
-					backend = strings.TrimSpace(sess.desktopBackend)
-				}
-				log.Printf(
-					"webrtc: input injection failed session=%s backend=%s event=%s: %v",
-					ValueOrDash(sessionID),
-					ValueOrDash(backend),
-					ValueOrDash(strings.TrimSpace(strings.ToLower(evt.Type))),
-					err,
-				)
-			}
-		}
-	}
+	x11Keycode uint8  // resolved internally; never accepted from the wire
+	Type       string `json:"type"`
+	KeyCode    int    `json:"keyCode,omitempty"`
+	Code       string `json:"code,omitempty"`
+	Key        string `json:"key,omitempty"`
+	X          int    `json:"x,omitempty"`
+	Y          int    `json:"y,omitempty"`
+	Button     int    `json:"button,omitempty"`
+	DeltaY     int    `json:"deltaY,omitempty"`
 }
 
 func BuildWaylandPipeWireEnv(session DesktopSessionInfo) []string {
@@ -72,34 +45,54 @@ func BuildWaylandPipeWireEnv(session DesktopSessionInfo) []string {
 }
 
 func InjectSingleInput(evt WebRTCInputEvent, display, xauthPath string, sess *WebRTCSession) error {
+	ctx := context.Background()
+	evt.Type = strings.TrimSpace(strings.ToLower(evt.Type))
+	if sess == nil || sess.sessionInfo.Type != DesktopSessionTypeWayland {
+		resolved, err := resolveWebRTCX11Input(ctx, evt, display, xauthPath)
+		if err != nil {
+			return err
+		}
+		evt = resolved
+	}
+	return injectSingleInputContext(ctx, evt, display, xauthPath, sess)
+}
+
+func injectSingleInputContext(ctx context.Context, evt WebRTCInputEvent, display, xauthPath string, sess *WebRTCSession) error {
 	eventType := strings.TrimSpace(strings.ToLower(evt.Type))
 	if eventType == "" {
 		return fmt.Errorf("input event type is required")
 	}
 	if sess != nil && sess.sessionInfo.Type == DesktopSessionTypeWayland {
-		return InjectWaylandInputEvent(evt, sess)
+		return injectWaylandInputContext(ctx, evt, sess)
 	}
 	if strings.TrimSpace(display) == "" {
 		display = ":0"
 	}
 
 	run := func(args ...string) error {
-		return RunWebRTCInputCommand("xdotool", BuildX11ClientEnv(display, xauthPath), args...)
+		return runWebRTCInputCommandContext(ctx, "xdotool", BuildX11ClientEnv(display, xauthPath), args...)
 	}
 
 	switch eventType {
-	case "keydown":
-		if keyArg, ok := X11KeyArgument(evt); ok {
-			return run("keydown", keyArg)
+	case "keydown", "keyup":
+		keyArg, err := x11RawKeyArgument(evt)
+		if err != nil {
+			return err
 		}
-		return fmt.Errorf("unsupported X11 keydown event")
-	case "keyup":
-		if keyArg, ok := X11KeyArgument(evt); ok {
-			return run("keyup", keyArg)
+		operation := "up"
+		if eventType == "keydown" {
+			operation = "down"
 		}
-		return fmt.Errorf("unsupported X11 keyup event")
+		return runWebRTCInputCommandContext(ctx, x11input.PolicyName, BuildX11ClientEnv(display, xauthPath), operation, keyArg)
 	case "mousemove":
-		return run("mousemove", "--screen", "0", strconv.Itoa(evt.X), strconv.Itoa(evt.Y))
+		if sess != nil {
+			evt = sess.inputGeometry.mapInput(evt)
+		}
+		screen := "0"
+		if _, selected, ok := strings.Cut(NormalizeX11DisplayIdentifier(display), "."); ok {
+			screen = selected
+		}
+		return run("mousemove", "--screen", screen, strconv.Itoa(evt.X), strconv.Itoa(evt.Y))
 	case "mousedown":
 		return run("mousedown", strconv.Itoa(evt.Button+1))
 	case "mouseup":
@@ -116,26 +109,6 @@ func InjectSingleInput(evt WebRTCInputEvent, display, xauthPath string, sess *We
 	}
 }
 
-// RunWebRTCInputCommand executes one validated input command and preserves a
-// bounded diagnostic on failure so input loss is observable without logging
-// the full event payload.
-func RunWebRTCInputCommand(name string, env []string, args ...string) error {
-	cmd, err := NewWebRTCSecurityCommand(name, args...)
-	if err != nil {
-		return fmt.Errorf("build %s input command: %w", name, err)
-	}
-	cmd.Env = env
-	out, runErr := securityruntime.CaptureCombinedOutput(cmd, securityruntime.DefaultCommandOutputLimit)
-	if runErr == nil {
-		return nil
-	}
-	detail := TruncateCommandOutput(out, 1024)
-	if detail != "" {
-		return fmt.Errorf("run %s input command: %w: %s", name, runErr, detail)
-	}
-	return fmt.Errorf("run %s input command: %w", name, runErr)
-}
-
 func X11KeyArgument(evt WebRTCInputEvent) (string, bool) {
 	if keysym, ok := DomCodeToX11Keysym(strings.TrimSpace(evt.Code)); ok {
 		return keysym, true
@@ -150,6 +123,10 @@ func X11KeyArgument(evt WebRTCInputEvent) (string, bool) {
 }
 
 func InjectWaylandInputEvent(evt WebRTCInputEvent, sess *WebRTCSession) error {
+	return injectWaylandInputContext(context.Background(), evt, sess)
+}
+
+func injectWaylandInputContext(ctx context.Context, evt WebRTCInputEvent, sess *WebRTCSession) error {
 	if sess == nil {
 		return fmt.Errorf("Wayland input session is required")
 	}
@@ -159,7 +136,7 @@ func InjectWaylandInputEvent(evt WebRTCInputEvent, sess *WebRTCSession) error {
 	}
 
 	run := func(args ...string) error {
-		return RunWebRTCInputCommand("ydotool", BuildWaylandPipeWireEnv(sess.sessionInfo), args...)
+		return runWebRTCInputCommandContext(ctx, "ydotool", BuildWaylandPipeWireEnv(sess.sessionInfo), args...)
 	}
 
 	switch strings.TrimSpace(strings.ToLower(evt.Type)) {

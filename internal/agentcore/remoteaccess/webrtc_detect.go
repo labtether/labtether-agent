@@ -1,6 +1,7 @@
 package remoteaccess
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/labtether/labtether-agent/internal/securityruntime"
+	"github.com/labtether/labtether-agent/internal/x11input"
 	"github.com/labtether/protocol"
 )
 
@@ -47,6 +49,7 @@ type GstAudioConfig struct {
 }
 
 const (
+	webrtcReasonX11InputHelperBlocked       = "x11_input_helper_blocked"
 	webrtcReasonUnsupportedPlatform         = "unsupported_platform"
 	webrtcReasonMissingGstLaunch            = "gst_launch_not_found"
 	webrtcReasonMissingGstInspect           = "gst_inspect_not_found"
@@ -54,6 +57,8 @@ const (
 	webrtcReasonWaylandDisabled             = "wayland_experimental_disabled"
 	webrtcReasonWaylandPipeWireMissing      = "wayland_pipewiresrc_not_found"
 	webrtcReasonWaylandPipeWireNodeMissing  = "wayland_pipewire_node_missing"
+	webrtcReasonX11KeymapToolMissing        = "x11_input_xmodmap_not_found"
+	webrtcReasonX11KeymapToolProbeFailed    = "x11_input_xmodmap_probe_failed"
 	webrtcReasonX11InputToolMissing         = "x11_input_xdotool_not_found"
 	webrtcReasonX11InputToolProbeFailed     = "x11_input_xdotool_probe_failed"
 	webrtcReasonWaylandInputDisabled        = "wayland_input_disabled"
@@ -195,6 +200,10 @@ func DetectWebRTCCapabilitiesWithConfig(cfg WebRTCConfig) protocol.WebRTCCapabil
 			caps.UnavailableReason = webrtcReasonX11InputToolProbeFailed
 			return caps
 		}
+		if reason := webRTCX11KeymapUnavailableReason(session); reason != "" {
+			caps.UnavailableReason = reason
+			return caps
+		}
 		caps.Available = true
 	default:
 		caps.CaptureBackend = "ximagesrc"
@@ -211,6 +220,10 @@ func DetectWebRTCCapabilitiesWithConfig(cfg WebRTCConfig) protocol.WebRTCCapabil
 			caps.UnavailableReason = webrtcReasonX11InputToolProbeFailed
 			return caps
 		}
+		if reason := webRTCX11KeymapUnavailableReason(session); reason != "" {
+			caps.UnavailableReason = reason
+			return caps
+		}
 		caps.Available = true
 	}
 	return caps
@@ -225,27 +238,31 @@ func ProbeWebRTCInputTool(tool string, session DesktopSessionInfo) (missing bool
 	if lookErr != nil || strings.TrimSpace(path) == "" {
 		return true, lookErr
 	}
-
 	args := []string{"--version"}
+	env := BuildX11ClientEnv(session.Display, "")
 	if tool == "ydotool" {
 		args = []string{"debug"}
+		env = BuildWaylandPipeWireEnv(session)
+	} else if tool == "xmodmap" {
+		args = []string{"-version"}
 	}
-	cmd, cmdErr := NewWebRTCSecurityCommand(path, args...)
-	if cmdErr != nil {
-		return false, fmt.Errorf("build %s probe: %w", tool, cmdErr)
+	_, err = runWebRTCInputCommandOutputContext(context.Background(), path, env, 4096, args...)
+	return false, err
+}
+
+func webRTCX11KeymapUnavailableReason(session DesktopSessionInfo) string {
+	missing, err := ProbeWebRTCInputTool("xmodmap", session)
+	if missing {
+		return webrtcReasonX11KeymapToolMissing
 	}
-	if tool == "ydotool" {
-		cmd.Env = BuildWaylandPipeWireEnv(session)
+	if err != nil {
+		log.Printf("webrtc: X11 keymap tool probe failed: %v", err)
+		return webrtcReasonX11KeymapToolProbeFailed
 	}
-	out, runErr := securityruntime.CaptureCombinedOutput(cmd, securityruntime.DefaultCommandOutputLimit)
-	if runErr != nil {
-		detail := TruncateCommandOutput(out, 1024)
-		if detail != "" {
-			return false, fmt.Errorf("run %s probe: %w: %s", tool, runErr, detail)
-		}
-		return false, fmt.Errorf("run %s probe: %w", tool, runErr)
+	if err := securityruntime.ValidateExecBinary(x11input.PolicyName); err != nil {
+		return webrtcReasonX11InputHelperBlocked
 	}
-	return false, nil
+	return ""
 }
 
 func DetectX11DisplayIdentifiers() []string {
@@ -327,8 +344,8 @@ func BuildGStreamerVideoPipeline(cfg GstPipelineConfig) string {
 
 	return fmt.Sprintf(
 		"ximagesrc display-name=%s use-damage=false show-pointer=true ! "+
-			"video/x-raw,framerate=%d/1 ! videoconvert ! videoscale ! "+
-			"video/x-raw,width=%d,height=%d ! %s ! %s pt=96 ! "+
+			"video/x-raw,framerate=%d/1 ! videoconvert ! videoscale add-borders=false ! "+
+			"video/x-raw,width=%d,height=%d,pixel-aspect-ratio=1/1 ! %s ! %s pt=96 ! "+
 			"udpsink host=127.0.0.1 port=%d sync=false async=false",
 		display, fps, width, height, encoder, rtpPayloader, cfg.rtpPort,
 	)

@@ -1,6 +1,7 @@
 package remoteaccess
 
 import (
+	"context"
 	"encoding/json"
 	"github.com/labtether/labtether-agent/internal/agentcore/sysconfig"
 	"github.com/labtether/protocol"
@@ -31,86 +32,111 @@ type WebRTCFileTransferMessage struct {
 }
 
 func (wm *WebRTCManager) HandleWebRTCOffer(msg protocol.Message, transport MessageSender) {
+	if offer := wm.PrepareWebRTCOffer(msg, transport); offer != nil {
+		offer()
+	}
+}
+
+// Capture the connection owner in receive order; Pion work runs after dispatch.
+func (wm *WebRTCManager) PrepareWebRTCOffer(msg protocol.Message, transport MessageSender) func() {
 	var offer protocol.WebRTCSDPData
 	if err := json.Unmarshal(msg.Data, &offer); err != nil {
-		return
+		return nil
 	}
 	if strings.TrimSpace(offer.SessionID) == "" || strings.TrimSpace(offer.SDP) == "" {
-		return
+		return nil
 	}
 
 	wm.Mu.Lock()
 	sess, ok := wm.Sessions[offer.SessionID]
 	wm.Mu.Unlock()
 	if !ok {
-		return
+		return nil
 	}
 
-	log.Printf("webrtc: received offer for session=%s", offer.SessionID)
-	if err := sess.pc.SetRemoteDescription(webrtc.SessionDescription{Type: webrtc.SDPTypeOffer, SDP: offer.SDP}); err != nil {
-		log.Printf("webrtc: set remote description failed for %s: %v", offer.SessionID, err)
-		return
-	}
+	return func() {
+		if !wm.sessionIsCurrent(offer.SessionID, sess) {
+			return
+		}
 
-	answer, err := sess.pc.CreateAnswer(nil)
-	if err != nil {
-		log.Printf("webrtc: create answer failed for %s: %v", offer.SessionID, err)
-		return
-	}
-	if err := sess.pc.SetLocalDescription(answer); err != nil {
-		log.Printf("webrtc: set local description failed for %s: %v", offer.SessionID, err)
-		return
-	}
-	log.Printf("webrtc: created answer for session=%s", offer.SessionID)
+		log.Printf("webrtc: received offer for session=%s", offer.SessionID)
+		if err := sess.pc.SetRemoteDescription(webrtc.SessionDescription{Type: webrtc.SDPTypeOffer, SDP: offer.SDP}); err != nil {
+			log.Printf("webrtc: set remote description failed for %s: %v", offer.SessionID, err)
+			return
+		}
 
-	answerData, _ := json.Marshal(protocol.WebRTCSDPData{
-		SessionID: offer.SessionID,
-		Type:      "answer",
-		SDP:       answer.SDP,
-	})
-	wm.sendSessionMessageIfCurrent(
-		transport,
-		offer.SessionID,
-		sess,
-		protocol.Message{Type: protocol.MsgWebRTCAnswer, ID: offer.SessionID, Data: answerData},
-	)
+		answer, err := sess.pc.CreateAnswer(nil)
+		if err != nil {
+			log.Printf("webrtc: create answer failed for %s: %v", offer.SessionID, err)
+			return
+		}
+		if err := sess.pc.SetLocalDescription(answer); err != nil {
+			log.Printf("webrtc: set local description failed for %s: %v", offer.SessionID, err)
+			return
+		}
+		log.Printf("webrtc: created answer for session=%s", offer.SessionID)
+
+		answerData, _ := json.Marshal(protocol.WebRTCSDPData{
+			SessionID: offer.SessionID,
+			Type:      "answer",
+			SDP:       answer.SDP,
+		})
+		wm.sendSessionMessageIfCurrent(
+			transport,
+			offer.SessionID,
+			sess,
+			protocol.Message{Type: protocol.MsgWebRTCAnswer, ID: offer.SessionID, Data: answerData},
+		)
+	}
 }
 
 func (wm *WebRTCManager) HandleWebRTCICE(msg protocol.Message) {
+	if ice := wm.PrepareWebRTCICE(msg); ice != nil {
+		ice()
+	}
+}
+
+func (wm *WebRTCManager) PrepareWebRTCICE(msg protocol.Message) func() {
 	var data protocol.WebRTCICEData
 	if err := json.Unmarshal(msg.Data, &data); err != nil {
-		return
+		return nil
 	}
 	if strings.TrimSpace(data.SessionID) == "" || strings.TrimSpace(data.Candidate) == "" {
-		return
+		return nil
 	}
 
 	wm.Mu.Lock()
 	sess, ok := wm.Sessions[data.SessionID]
 	wm.Mu.Unlock()
 	if !ok {
-		return
+		return nil
 	}
 
-	candidate := webrtc.ICECandidateInit{Candidate: data.Candidate}
-	if strings.TrimSpace(data.SDPMid) != "" {
-		sdpMid := strings.TrimSpace(data.SDPMid)
-		candidate.SDPMid = &sdpMid
-	}
-	if data.SDPMLineIndex != nil {
-		if *data.SDPMLineIndex < 0 || *data.SDPMLineIndex > math.MaxUint16 {
-			log.Printf("webrtc: ignoring ICE candidate with invalid m-line index %d for %s", *data.SDPMLineIndex, data.SessionID)
+	return func() {
+		if !wm.sessionIsCurrent(data.SessionID, sess) {
 			return
 		}
-		index := uint16(*data.SDPMLineIndex)
-		candidate.SDPMLineIndex = &index
-	}
-	if err := sess.pc.AddICECandidate(candidate); err != nil {
-		log.Printf("webrtc: add ICE candidate failed for %s: %v", data.SessionID, err)
+
+		candidate := webrtc.ICECandidateInit{Candidate: data.Candidate}
+		if strings.TrimSpace(data.SDPMid) != "" {
+			sdpMid := strings.TrimSpace(data.SDPMid)
+			candidate.SDPMid = &sdpMid
+		}
+		if data.SDPMLineIndex != nil {
+			if *data.SDPMLineIndex < 0 || *data.SDPMLineIndex > math.MaxUint16 {
+				log.Printf("webrtc: ignoring ICE candidate with invalid m-line index %d for %s", *data.SDPMLineIndex, data.SessionID)
+				return
+			}
+			index := uint16(*data.SDPMLineIndex)
+			candidate.SDPMLineIndex = &index
+		}
+		if err := sess.pc.AddICECandidate(candidate); err != nil {
+			log.Printf("webrtc: add ICE candidate failed for %s: %v", data.SessionID, err)
+		}
 	}
 }
 
-func (wm *WebRTCManager) HandleWebRTCInput(msg protocol.Message) {
+func (wm *WebRTCManager) HandleWebRTCInput(msg protocol.Message, transport MessageSender) {
 	var data protocol.WebRTCInputData
 	if err := json.Unmarshal(msg.Data, &data); err != nil {
 		return
@@ -121,8 +147,7 @@ func (wm *WebRTCManager) HandleWebRTCInput(msg protocol.Message) {
 	if !ok {
 		return
 	}
-	select {
-	case sess.inputCh <- WebRTCInputEvent{
+	wm.enqueueWebRTCInput(transport, sess, WebRTCInputEvent{
 		Type:    strings.TrimSpace(data.Type),
 		KeyCode: data.KeyCode,
 		Code:    strings.TrimSpace(data.Code),
@@ -131,9 +156,7 @@ func (wm *WebRTCManager) HandleWebRTCInput(msg protocol.Message) {
 		Y:       data.Y,
 		Button:  data.Button,
 		DeltaY:  data.DeltaY,
-	}:
-	default:
-	}
+	})
 }
 
 func (wm *WebRTCManager) handleClipboardDataChannelMessage(dc *webrtc.DataChannel, msg webrtc.DataChannelMessage) {
@@ -175,6 +198,13 @@ func (wm *WebRTCManager) handleClipboardDataChannelMessage(dc *webrtc.DataChanne
 }
 
 func (wm *WebRTCManager) handleFileTransferDataChannelMessage(dc *webrtc.DataChannel, msg webrtc.DataChannelMessage) {
+	wm.handleFileTransferDataChannelMessageContext(context.Background(), dc, msg)
+}
+
+func (wm *WebRTCManager) handleFileTransferDataChannelMessageContext(ctx context.Context, dc *webrtc.DataChannel, msg webrtc.DataChannelMessage) {
+	if ctx.Err() != nil {
+		return
+	}
 	if dc == nil || !msg.IsString || wm.fileMgr == nil {
 		return
 	}
@@ -193,7 +223,7 @@ func (wm *WebRTCManager) handleFileTransferDataChannelMessage(dc *webrtc.DataCha
 	case "start":
 		reply.Type = "ready"
 	case "chunk":
-		bytesWritten, err := wm.fileMgr.WriteChunk(protocol.FileWriteData{
+		bytesWritten, err := wm.fileMgr.WriteChunkContext(ctx, protocol.FileWriteData{
 			RequestID: payload.RequestID,
 			Path:      payload.Path,
 			Data:      payload.Data,

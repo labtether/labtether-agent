@@ -67,13 +67,17 @@ const (
 )
 
 type wsTransport struct {
-	runtimeIdentity *runtimeIdentitySource
-	identityOnce    sync.Once
-	platform        string
-	agentVersion    string
-	tlsConfig       *tls.Config
-	tokenFilePath   string
-	deviceIdentity  *deviceIdentity
+	sessionDispatchMu sync.RWMutex
+	beforeConnect     func()
+	connectionCtx     context.Context
+	connectionCancel  context.CancelFunc
+	runtimeIdentity   *runtimeIdentitySource
+	identityOnce      sync.Once
+	platform          string
+	agentVersion      string
+	tlsConfig         *tls.Config
+	tokenFilePath     string
+	deviceIdentity    *deviceIdentity
 
 	// Diagnostic counters — accessed with sync/atomic.
 	messagesSent     int64
@@ -283,10 +287,23 @@ func (t *wsTransport) connectWithResponse(ctx context.Context) (*http.Response, 
 		return conn.SetReadDeadline(time.Now().Add(clientReadDeadline))
 	})
 
-	t.mu.Lock()
-	if t.conn != nil {
-		_ = t.conn.Close()
+	t.sessionDispatchMu.Lock()
+	defer t.sessionDispatchMu.Unlock()
+	t.markDisconnected()
+	if t.beforeConnect != nil {
+		t.beforeConnect()
 	}
+	if err := ctx.Err(); err != nil {
+		_ = conn.Close()
+		return resp, err
+	}
+	if !identity.MatchesConnection(connectionIdentity) {
+		_ = conn.Close()
+		return resp, errRuntimeIdentityChanged
+	}
+	t.mu.Lock()
+	t.connectionCtx, t.connectionCancel = context.WithCancel(ctx)
+
 	// Stop the previous ping goroutine if one is running.
 	if t.pingDone != nil {
 		close(t.pingDone)
@@ -345,17 +362,19 @@ func (t *wsTransport) pingLoop(conn *websocket.Conn, done chan struct{}) {
 			t.mu.Unlock()
 			if err != nil {
 				log.Printf("agentws: ping send failed: %v", err)
-				t.markDisconnected()
+				t.markDisconnectedIfCurrent(conn)
 				return
 			}
 		}
 	}
 }
 
-func (t *wsTransport) Send(msg protocol.Message) error {
+func (t *wsTransport) Send(msg protocol.Message) error { return t.sendOnConnection(nil, msg) }
+
+func (t *wsTransport) sendOnConnection(expected *websocket.Conn, msg protocol.Message) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if t.conn == nil {
+	if t.conn == nil || (expected != nil && t.conn != expected) {
 		return errNotConnected
 	}
 	// A tokenless socket is an enrollment-only control channel. The hub's
@@ -377,35 +396,12 @@ func (t *wsTransport) Send(msg protocol.Message) error {
 	return err
 }
 
-func (t *wsTransport) Receive() (protocol.Message, error) {
-	msg, _, err := t.receiveWithEnrollmentState()
-	return msg, err
-}
-
-// receiveWithEnrollmentState binds the authentication state to the exact
-// socket a message was read from. A pending socket can be disconnected while
-// its final messages are being drained, so consulting the transport's current
-// state after ReadJSON would create a race where an unauthenticated message
-// could be dispatched as ordinary hub traffic.
-func (t *wsTransport) receiveWithEnrollmentState() (protocol.Message, bool, error) {
-	t.mu.Lock()
-	conn := t.conn
-	pendingEnrollment := t.pendingEnrollment
-	t.mu.Unlock()
-	if conn == nil {
-		return protocol.Message{}, pendingEnrollment, errNotConnected
-	}
-
-	var msg protocol.Message
-	err := conn.ReadJSON(&msg)
-	if err == nil {
-		atomic.AddInt64(&t.messagesReceived, 1)
-	}
-	return msg, pendingEnrollment, err
-}
-
 func (t *wsTransport) Close() {
 	t.mu.Lock()
+	if t.connectionCancel != nil {
+		t.connectionCancel()
+		t.connectionCancel = nil
+	}
 	defer t.mu.Unlock()
 	if t.pingDone != nil {
 		close(t.pingDone)
@@ -472,8 +468,18 @@ func (t *wsTransport) ConnectionState() (state string, lastErr string, disconnec
 	return "disconnected", "", t.disconnectedAt
 }
 
-func (t *wsTransport) markDisconnected() {
+func (t *wsTransport) markDisconnected() { t.markDisconnectedIfCurrent(nil) }
+
+func (t *wsTransport) markDisconnectedIfCurrent(expected *websocket.Conn) {
 	t.mu.Lock()
+	if expected != nil && t.conn != expected {
+		t.mu.Unlock()
+		return
+	}
+	if t.connectionCancel != nil {
+		t.connectionCancel()
+		t.connectionCancel = nil
+	}
 	t.connected = false
 	t.pendingEnrollment = false
 	if t.pingDone != nil {

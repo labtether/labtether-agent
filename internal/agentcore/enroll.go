@@ -56,6 +56,10 @@ func ResolveToken(ctx context.Context, cfg *RuntimeConfig) error {
 var errAgentTokenPersistence = errors.New("agent token persistence failed")
 
 func resolveTokenWithIdentity(ctx context.Context, cfg *RuntimeConfig, identity *deviceIdentity) error {
+	// A read-only token file that already enrolled this agent must not arm
+	// enrollment or re-enrollment again.
+	dropConsumedEnrollmentToken(cfg)
+
 	// Priority 1: explicit API token
 	if cfg.APIToken != "" {
 		if cfg.APIBaseURL == "" {
@@ -172,11 +176,7 @@ func discardConsumedEnrollmentToken(cfg *RuntimeConfig) error {
 	}
 	var cleanupErr error
 	if cfg.EnrollmentTokenFromFile && strings.TrimSpace(cfg.EnrollmentTokenFilePath) != "" {
-		if err := os.Remove(cfg.EnrollmentTokenFilePath); err != nil && !os.IsNotExist(err) {
-			cleanupErr = fmt.Errorf("remove consumed enrollment token file: %w", err)
-		} else {
-			log.Printf("agent: removed consumed enrollment token file")
-		}
+		cleanupErr = removeConsumedEnrollmentTokenFile(cfg)
 	}
 	cfg.EnrollmentToken = ""
 	cfg.EnrollmentTokenFromFile = false

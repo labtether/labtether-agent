@@ -157,8 +157,8 @@ func TestPlatformClipboardReadKeepsX11ToolAndEnv(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PlatformClipboardRead: %v", err)
 	}
-	if text != "x11 text" {
-		t.Fatalf("text = %q, want x11 text", text)
+	if text != "x11 text\n" {
+		t.Fatalf("text = %q, want exact x11 text with newline", text)
 	}
 }
 
@@ -276,5 +276,29 @@ func TestPlatformClipboardWriteImageRejectsNonPNGBytes(t *testing.T) {
 	preserveLinuxClipboardHooks(t)
 	if err := PlatformClipboardWriteImage(base64.StdEncoding.EncodeToString([]byte("not a png"))); err == nil || !strings.Contains(err.Error(), "not a PNG") {
 		t.Fatalf("non-PNG image error = %v", err)
+	}
+}
+
+func TestPlatformClipboardXselPreservesTrailingNewlines(t *testing.T) {
+	preserveLinuxClipboardHooks(t)
+	DetectLinuxDesktopSessionFn = func() LinuxDesktopSessionInfo { return LinuxDesktopSessionInfo{Type: DesktopSessionTypeX11} }
+	ClipboardLookPath = func(name string) (string, error) {
+		if name == "xsel" {
+			return "/usr/bin/xsel", nil
+		}
+		return "", errors.New("not found")
+	}
+	ClipboardNewCommand = func(name string, args ...string) (*exec.Cmd, error) {
+		if name != "xsel" {
+			t.Fatalf("unexpected command %q", name)
+		}
+		return exec.Command("/bin/sh", "-c", `printf '  café\r\n\n'`), nil
+	}
+	text, _, err := PlatformClipboardRead("text")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text != "  café\r\n\n" {
+		t.Fatalf("clipboard text changed: %q", text)
 	}
 }

@@ -2,6 +2,7 @@ package sysconfig
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 
 	"github.com/labtether/protocol"
@@ -30,12 +31,11 @@ func (cm *ClipboardManager) HandleClipboardGet(transport MessageSender, msg prot
 		return
 	}
 
-	format := req.Format
-	if format == "" {
-		format = "text"
+	format, err := normalizeClipboardFormat(req.Format)
+	var text, imgBase64 string
+	if err == nil {
+		text, imgBase64, err = ClipboardRead(format)
 	}
-
-	text, imgBase64, err := ClipboardRead(format)
 
 	resp := protocol.ClipboardDataPayload{
 		RequestID: req.RequestID,
@@ -69,19 +69,12 @@ func (cm *ClipboardManager) HandleClipboardSet(transport MessageSender, msg prot
 		return
 	}
 
-	var writeErr error
-	format := req.Format
-	if format == "" {
-		format = "text"
-	}
-
+	format, writeErr := normalizeClipboardFormat(req.Format)
 	switch format {
 	case "text":
 		writeErr = ClipboardWriteText(req.Text)
 	case "image/png":
 		writeErr = ClipboardWriteImage(req.Data)
-	default:
-		writeErr = ClipboardWriteText(req.Text)
 	}
 
 	ack := protocol.ClipboardSetAckData{
@@ -101,4 +94,15 @@ func (cm *ClipboardManager) HandleClipboardSet(transport MessageSender, msg prot
 		Type: protocol.MsgClipboardSetAck,
 		Data: data,
 	})
+}
+
+func normalizeClipboardFormat(format string) (string, error) {
+	switch format {
+	case "", "text", "text/plain":
+		return "text", nil
+	case "image", "image/png":
+		return "image/png", nil
+	default:
+		return "", fmt.Errorf("unsupported clipboard format %q", format)
+	}
 }

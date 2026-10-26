@@ -1,12 +1,9 @@
 package docker
 
 import (
-	"bytes"
 	"context"
-	"encoding/binary"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"regexp"
 	"strconv"
@@ -167,16 +164,7 @@ func (dc *DockerCollector) dispatchDockerAction(ctx context.Context, req protoco
 			tail = 5000
 		}
 		timestamps := strings.EqualFold(strings.TrimSpace(req.Params["timestamps"]), "true")
-		body, logsErr := dc.client.containerLogs(ctx, req.ContainerID, tail, false, timestamps)
-		if logsErr != nil {
-			return "", logsErr
-		}
-		defer body.Close()
-		content, readErr := io.ReadAll(io.LimitReader(body, 2*1024*1024))
-		if readErr != nil {
-			return "", readErr
-		}
-		return strings.TrimSpace(decodeDockerLogPayload(content)), nil
+		return dc.client.collectContainerLogs(ctx, req.ContainerID, tail, timestamps)
 
 	case "image.pull":
 		ref := req.ImageRef
@@ -276,36 +264,6 @@ func parseDockerPortBindings(raw string) []DockerPortBinding {
 		})
 	}
 	return result
-}
-
-func decodeDockerLogPayload(raw []byte) string {
-	if len(raw) < 8 {
-		return string(raw)
-	}
-
-	var (
-		out    bytes.Buffer
-		offset int
-		parsed bool
-	)
-	for offset+8 <= len(raw) {
-		// docker attach/log stream framing:
-		// [stream:1][0:3][size:4 big-endian][payload:size]
-		if raw[offset+1] != 0 || raw[offset+2] != 0 || raw[offset+3] != 0 {
-			break
-		}
-		frameSize := int(binary.BigEndian.Uint32(raw[offset+4 : offset+8]))
-		if frameSize < 0 || offset+8+frameSize > len(raw) {
-			break
-		}
-		out.Write(raw[offset+8 : offset+8+frameSize])
-		offset += 8 + frameSize
-		parsed = true
-	}
-	if parsed && out.Len() > 0 {
-		return out.String()
-	}
-	return string(raw)
 }
 
 func (dc *DockerCollector) refreshDockerStateSoon() {

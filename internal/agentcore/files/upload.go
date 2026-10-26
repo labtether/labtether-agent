@@ -1,6 +1,7 @@
 package files
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
@@ -80,13 +81,18 @@ func (fm *Manager) cleanupOrphanedTempFiles(baseDir string) {
 
 // HandleFileWrite handles a file write (upload) request from the hub.
 func (fm *Manager) HandleFileWrite(transport MessageSender, msg protocol.Message) {
+	fm.HandleFileWriteContext(context.Background(), transport, msg)
+}
+
+// HandleFileWriteContext binds a queued chunk to the socket that received it.
+func (fm *Manager) HandleFileWriteContext(ctx context.Context, transport MessageSender, msg protocol.Message) {
 	var req protocol.FileWriteData
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		log.Printf("file: invalid write request: %v", err)
 		return
 	}
 
-	bytesWritten, err := fm.WriteChunk(req)
+	bytesWritten, err := fm.WriteChunkContext(ctx, req)
 	if err != nil {
 		fm.SendFileWritten(transport, req.RequestID, bytesWritten, err.Error())
 		return
@@ -98,6 +104,18 @@ func (fm *Manager) HandleFileWrite(transport MessageSender, msg protocol.Message
 
 // WriteChunk processes a single upload chunk, returning bytes written so far.
 func (fm *Manager) WriteChunk(req protocol.FileWriteData) (int64, error) {
+	return fm.WriteChunkContext(context.Background(), req)
+}
+
+// WriteChunkContext checks ownership before allocation and at final rename.
+// CloseAll invalidates work that was already queued or preparing a path.
+func (fm *Manager) WriteChunkContext(ctx context.Context, req protocol.FileWriteData) (int64, error) {
+	fm.mu.Lock()
+	epoch, ctxErr := fm.writeEpoch, ctx.Err()
+	fm.mu.Unlock()
+	if ctxErr != nil {
+		return 0, ctxErr
+	}
 	req.RequestID = strings.TrimSpace(req.RequestID)
 	if req.RequestID == "" {
 		return 0, errors.New("request_id is required")
@@ -106,25 +124,25 @@ func (fm *Manager) WriteChunk(req protocol.FileWriteData) (int64, error) {
 		return 0, fmt.Errorf("request_id exceeds %d byte limit", maxFileWriteRequestIDLen)
 	}
 	if req.Offset < 0 {
-		written := fm.abortPendingWrite(req.RequestID)
+		written := fm.abortPendingWriteContext(ctx, epoch, req.RequestID)
 		return written, errors.New("upload chunk offset cannot be negative")
 	}
 	maxEncodedChunkSize := base64.StdEncoding.EncodedLen(FileChunkSize)
 	if len(req.Data) > maxEncodedChunkSize {
-		written := fm.abortPendingWrite(req.RequestID)
+		written := fm.abortPendingWriteContext(ctx, epoch, req.RequestID)
 		return written, fmt.Errorf("upload chunk exceeds %d byte limit", FileChunkSize)
 	}
 	decoded, err := base64.StdEncoding.DecodeString(req.Data)
 	if err != nil {
-		written := fm.abortPendingWrite(req.RequestID)
+		written := fm.abortPendingWriteContext(ctx, epoch, req.RequestID)
 		return written, errors.New("invalid base64 data")
 	}
 	if len(decoded) > FileChunkSize {
-		written := fm.abortPendingWrite(req.RequestID)
+		written := fm.abortPendingWriteContext(ctx, epoch, req.RequestID)
 		return written, fmt.Errorf("upload chunk exceeds %d byte limit", FileChunkSize)
 	}
 	if len(decoded) == 0 && !req.Done {
-		written := fm.abortPendingWrite(req.RequestID)
+		written := fm.abortPendingWriteContext(ctx, epoch, req.RequestID)
 		return written, errors.New("empty upload chunk must be final")
 	}
 
@@ -134,10 +152,16 @@ func (fm *Manager) WriteChunk(req protocol.FileWriteData) (int64, error) {
 
 	requestRoot, relPath, filePath, err := fm.OpenRootPath(req.Path)
 	if err != nil {
-		return 0, err
+		written := fm.abortPendingWriteContext(ctx, epoch, req.RequestID)
+		return written, err
 	}
 
 	fm.mu.Lock()
+	if err := fm.uploadOwnerErrorLocked(ctx, epoch); err != nil {
+		fm.mu.Unlock()
+		_ = requestRoot.Close()
+		return 0, err
+	}
 	if fm.writers == nil {
 		fm.writers = make(map[string]*PendingWrite)
 	}
@@ -184,6 +208,15 @@ func (fm *Manager) WriteChunk(req protocol.FileWriteData) (int64, error) {
 	fm.mu.Unlock()
 
 	pw.mu.Lock()
+	fm.mu.Lock()
+	ownerErr := fm.uploadOwnerErrorLocked(ctx, epoch)
+	fm.mu.Unlock()
+	if ownerErr != nil {
+		written := pw.Written
+		fm.cleanupWriteLocked(req.RequestID, pw)
+		pw.mu.Unlock()
+		return written, ownerErr
+	}
 	if pw.Closed {
 		written := pw.Written
 		pw.mu.Unlock()
@@ -228,8 +261,16 @@ func (fm *Manager) WriteChunk(req protocol.FileWriteData) (int64, error) {
 			pw.mu.Unlock()
 			return written, closeErr
 		}
-		// Atomic rename from temp to final path.
-		if err := pw.Root.Rename(pw.TmpRelPath, pw.RelPath); err != nil {
+		// The ownership check and atomic rename share CloseAll's manager lock.
+		// A socket cancellation or reconnect during the write/fsync cannot commit
+		// its old temporary file into the destination afterward.
+		fm.mu.Lock()
+		commitErr := fm.uploadOwnerErrorLocked(ctx, epoch)
+		if commitErr == nil {
+			commitErr = pw.Root.Rename(pw.TmpRelPath, pw.RelPath)
+		}
+		fm.mu.Unlock()
+		if err := commitErr; err != nil {
 			written := pw.Written
 			fm.cleanupWriteLocked(req.RequestID, pw)
 			pw.mu.Unlock()
@@ -274,8 +315,23 @@ func (fm *Manager) cleanupPendingWrite(requestID string, pw *PendingWrite) {
 	fm.cleanupWriteLocked(requestID, pw)
 }
 
-func (fm *Manager) abortPendingWrite(requestID string) int64 {
+// uploadOwnerErrorLocked requires fm.mu.
+func (fm *Manager) uploadOwnerErrorLocked(ctx context.Context, epoch uint64) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if fm.writeEpoch != epoch {
+		return context.Canceled
+	}
+	return nil
+}
+
+func (fm *Manager) abortPendingWriteContext(ctx context.Context, epoch uint64, requestID string) int64 {
 	fm.mu.Lock()
+	if fm.uploadOwnerErrorLocked(ctx, epoch) != nil {
+		fm.mu.Unlock()
+		return 0
+	}
 	pw := fm.writers[requestID]
 	fm.mu.Unlock()
 	if pw == nil {
@@ -283,8 +339,13 @@ func (fm *Manager) abortPendingWrite(requestID string) int64 {
 	}
 
 	pw.mu.Lock()
+	fm.mu.Lock()
+	ownerErr := fm.uploadOwnerErrorLocked(ctx, epoch)
+	fm.mu.Unlock()
 	written := pw.Written
-	fm.cleanupWriteLocked(requestID, pw)
+	if ownerErr == nil {
+		fm.cleanupWriteLocked(requestID, pw)
+	}
 	pw.mu.Unlock()
 	return written
 }
@@ -417,6 +478,7 @@ func (fm *Manager) HasPendingWrite(requestID string) bool {
 // CloseAll shuts down all pending file writers and removes temp files.
 func (fm *Manager) CloseAll() {
 	fm.mu.Lock()
+	fm.writeEpoch++
 	pending := make(map[string]*PendingWrite, len(fm.writers))
 	for id, pw := range fm.writers {
 		pending[id] = pw

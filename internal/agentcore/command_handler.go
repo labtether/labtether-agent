@@ -75,10 +75,10 @@ func receiveLoop(ctx context.Context, transport *wsTransport, cfg RuntimeConfig,
 	}
 
 	// Semaphore limiting concurrent command handlers to avoid unbounded
-	// goroutine growth under load. All handlers (including lightweight ones)
-	// go through the semaphore so panics are contained and WaitGroup tracked.
+	// goroutine growth under load. Session input owns separate bounded writers.
 	const maxConcurrentHandlers = 20
 	sem := make(chan struct{}, maxConcurrentHandlers)
+	sessionStarts := make(chan struct{}, 30)
 	// Host power transitions are serialized independently of the general
 	// handler pool so duplicate requests cannot race each other.
 	powerSem := make(chan struct{}, 1)
@@ -91,28 +91,17 @@ func receiveLoop(ctx context.Context, transport *wsTransport, cfg RuntimeConfig,
 	// drain them gracefully on disconnect/shutdown.
 	var handlerWG sync.WaitGroup
 
-	// All ordinary handlers share the same concurrency and panic boundary.
-	dispatch := func(name string, handle func()) {
-		sem <- struct{}{}
-		handlerWG.Add(1)
-		go func() {
-			defer handlerWG.Done()
-			defer func() { <-sem }()
-			safeHandler(name, handle)
-		}()
-	}
-
 	// Upload chunks share a request ID and offsets, so they must be applied in
 	// WebSocket delivery order. Dispatching each file.write in an independent
 	// goroutine lets a later EOF marker overtake the data chunk and corrupts the
 	// upload state. A bounded worker preserves ordering and applies natural
 	// backpressure without serializing unrelated command handlers.
 	const maxQueuedFileWriteMessages = 64
-	fileWriteMessages := make(chan protocol.Message, maxQueuedFileWriteMessages)
+	fileWriteMessages := make(chan orderedFileWrite, maxQueuedFileWriteMessages)
 	handlerWG.Add(1)
 	go func() {
 		defer handlerWG.Done()
-		runOrderedFileWriteWorker(ctx, transport, fileMgr, fileWriteMessages)
+		runOrderedFileWriteWorker(ctx, fileMgr, fileWriteMessages)
 	}()
 
 	for {
@@ -142,15 +131,15 @@ func receiveLoop(ctx context.Context, transport *wsTransport, cfg RuntimeConfig,
 			}
 		}
 
-		msg, enrollmentPending, err := transport.receiveWithEnrollmentState()
+		msg, enrollmentPending, sourceConn, err := transport.receiveWithConnection()
 		if err != nil {
-			if transport.socketOpen() {
+			if sourceConn != nil && transport.socketOpen() {
 				if websocket.IsCloseError(err, websocket.CloseGoingAway) {
 					log.Printf("agentws: hub shutting down, will reconnect immediately")
 				} else {
 					log.Printf("agentws: receive error: %v", err)
 				}
-				transport.markDisconnected()
+				transport.markDisconnectedIfCurrent(sourceConn)
 			}
 			continue
 		}
@@ -174,23 +163,38 @@ func receiveLoop(ctx context.Context, transport *wsTransport, cfg RuntimeConfig,
 			}
 		}
 
-		if dispatchNodeMessage(msg, transport, dispatch, processMgr, serviceMgr, journalMgr, diskMgr, networkMgr, packageMgr, cronMgr, usersMgr) {
+		sender := transport.senderForConnection(sourceConn)
+		if sender == nil {
+			continue
+		}
+		messageConfig := runtimeConfigWithCurrentIdentity(cfg, transport)
+		dispatch := func(name string, handle func()) { launchConnectionHandler(sender, sem, &handlerWG, name, handle) }
+
+		if dispatchSessionMessage(transport, sourceConn, msg, termMgr, deskMgr, execMgr, webrtcMgr, audioMgr, dockerLogMgr, sessionStarts, &handlerWG) {
+			continue
+		}
+
+		if dispatchNodeMessage(msg, sender, dispatch, processMgr, serviceMgr, journalMgr, diskMgr, networkMgr, packageMgr, cronMgr, usersMgr) {
 			continue
 		}
 
 		switch msg.Type {
 		case protocol.MsgCommandRequest:
 			dispatch("command-request", func() {
-				handleCommandRequest(transport, msg, runtimeConfigWithCurrentIdentity(cfg, transport))
+				handleCommandRequest(sender, msg, messageConfig)
 			})
 		case msgPowerAction:
 			select {
 			case powerSem <- struct{}{}:
 				select {
 				case sem <- struct{}{}:
-				case <-ctx.Done():
+				case <-sender.Context().Done():
 					<-powerSem
-					return
+					continue
+				default:
+					<-powerSem
+					sender.Close()
+					continue
 				}
 				handlerWG.Add(1)
 				go func() {
@@ -198,7 +202,7 @@ func receiveLoop(ctx context.Context, transport *wsTransport, cfg RuntimeConfig,
 					defer func() { <-sem }()
 					defer func() { <-powerSem }()
 					safeHandler("power-action", func() {
-						handlePowerAction(ctx, transport, msg, powerRuntime)
+						handlePowerAction(sender.Context(), sender, msg, powerRuntime)
 					})
 				}()
 			default:
@@ -211,137 +215,79 @@ func receiveLoop(ctx context.Context, transport *wsTransport, cfg RuntimeConfig,
 			}
 		case protocol.MsgPing:
 			dispatch("ping", func() {
-				_ = transport.Send(protocol.Message{Type: protocol.MsgPong})
+				_ = sender.Send(protocol.Message{Type: protocol.MsgPong})
 			})
 		case protocol.MsgConfigUpdate:
 			dispatch("config-update", func() {
-				handleConfigUpdate(transport, msg, runtime)
+				handleConfigUpdate(sender, msg, runtime)
 			})
 		case protocol.MsgAgentSettingsApply:
 			dispatch("agent-settings-apply", func() {
-				handleAgentSettingsApply(transport, msg, runtime)
+				handleAgentSettingsApply(sender, msg, runtime)
 			})
 		case protocol.MsgUpdateRequest:
 			dispatch("update-request", func() {
-				handleUpdateRequest(transport, msg, runtimeConfigWithCurrentIdentity(cfg, transport))
+				handleUpdateRequest(sender, msg, messageConfig)
 			})
 		case protocol.MsgTerminalProbe:
 			dispatch("terminal-probe", func() {
 				termMgr.HandleTerminalProbe(transport)
 			})
-		case protocol.MsgTerminalStart:
-			dispatch("terminal-start", func() {
-				termMgr.HandleTerminalStart(transport, msg)
-			})
-		case protocol.MsgTerminalData:
-			dispatch("terminal-data", func() {
-				termMgr.HandleTerminalData(msg)
-			})
-		case protocol.MsgTerminalResize:
-			dispatch("terminal-resize", func() {
-				termMgr.HandleTerminalResize(msg)
-			})
 		case protocol.MsgTerminalTmuxKill:
 			dispatch("terminal-tmux-kill", func() {
-				termMgr.HandleTerminalTmuxKill(transport, msg)
-			})
-		case protocol.MsgTerminalClose:
-			dispatch("terminal-close", func() {
-				termMgr.HandleTerminalClose(msg)
+				termMgr.HandleTerminalTmuxKill(sender, msg)
 			})
 		case protocol.MsgSSHKeyInstall:
 			dispatch("ssh-key-install", func() {
-				handleSSHKeyInstall(transport, msg)
+				handleSSHKeyInstall(sender, msg)
 			})
 		case protocol.MsgSSHKeyRemove:
 			dispatch("ssh-key-remove", func() {
-				handleSSHKeyRemove(transport, msg)
-			})
-		case protocol.MsgDesktopStart:
-			dispatch("desktop-start", func() {
-				deskMgr.HandleDesktopStart(transport, msg)
-			})
-		case protocol.MsgDesktopData:
-			dispatch("desktop-data", func() {
-				deskMgr.HandleDesktopData(msg)
-			})
-		case protocol.MsgDesktopClose:
-			dispatch("desktop-close", func() {
-				deskMgr.HandleDesktopClose(msg)
+				handleSSHKeyRemove(sender, msg)
 			})
 		case protocol.MsgDesktopListDisplays:
 			dispatch("desktop-list-displays", func() {
-				handleListDisplays(transport, msg)
+				handleListDisplays(sender, msg)
 			})
 		case protocol.MsgDesktopDiagnose:
 			dispatch("desktop-diagnose", func() {
-				handleDesktopDiagnose(transport, msg, deskMgr, webrtcMgr)
+				handleDesktopDiagnose(sender, msg, deskMgr, webrtcMgr)
 			})
-		case protocol.MsgWebRTCStart:
-			if webrtcMgr != nil {
-				dispatch("webrtc-start", func() {
-					webrtcMgr.HandleWebRTCStart(transport, msg)
-				})
-			}
-		case protocol.MsgWebRTCOffer:
-			if webrtcMgr != nil {
-				dispatch("webrtc-offer", func() {
-					webrtcMgr.HandleWebRTCOffer(msg, transport)
-				})
-			}
-		case protocol.MsgWebRTCICE:
-			if webrtcMgr != nil {
-				dispatch("webrtc-ice", func() {
-					webrtcMgr.HandleWebRTCICE(msg)
-				})
-			}
-		case protocol.MsgWebRTCInput:
-			if webrtcMgr != nil {
-				dispatch("webrtc-input", func() {
-					webrtcMgr.HandleWebRTCInput(msg)
-				})
-			}
-		case protocol.MsgWebRTCStop:
-			if webrtcMgr != nil {
-				dispatch("webrtc-stop", func() {
-					webrtcMgr.HandleWebRTCStop(msg, transport)
-				})
-			}
 		case protocol.MsgWoLSend:
 			dispatch("wol-send", func() {
-				system.HandleWoLSend(transport, msg)
+				system.HandleWoLSend(sender, msg)
 			})
 		case protocol.MsgFileList:
 			dispatch("file-list", func() {
-				fileMgr.HandleFileList(transport, msg)
+				fileMgr.HandleFileList(sender, msg)
 			})
 		case protocol.MsgFileRead:
-			if !startFileReadHandler(ctx, transport, fileMgr, msg, sem, &handlerWG) {
-				return
+			if !startFileReadHandler(sender.Context(), sender, fileMgr, msg, sem, &handlerWG) {
+				continue
 			}
 		case protocol.MsgFileWrite:
-			if !enqueueOrderedFileWrite(ctx, transport, fileWriteMessages, msg) {
-				return
+			if !enqueueOrderedFileWrite(sender.Context(), sender, fileWriteMessages, msg) {
+				continue
 			}
 		case protocol.MsgFileMkdir:
 			dispatch("file-mkdir", func() {
-				fileMgr.HandleFileMkdir(transport, msg)
+				fileMgr.HandleFileMkdir(sender, msg)
 			})
 		case protocol.MsgFileDelete:
 			dispatch("file-delete", func() {
-				fileMgr.HandleFileDelete(transport, msg)
+				fileMgr.HandleFileDelete(sender, msg)
 			})
 		case protocol.MsgFileRename:
 			dispatch("file-rename", func() {
-				fileMgr.HandleFileRename(transport, msg)
+				fileMgr.HandleFileRename(sender, msg)
 			})
 		case protocol.MsgFileCopy:
 			dispatch("file-copy", func() {
-				fileMgr.HandleFileCopyContext(ctx, transport, msg)
+				fileMgr.HandleFileCopyContext(sender.Context(), sender, msg)
 			})
 		case protocol.MsgFileSearch:
 			dispatch("file-search", func() {
-				fileMgr.HandleFileSearch(transport, msg)
+				fileMgr.HandleFileSearch(sender, msg)
 			})
 		case protocol.MsgAlertNotify:
 			dispatch("alert-notify", func() {
@@ -363,37 +309,28 @@ func receiveLoop(ctx context.Context, transport *wsTransport, cfg RuntimeConfig,
 		case protocol.MsgClipboardGet:
 			if clipMgr != nil {
 				dispatch("clipboard-get", func() {
-					clipMgr.HandleClipboardGet(transport, msg)
+					clipMgr.HandleClipboardGet(sender, msg)
 				})
 			}
 		case protocol.MsgClipboardSet:
 			if clipMgr != nil {
 				dispatch("clipboard-set", func() {
-					clipMgr.HandleClipboardSet(transport, msg)
+					clipMgr.HandleClipboardSet(sender, msg)
 				})
 			}
 		// Desktop audio sideband messages.
-		case protocol.MsgDesktopAudioStart:
-			if audioMgr != nil {
-				dispatch("desktop-audio-start", func() {
-					audioMgr.HandleAudioStart(transport, msg)
-				})
-			}
-		case protocol.MsgDesktopAudioStop:
-			if audioMgr != nil {
-				dispatch("desktop-audio-stop", func() {
-					audioMgr.HandleAudioStop(transport, msg)
-				})
-			}
-		// Docker container management messages.
 		case protocol.MsgDockerEndpointTest:
 			select {
 			case dockerEndpointTestSem <- struct{}{}:
 				select {
 				case sem <- struct{}{}:
-				case <-ctx.Done():
+				case <-sender.Context().Done():
 					<-dockerEndpointTestSem
-					return
+					continue
+				default:
+					<-dockerEndpointTestSem
+					sender.Close()
+					continue
 				}
 				handlerWG.Add(1)
 				go func() {
@@ -401,58 +338,22 @@ func receiveLoop(ctx context.Context, transport *wsTransport, cfg RuntimeConfig,
 					defer func() { <-sem }()
 					defer func() { <-dockerEndpointTestSem }()
 					safeHandler("docker-endpoint-test", func() {
-						handleDockerEndpointTest(ctx, transport, msg)
+						handleDockerEndpointTest(sender.Context(), sender, msg)
 					})
 				}()
 			default:
-				sendDockerEndpointTestBusy(transport, msg)
+				sendDockerEndpointTestBusy(sender, msg)
 			}
 		case protocol.MsgDockerAction:
 			if dockerCollector != nil {
 				dispatch("docker-action", func() {
-					dockerCollector.HandleDockerAction(transport, msg)
+					dockerCollector.HandleDockerAction(sender, msg)
 				})
 			}
-		case protocol.MsgDockerExecStart:
-			if execMgr != nil {
-				dispatch("docker-exec-start", func() {
-					execMgr.HandleExecStart(transport, msg)
-				})
-			}
-		case protocol.MsgDockerExecInput:
-			if execMgr != nil {
-				dispatch("docker-exec-input", func() {
-					execMgr.HandleExecInput(msg)
-				})
-			}
-		case protocol.MsgDockerExecResize:
-			if execMgr != nil {
-				dispatch("docker-exec-resize", func() {
-					execMgr.HandleExecResize(msg)
-				})
-			}
-		case protocol.MsgDockerExecClose:
-			if execMgr != nil {
-				dispatch("docker-exec-close", func() {
-					execMgr.HandleExecClose(msg)
-				})
-			}
-		case protocol.MsgDockerLogsStart:
-			if dockerLogMgr != nil {
-				dispatch("docker-logs-start", func() {
-					dockerLogMgr.HandleLogsStart(ctx, transport, msg)
-				})
-			}
-		case protocol.MsgDockerLogsStop:
-			if dockerLogMgr != nil {
-				dispatch("docker-logs-stop", func() {
-					dockerLogMgr.HandleLogsStop(msg)
-				})
-			}
-		case protocol.MsgDockerComposeAction:
+		case protocol.MsgDockerComposeAction, protocol.MsgDockerComposeActionV2:
 			if dockerCollector != nil {
 				dispatch("docker-compose-action", func() {
-					dockerCollector.HandleComposeAction(transport, msg)
+					dockerCollector.HandleComposeAction(sender, msg)
 				})
 			}
 		case protocol.MsgWebServiceSync:
@@ -498,32 +399,4 @@ func handleAlertNotify(msg protocol.Message, runtime *Runtime) {
 	}
 	runtime.pushAlert(snapshot)
 	log.Printf("agentws: alert %s [%s] %s: %s", data.ID, data.Severity, data.State, data.Title)
-}
-
-// sendTelemetrySample sends a TelemetrySample as a telemetry message over
-// the WebSocket transport.
-func sendTelemetrySample(transport *wsTransport, sample TelemetrySample) {
-	assetID := transport.AssetID()
-	if assetID == "" {
-		// Compatibility for isolated transport tests. Production transports are
-		// always wired to the shared runtime identity source.
-		assetID = sample.AssetID
-	}
-	td := protocol.TelemetryData{
-		AssetID:          assetID,
-		CPUPercent:       sample.CPUPercent,
-		MemoryPercent:    sample.MemoryPercent,
-		DiskPercent:      sample.DiskPercent,
-		NetRXBytesPerSec: sample.NetRXBytesPerSec,
-		NetTXBytesPerSec: sample.NetTXBytesPerSec,
-		TempCelsius:      sample.TempCelsius,
-	}
-	data, err := json.Marshal(td)
-	if err != nil {
-		return
-	}
-	_ = transport.Send(protocol.Message{
-		Type: protocol.MsgTelemetry,
-		Data: data,
-	})
 }

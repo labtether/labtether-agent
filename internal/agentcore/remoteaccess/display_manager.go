@@ -146,14 +146,15 @@ func IsDisplayAvailable(display string) bool {
 	if display == "" {
 		return false
 	}
+	server := x11ServerIdentity(display)
 
-	lockFile := fmt.Sprintf("/tmp/.X%s-lock", strings.TrimPrefix(display, ":"))
+	lockFile := fmt.Sprintf("/tmp/.X%s-lock", strings.TrimPrefix(server, ":"))
 	if _, err := os.Stat(lockFile); err == nil {
 		return true
 	}
 
 	session := DetectDesktopSessionFn()
-	if session.Type == DesktopSessionTypeX11 && session.Display == display {
+	if session.Type == DesktopSessionTypeX11 && x11ServerIdentity(session.Display) == server {
 		return true
 	}
 
@@ -162,10 +163,10 @@ func IsDisplayAvailable(display string) bool {
 		return false
 	}
 	for _, session := range sessions {
-		if strings.TrimSpace(session.RemoteHost) == display {
+		if x11ServerIdentity(session.RemoteHost) == server {
 			return true
 		}
-		if display == ":0" && strings.EqualFold(strings.TrimSpace(session.Terminal), "seat0") {
+		if server == ":0" && strings.EqualFold(strings.TrimSpace(session.Terminal), "seat0") {
 			return true
 		}
 	}

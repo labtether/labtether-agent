@@ -1,7 +1,6 @@
 package docker
 
 import (
-	"fmt"
 	"github.com/labtether/protocol"
 	"sort"
 	"strings"
@@ -309,7 +308,7 @@ func composeStacksEqual(a, b []protocol.DockerComposeStack) bool {
 		if !ok {
 			return false
 		}
-		if other.Status != stack.Status || other.ConfigFile != stack.ConfigFile || !stringSlicesEqual(other.Containers, stack.Containers) {
+		if other.Status != stack.Status || other.ConfigFile != stack.ConfigFile || other.ConfigDir != stack.ConfigDir || other.SelectionError != stack.SelectionError || !stringSlicesEqual(other.ConfigFiles, stack.ConfigFiles) || !stringSlicesEqual(other.Containers, stack.Containers) {
 			return false
 		}
 	}
@@ -363,6 +362,7 @@ func cloneComposeStacks(source []protocol.DockerComposeStack) []protocol.DockerC
 	result := make([]protocol.DockerComposeStack, len(source))
 	for i, stack := range source {
 		result[i] = stack
+		result[i].ConfigFiles = append([]string(nil), stack.ConfigFiles...)
 		result[i].Containers = append([]string(nil), stack.Containers...)
 	}
 	return result
@@ -373,55 +373,5 @@ func cloneStringSet(source map[string]struct{}) map[string]struct{} {
 	for key := range source {
 		result[key] = struct{}{}
 	}
-	return result
-}
-
-// inferComposeStacks groups containers by com.docker.compose.project label.
-func inferComposeStacks(containers []DockerContainer) []protocol.DockerComposeStack {
-	type composeAccumulator struct {
-		stack       *protocol.DockerComposeStack
-		running     int
-		containerID map[string]struct{}
-	}
-	stacks := make(map[string]*composeAccumulator)
-
-	for _, c := range containers {
-		project := c.Labels["com.docker.compose.project"]
-		if project == "" {
-			continue
-		}
-		acc, exists := stacks[project]
-		if !exists {
-			stack := &protocol.DockerComposeStack{Name: project, Status: "running(0)"}
-			if dir := c.Labels["com.docker.compose.project.working_dir"]; dir != "" {
-				stack.ConfigFile = dir + "/docker-compose.yml"
-			}
-			acc = &composeAccumulator{
-				stack:       stack,
-				containerID: make(map[string]struct{}),
-			}
-			stacks[project] = acc
-		}
-		name := ContainerName(c.Names)
-		if name != "" {
-			if _, seen := acc.containerID[name]; !seen {
-				acc.stack.Containers = append(acc.stack.Containers, name)
-				acc.containerID[name] = struct{}{}
-			}
-		}
-		if c.State == "running" {
-			acc.running++
-		}
-	}
-
-	result := make([]protocol.DockerComposeStack, 0, len(stacks))
-	for _, acc := range stacks {
-		sort.Strings(acc.stack.Containers)
-		acc.stack.Status = fmt.Sprintf("running(%d)", acc.running)
-		result = append(result, *acc.stack)
-	}
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].Name < result[j].Name
-	})
 	return result
 }

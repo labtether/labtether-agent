@@ -57,7 +57,7 @@ func (LinuxLogBackend) QueryEntries(req protocol.JournalQueryData) ([]protocol.L
 
 	entries := make([]protocol.LogStreamData, 0, NormalizedJournalLimit(req.Limit))
 	scanner := bufio.NewScanner(bytes.NewReader(out))
-	scanner.Buffer(make([]byte, 256*1024), 256*1024)
+	scanner.Buffer(nil, 256*1024) // Grow for long lines; keep idle streams small.
 	for scanner.Scan() {
 		entry, ok := ParseJournalLine(scanner.Bytes())
 		if !ok {
@@ -91,7 +91,7 @@ func (LinuxLogBackend) StreamEntries(ctx context.Context, emit func(protocol.Log
 	}
 
 	scanner := bufio.NewScanner(stdout)
-	scanner.Buffer(make([]byte, 256*1024), 256*1024)
+	scanner.Buffer(nil, 256*1024) // Grow for long lines; keep idle streams small.
 	for scanner.Scan() {
 		select {
 		case <-ctx.Done():

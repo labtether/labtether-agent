@@ -50,8 +50,7 @@ func NewTestCollector(endpoint string, transport Transport, assetID string) *Doc
 			Networks:   make(map[string]protocol.DockerNetworkInfo),
 			Volumes:    make(map[string]protocol.DockerVolumeInfo),
 		},
-		runningContainerIDs: make(map[string]struct{}),
-		statsSchedule:       make(map[string]*dockerStatsSchedule),
+		statsSchedule: make(map[string]*dockerStatsSchedule),
 	}
 }
 
@@ -88,7 +87,7 @@ func (dc *DockerCollector) SetTestInventoryState(published bool, containers map[
 	dc.inventory.Containers = containers
 	dc.inventory.Images = images
 	dc.hasPublishedFull = published
-	dc.runningContainerIDs = runningIDs
+	dc.setRunningContainersLocked(runningIDs)
 	dc.inventoryMu.Unlock()
 }
 

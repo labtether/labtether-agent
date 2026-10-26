@@ -19,15 +19,27 @@ RUN CGO_ENABLED=0 \
 FROM alpine:3.24@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
 RUN apk add --no-cache \
     bash=5.3.9-r1 \
-    ca-certificates=20260909-r0 \
+    ca-certificates=20261020-r0 \
     gstreamer=1.28.3-r0 \
     gst-plugins-base=1.28.3-r0 \
     gst-plugins-good=1.28.3-r0 \
     gst-plugins-bad=1.28.3-r0 \
     gst-plugins-ugly=1.28.3-r0 \
     gst-libav=1.28.3-r0 \
-    xdotool=4.20260303.1-r0 && \
-    adduser -D -u 1001 agent
+    xdotool=4.20260303.1-r0 \
+    xmodmap=1.0.11-r1 && \
+    adduser -D -u 1001 agent && \
+    mkdir -p /var/lib/labtether && \
+    chown agent:agent /var/lib/labtether && \
+    chmod 0700 /var/lib/labtether
+# The non-root agent cannot write /etc/labtether. Keep the issued agent token,
+# enrollment state, saved Hub CA, settings and device key in one private,
+# agent-owned directory. Mount a volume here so they survive container updates.
+ENV LABTETHER_TOKEN_FILE=/var/lib/labtether/agent-token \
+    LABTETHER_AGENT_SETTINGS_FILE=/var/lib/labtether/agent-config.json \
+    LABTETHER_DEVICE_KEY_FILE=/var/lib/labtether/device-key \
+    LABTETHER_DEVICE_PUBLIC_KEY_FILE=/var/lib/labtether/device-key.pub \
+    LABTETHER_DEVICE_FINGERPRINT_FILE=/var/lib/labtether/device-fingerprint
 # Run as a non-root user. PTY sessions are proxied through the hub so root is not required.
 COPY --from=builder /out/service /service
 USER agent

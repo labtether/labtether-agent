@@ -13,30 +13,40 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/creack/pty"
 
+	"github.com/labtether/labtether-agent/internal/agentcore/streaminput"
 	"github.com/labtether/labtether-agent/internal/securityruntime"
 	"github.com/labtether/protocol"
 )
 
 // TerminalSession tracks an active PTY shell session on the agent.
 type TerminalSession struct {
-	sessionID string
-	Ptmx      *os.File
-	input     io.WriteCloser
-	output    io.ReadCloser
-	cmd       *exec.Cmd
-	done      chan struct{}
-	closeOnce sync.Once
+	sessionID   string
+	Ptmx        *os.File
+	input       io.WriteCloser
+	inputWriter *streaminput.Writer
+	output      io.ReadCloser
+	cmd         *exec.Cmd
+	cancel      context.CancelFunc
+	done        chan struct{}
+	outputDone  chan struct{}
+	closeOnce   sync.Once
 }
 
 const MaxTerminalSessions = 10
+
+// A background child may keep the PTY or pipe open after the shell exits.
+const terminalOutputDrainTimeout = 2 * time.Second
 
 // TerminalManager manages PTY sessions on the agent.
 type TerminalManager struct {
 	Mu       sync.Mutex
 	Sessions map[string]*TerminalSession
+	pending  map[string]*pendingTerminalStart
+	startPTY func(*exec.Cmd, *pty.Winsize) (*os.File, error)
 }
 
 func NewTerminalManager() *TerminalManager {
@@ -60,141 +70,6 @@ func (tm *TerminalManager) HandleTerminalProbe(transport MessageSender) {
 	})
 }
 
-// HandleTerminalStart spawns a new PTY shell and starts streaming output.
-func (tm *TerminalManager) HandleTerminalStart(transport MessageSender, msg protocol.Message) {
-	var req protocol.TerminalStartData
-	if err := json.Unmarshal(msg.Data, &req); err != nil {
-		log.Printf("terminal: invalid start request: %v", err)
-		return
-	}
-
-	if req.SessionID == "" {
-		log.Printf("terminal: start request missing session_id")
-		return
-	}
-
-	tm.Mu.Lock()
-	if len(tm.Sessions) >= MaxTerminalSessions {
-		tm.Mu.Unlock()
-		log.Printf("terminal: max sessions (%d) reached", MaxTerminalSessions)
-		SendTerminalClosed(transport, req.SessionID, "max terminal sessions reached")
-		return
-	}
-	if _, exists := tm.Sessions[req.SessionID]; exists {
-		tm.Mu.Unlock()
-		log.Printf("terminal: session %s already exists", req.SessionID)
-		return
-	}
-	tm.Mu.Unlock()
-
-	// Find a shell
-	shell := req.Shell
-	if shell == "" {
-		shell = DetectShell()
-	}
-
-	cols := req.Cols
-	rows := req.Rows
-	if cols <= 0 {
-		cols = 120
-	}
-	if rows <= 0 {
-		rows = 40
-	}
-
-	// Determine command to run: tmux session or plain shell.
-	tmuxAttached := false
-	var cmd *exec.Cmd
-	var err error
-	if req.UseTmux && req.TmuxSession != "" {
-		tmuxPath, lookErr := exec.LookPath("tmux")
-		if lookErr == nil && tmuxPath != "" {
-			// tmux new-session -A -s <name> creates or attaches to an existing session.
-			cmd, err = securityruntime.NewCommand(tmuxPath, "new-session", "-A", "-s", req.TmuxSession)
-			if err != nil {
-				log.Printf("terminal: tmux command blocked by runtime policy for session %s: %v", req.SessionID, err)
-				SendTerminalClosed(transport, req.SessionID, "failed to start tmux: "+err.Error())
-				return
-			}
-			tmuxAttached = true
-		} else {
-			log.Printf("terminal: tmux requested but not found for session %s, falling back to plain shell", req.SessionID)
-			cmd, err = securityruntime.NewCommand(shell)
-			if err != nil {
-				log.Printf("terminal: shell command blocked by runtime policy for session %s: %v", req.SessionID, err)
-				SendTerminalClosed(transport, req.SessionID, "failed to start shell: "+err.Error())
-				return
-			}
-		}
-	} else {
-		cmd, err = securityruntime.NewCommand(shell)
-		if err != nil {
-			log.Printf("terminal: shell command blocked by runtime policy for session %s: %v", req.SessionID, err)
-			SendTerminalClosed(transport, req.SessionID, "failed to start shell: "+err.Error())
-			return
-		}
-	}
-	cmd.Env = append(securityruntime.SanitizedChildEnv(), "TERM=xterm-256color")
-
-	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{
-		Cols: uint16(cols),
-		Rows: uint16(rows),
-	})
-	var input io.WriteCloser
-	var output io.ReadCloser
-	var pipeProcessDone <-chan error
-	if errors.Is(err, pty.ErrUnsupported) {
-		// creack/pty deliberately reports unsupported on Windows. Keep the
-		// terminal usable with a bounded stdin/stdout pipe bridge until a native
-		// ConPTY backend is available; process execution and input still pass
-		// through the same allowlist and authenticated agent channel.
-		input, output, pipeProcessDone, err = startPipeBackedTerminal(cmd)
-	}
-	if err != nil {
-		log.Printf("terminal: failed to start PTY for session %s: %v", req.SessionID, err)
-		SendTerminalClosed(transport, req.SessionID, "failed to start shell: "+err.Error())
-		return
-	}
-
-	sess := &TerminalSession{
-		sessionID: req.SessionID,
-		Ptmx:      ptmx,
-		input:     input,
-		output:    output,
-		cmd:       cmd,
-		done:      make(chan struct{}),
-	}
-
-	tm.Mu.Lock()
-	tm.Sessions[req.SessionID] = sess
-	tm.Mu.Unlock()
-
-	// Notify hub that terminal is ready
-	sendTerminalStartedWithTmux(transport, req.SessionID, tmuxAttached)
-
-	// Stream PTY output → hub. The streamOutput goroutine is responsible
-	// for final teardown once its Read loop exits naturally (on EOF/EIO
-	// after the child closes its slave PTY). Closing Ptmx elsewhere while
-	// streamOutput is still reading causes "file already closed" errors
-	// and loses any buffered output, which breaks large-output tests.
-	go func() {
-		tm.streamOutput(transport, sess)
-		tm.cleanup(req.SessionID)
-		SendTerminalClosed(transport, req.SessionID, "shell exited")
-	}()
-
-	// Observe process exit for lifecycle signalling only. Do NOT close
-	// the PTY here — streamOutput owns that.
-	go func() {
-		if pipeProcessDone != nil {
-			_ = <-pipeProcessDone
-		} else {
-			_ = cmd.Wait()
-		}
-		close(sess.done)
-	}()
-}
-
 // HandleTerminalData writes incoming data to the PTY stdin.
 func (tm *TerminalManager) HandleTerminalData(msg protocol.Message) {
 	var payload protocol.TerminalDataPayload
@@ -214,7 +89,9 @@ func (tm *TerminalManager) HandleTerminalData(msg protocol.Message) {
 		return
 	}
 
-	_, _ = sess.write(decoded)
+	if sess.inputWriter != nil {
+		_ = sess.inputWriter.Enqueue(decoded)
+	}
 }
 
 // HandleTerminalResize changes the PTY window size.
@@ -257,6 +134,10 @@ func (tm *TerminalManager) HandleTerminalClose(msg protocol.Message) {
 	}
 
 	tm.Mu.Lock()
+	if pending := tm.pending[req.SessionID]; pending != nil {
+		pending.cancel()
+		delete(tm.pending, req.SessionID)
+	}
 	sess, ok := tm.Sessions[req.SessionID]
 	tm.Mu.Unlock()
 	if !ok {
@@ -265,7 +146,7 @@ func (tm *TerminalManager) HandleTerminalClose(msg protocol.Message) {
 
 	// Close terminal I/O — this will cause the shell process to exit.
 	sess.close()
-	if sess.cmd.Process != nil {
+	if sess.cmd != nil && sess.cmd.Process != nil {
 		_ = sess.cmd.Process.Kill()
 	}
 }
@@ -360,134 +241,6 @@ func (tm *TerminalManager) HandleTerminalTmuxKill(transport MessageSender, msg p
 		return
 	}
 	sendResult("succeeded", TruncateCommandOutput(output, MaxCommandOutputBytes))
-}
-
-// CloseAll terminates all active sessions (called on agent shutdown).
-func (tm *TerminalManager) CloseAll() {
-	tm.Mu.Lock()
-	defer tm.Mu.Unlock()
-	for id, sess := range tm.Sessions {
-		sess.close()
-		if sess.cmd.Process != nil {
-			_ = sess.cmd.Process.Kill()
-		}
-		delete(tm.Sessions, id)
-	}
-}
-
-// streamOutput reads from the PTY and sends output to the hub.
-func (tm *TerminalManager) streamOutput(transport MessageSender, sess *TerminalSession) {
-	buf := make([]byte, 4096)
-	for {
-		n, err := sess.read(buf)
-		if n > 0 {
-			encoded := base64.StdEncoding.EncodeToString(buf[:n])
-			data, _ := json.Marshal(protocol.TerminalDataPayload{
-				SessionID: sess.sessionID,
-				Data:      encoded,
-			})
-			_ = transport.Send(protocol.Message{
-				Type: protocol.MsgTerminalData,
-				ID:   sess.sessionID,
-				Data: data,
-			})
-		}
-		if err != nil {
-			if err != io.EOF {
-				log.Printf("terminal: read error for session %s: %v", sess.sessionID, err)
-			}
-			return
-		}
-	}
-}
-
-func (tm *TerminalManager) cleanup(sessionID string) {
-	tm.Mu.Lock()
-	defer tm.Mu.Unlock()
-	if sess, ok := tm.Sessions[sessionID]; ok {
-		sess.close()
-		delete(tm.Sessions, sessionID)
-	}
-}
-
-func startPipeBackedTerminal(cmd *exec.Cmd) (io.WriteCloser, io.ReadCloser, <-chan error, error) {
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		_ = stdin.Close()
-		return nil, nil, nil, err
-	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		_ = stdin.Close()
-		_ = stdout.Close()
-		return nil, nil, nil, err
-	}
-	combinedReader, combinedWriter := io.Pipe()
-	if err := cmd.Start(); err != nil {
-		_ = stdin.Close()
-		_ = stdout.Close()
-		_ = stderr.Close()
-		_ = combinedReader.Close()
-		_ = combinedWriter.Close()
-		return nil, nil, nil, err
-	}
-
-	var copies sync.WaitGroup
-	copies.Add(2)
-	copyStream := func(source io.ReadCloser) {
-		defer copies.Done()
-		defer source.Close()
-		_, _ = io.Copy(combinedWriter, source)
-	}
-	go copyStream(stdout)
-	go copyStream(stderr)
-	processDone := make(chan error, 1)
-	go func() {
-		copies.Wait()
-		_ = combinedWriter.Close()
-		processDone <- cmd.Wait()
-		close(processDone)
-	}()
-
-	return stdin, combinedReader, processDone, nil
-}
-
-func (s *TerminalSession) read(buf []byte) (int, error) {
-	if s.Ptmx != nil {
-		return s.Ptmx.Read(buf)
-	}
-	if s.output == nil {
-		return 0, io.EOF
-	}
-	return s.output.Read(buf)
-}
-
-func (s *TerminalSession) write(data []byte) (int, error) {
-	if s.Ptmx != nil {
-		return s.Ptmx.Write(data)
-	}
-	if s.input == nil {
-		return 0, io.ErrClosedPipe
-	}
-	return s.input.Write(data)
-}
-
-func (s *TerminalSession) close() {
-	s.closeOnce.Do(func() {
-		if s.Ptmx != nil {
-			_ = s.Ptmx.Close()
-		}
-		if s.input != nil {
-			_ = s.input.Close()
-		}
-		if s.output != nil {
-			_ = s.output.Close()
-		}
-	})
 }
 
 func sendTerminalStartedWithTmux(transport MessageSender, sessionID string, tmuxAttached bool) {
