@@ -43,7 +43,7 @@ Changes since v1.5.1, the last public binary release.
 - Release binaries are built and signed locally with the Ed25519 release key
   (`.sig` and `.metadata.json` assets) instead of in GitHub Actions; the README
   shows how to verify them. The container image keeps its GitHub attestation.
-- Needs a Hub that speaks protocol v1.7.0. Built with Go 1.27.2.
+- Needs a Hub that speaks protocol v1.7.0. Built with Go 1.27.3.
 - Releases ship Linux and Windows binaries for amd64 and arm64. macOS uses the
   native app; FreeBSD is not shipped.
 

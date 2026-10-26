@@ -9,7 +9,7 @@
 The cross-platform agent for [LabTether](https://labtether.com) -- reports telemetry, executes actions, and enables remote access for your machines.
 
 [![CI](https://github.com/labtether/labtether-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/labtether/labtether-agent/actions/workflows/ci.yml)
-[![Go](https://img.shields.io/badge/Go-1.27.2+-00ADD8?style=flat-square&logo=go&logoColor=white)](https://go.dev)
+[![Go](https://img.shields.io/badge/Go-1.27.3+-00ADD8?style=flat-square&logo=go&logoColor=white)](https://go.dev)
 
 ---
 
@@ -141,7 +141,7 @@ policy already allows all three.
 
 ## Build From Source
 
-Requires Go 1.27.2+.
+Requires Go 1.27.3+.
 
 ```bash
 go build -o labtether-agent ./cmd/labtether-agent/
