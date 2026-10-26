@@ -19,7 +19,7 @@ RUN CGO_ENABLED=0 \
 FROM alpine:3.24@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
 RUN apk add --no-cache \
     bash=5.3.9-r1 \
-    ca-certificates=20260909-r0 \
+    ca-certificates=20261020-r0 \
     gstreamer=1.28.3-r0 \
     gst-plugins-base=1.28.3-r0 \
     gst-plugins-good=1.28.3-r0 \
