@@ -5,9 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -105,7 +103,7 @@ func (dc *DockerCollector) HandleComposeAction(transport Transport, msg protocol
 	}
 	var selected composeSelection
 	if req.Action == "deploy" {
-		selected, err = prepareComposeDeploy(ctx, req)
+		selected, err = dc.prepareComposeDeploy(ctx, req)
 	} else {
 		selected, err = dc.resolveComposeSelection(ctx, req, msg.Type == protocol.MsgDockerComposeActionV2)
 	}
@@ -149,33 +147,6 @@ func (dc *DockerCollector) HandleComposeAction(transport Transport, msg protocol
 	}
 	dc.refreshDockerStateSoon()
 	result.Success, result.Output = true, output
-}
-
-func prepareComposeDeploy(ctx context.Context, req protocol.DockerComposeActionData) (composeSelection, error) {
-	selected := composeSelection{Name: req.StackName, Dir: req.ConfigDir}
-	if strings.TrimSpace(req.ComposeYAML) == "" {
-		return selected, fmt.Errorf("compose_yaml is required")
-	}
-	if selected.Dir == "" {
-		selected.Dir = filepath.Join(os.TempDir(), "labtether-stacks", selected.Name)
-	}
-	if !filepath.IsAbs(selected.Dir) || strings.ContainsRune(selected.Dir, 0) {
-		return selected, fmt.Errorf("config_dir must be an absolute local directory")
-	}
-	selected.Files = []string{filepath.Join(selected.Dir, "docker-compose.yml")}
-	if len(req.ConfigFiles) != 0 && !stringSlicesEqual(selected.Files, req.ConfigFiles) {
-		return selected, fmt.Errorf("deploy must select only its written Compose file")
-	}
-	if err := ctx.Err(); err != nil {
-		return selected, err
-	}
-	if err := os.MkdirAll(selected.Dir, 0o750); err != nil {
-		return selected, err
-	}
-	if err := os.WriteFile(selected.Files[0], []byte(req.ComposeYAML), 0o600); err != nil {
-		return selected, err
-	}
-	return selected, nil
 }
 
 func sendComposeResult(transport Transport, requestID string, success bool, output, errMsg string) {

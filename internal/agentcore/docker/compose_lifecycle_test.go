@@ -142,7 +142,7 @@ func TestHandleComposeActionDrainsAndBoundsCommandOutput(t *testing.T) {
 		StackName:   "bounded-output",
 		ComposeYAML: "services: {}\n",
 		Action:      "deploy",
-		ConfigDir:   t.TempDir(),
+		ConfigDir:   filepath.Join(useComposeStacksRoot(t), "bounded-output"),
 	})
 	if err != nil {
 		t.Fatalf("marshal docker compose action: %v", err)

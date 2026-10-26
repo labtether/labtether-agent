@@ -372,7 +372,7 @@ func TestHandleComposeActionDeployWritesComposeFileAndQueuesRefresh(t *testing.T
 	dc := NewDockerCollector("/tmp/docker.sock", transport, "asset-1", 30*time.Second)
 	dc.client = NewDockerClient("http://localhost:1")
 
-	configDir := t.TempDir()
+	configDir := filepath.Join(useComposeStacksRoot(t), "my-stack")
 	raw, err := json.Marshal(protocol.DockerComposeActionData{
 		RequestID:   "compose-1",
 		EndpointID:  dc.composeEndpointID(),

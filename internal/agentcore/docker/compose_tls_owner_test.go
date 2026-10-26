@@ -54,7 +54,7 @@ func TestComposeHTTPSVerifiedTrustAndCommandOwner(t *testing.T) {
 				req.Action = "restart"
 			}
 			if action == "deploy" {
-				req.ConfigDir = filepath.Join(t.TempDir(), "new-stack")
+				req.ConfigDir = filepath.Join(useComposeStacksRoot(t), selected.Name)
 				req.ConfigFiles = nil
 				req.ComposeYAML = "services: {}\n"
 			}
@@ -136,7 +136,7 @@ func TestComposeHTTPSRejectsBeforeEffects(t *testing.T) {
 			for _, key := range []string{"TMPDIR", "TMP", "TEMP"} {
 				t.Setenv(key, trustTemp)
 			}
-			dir := filepath.Join(t.TempDir(), "must-not-exist")
+			dir := filepath.Join(useComposeStacksRoot(t), "project")
 			req := protocol.DockerComposeActionData{RequestID: mode, StackName: "project", Action: "deploy", ConfigDir: dir, ComposeYAML: "services: {}\n", EndpointID: dc.composeEndpointID()}
 			if mode == "lookup-redirect" {
 				req.Action = "restart"
@@ -188,7 +188,7 @@ func TestComposeHTTPSCancellationCleanup(t *testing.T) {
 			dc.client.httpClient = composeTrustedClient(root)
 			output := filepath.Join(t.TempDir(), "started.json")
 			child := composeTLSChildHook(t, output, "wait")
-			dir := filepath.Join(t.TempDir(), "new-stack")
+			dir := filepath.Join(useComposeStacksRoot(t), "project")
 			data, err := json.Marshal(protocol.DockerComposeActionData{RequestID: phase, StackName: "project", Action: "deploy", ConfigDir: dir, ComposeYAML: "services: {}\n", EndpointID: dc.composeEndpointID()})
 			if err != nil {
 				t.Fatal(err)
