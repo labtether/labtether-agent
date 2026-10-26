@@ -41,15 +41,15 @@ func TestBuildLaunchdCronEntry(t *testing.T) {
 		"StartInterval": float64(60),
 	}
 
-	entry, ok := BuildLaunchdCronEntry(payload, "michael")
+	entry, ok := BuildLaunchdCronEntry(payload, "demo")
 	if !ok {
 		t.Fatal("expected launchd entry to be built")
 	}
 	if entry.Source != "launchd" {
 		t.Fatalf("source=%q, want launchd", entry.Source)
 	}
-	if entry.User != "michael" {
-		t.Fatalf("user=%q, want michael", entry.User)
+	if entry.User != "demo" {
+		t.Fatalf("user=%q, want demo", entry.User)
 	}
 	if entry.Command != "/usr/bin/env bash -lc echo test" {
 		t.Fatalf("command=%q", entry.Command)
