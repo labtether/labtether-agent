@@ -23,6 +23,16 @@ type composeChildRecord struct {
 	Env  map[string]string
 }
 
+// sameChildDir compares the working directory the child read back from the OS
+// with the directory the agent passed. macOS reports t.TempDir()'s
+// /var/folders path as /private/var/folders, so compare the resolved paths.
+func sameChildDir(t *testing.T, got, want string) bool {
+	t.Helper()
+	gotReal, gotErr := filepath.EvalSymlinks(got)
+	wantReal, wantErr := filepath.EvalSymlinks(want)
+	return gotErr == nil && wantErr == nil && gotReal == wantReal
+}
+
 // Re-exec is a real bounded child and records the final exec.Cmd argv/env/Dir.
 // It performs one HTTP read against the selected synthetic Engine, not Docker.
 func TestComposeSelectionChild(t *testing.T) {
@@ -187,7 +197,7 @@ func TestHandleComposeActionExactSelection(t *testing.T) {
 				t.Fatal(err)
 			}
 			name, args := composeCommandArgs(mode.cli, host, selected, "restart")
-			if !reflect.DeepEqual(got.Args, append([]string{name}, args...)) || got.Dir != selected.Dir || got.Env["DOCKER_HOST"] != host || got.Env["COMPOSE_PROJECT_NAME"] != selected.Name {
+			if !reflect.DeepEqual(got.Args, append([]string{name}, args...)) || !sameChildDir(t, got.Dir, selected.Dir) || got.Env["DOCKER_HOST"] != host || got.Env["COMPOSE_PROJECT_NAME"] != selected.Name {
 				t.Fatalf("selection changed: %+v", got)
 			}
 			for _, key := range []string{"DOCKER_CONTEXT", "DOCKER_TLS", "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"} {

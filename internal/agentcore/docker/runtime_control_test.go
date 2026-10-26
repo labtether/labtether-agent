@@ -413,7 +413,7 @@ func TestHandleComposeActionDeployWritesComposeFileAndQueuesRefresh(t *testing.T
 
 	var child composeChildRecord
 	recordBytes, readErr := os.ReadFile(recordPath)
-	if readErr != nil || json.Unmarshal(recordBytes, &child) != nil || child.Dir != configDir || child.Args[9] != filepath.Join(configDir, "docker-compose.yml") {
+	if readErr != nil || json.Unmarshal(recordBytes, &child) != nil || !sameChildDir(t, child.Dir, configDir) || child.Args[9] != filepath.Join(configDir, "docker-compose.yml") {
 		t.Fatalf("deploy child selection changed: %+v read=%v", child, readErr)
 	}
 	if len(dc.discoveryTriggerCh) != 1 {

@@ -32,9 +32,9 @@ func (dc *DockerCollector) prepareComposeDeploy(ctx context.Context, req protoco
 	}
 	root := composeStacksRoot()
 	dir, managed := filepath.Join(root, name), true
-	if req.ConfigDir != "" && req.ConfigDir != dir {
+	if req.ConfigDir != "" && !sameComposeDir(req.ConfigDir, dir) {
 		existing, err := dc.existingComposeProjectDir(ctx, name)
-		if err != nil || existing != req.ConfigDir {
+		if err != nil || !sameComposeDir(req.ConfigDir, existing) {
 			return composeSelection{}, errComposeDeployDirectory
 		}
 		dir, managed = existing, false
@@ -54,6 +54,26 @@ func (dc *DockerCollector) prepareComposeDeploy(ctx context.Context, req protoco
 		}
 	}
 	return selected, writeComposeDeployFile(dir, []byte(req.ComposeYAML))
+}
+
+// sameComposeDir reports whether the Hub-named directory is dir. Besides an
+// exact match, a clean absolute name may reach the same existing directory
+// through symlinks, as macOS shows /var/folders as /private/var/folders. The
+// caller still writes only to dir, never to the Hub's spelling, and a path
+// that cannot be resolved matches only exactly.
+func sameComposeDir(named, dir string) bool {
+	if named == dir {
+		return true
+	}
+	if !filepath.IsAbs(named) || filepath.Clean(named) != named {
+		return false
+	}
+	namedReal, err := filepath.EvalSymlinks(named)
+	if err != nil {
+		return false
+	}
+	dirReal, err := filepath.EvalSymlinks(dir)
+	return err == nil && namedReal == dirReal
 }
 
 // existingComposeProjectDir returns the working directory reported by the

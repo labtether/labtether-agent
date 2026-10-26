@@ -63,6 +63,57 @@ func TestComposeDeployWritesOnlyManagedOrDiscoveredDirectory(t *testing.T) {
 	}
 }
 
+// The Hub may name an allowed directory through a symlink, as macOS reports
+// /var/folders as /private/var/folders. YAML still lands in the agent's own
+// spelling of that directory, and a link to any other directory is refused.
+func TestComposeDeployMatchesOnlySymlinkAliasesOfAllowedDirectory(t *testing.T) {
+	root := useComposeStacksRoot(t)
+	selected := composeTestSelection(t)
+	dc, _, _ := composeFixture(t, selected, composeRows(selected))
+	managed := filepath.Join(root, "managed")
+	if err := os.MkdirAll(managed, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	links, outside := t.TempDir(), t.TempDir()
+	link := func(name, target string) string {
+		path := filepath.Join(links, name)
+		if err := os.Symlink(target, path); err != nil {
+			t.Skipf("symlinks unavailable: %v", err)
+		}
+		return path
+	}
+	for _, tc := range []struct {
+		name, stack, dir, want string
+	}{
+		{"discovered project alias", selected.Name, link("discovered", selected.Dir), selected.Dir},
+		{"managed alias", "managed", link("managed", managed), managed},
+		{"alias to another directory", selected.Name, link("outside", outside), ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := protocol.DockerComposeActionData{StackName: tc.stack, ConfigDir: tc.dir, ComposeYAML: "services: {}\n"}
+			got, err := dc.prepareComposeDeploy(context.Background(), req)
+			if tc.want == "" {
+				if err == nil {
+					t.Fatalf("deploy accepted %q", tc.dir)
+				}
+				for _, dir := range []string{outside, selected.Dir} {
+					if _, statErr := os.Lstat(filepath.Join(dir, composeDeployFileName)); !os.IsNotExist(statErr) {
+						t.Fatalf("rejected deploy wrote into %s", dir)
+					}
+				}
+				return
+			}
+			if err != nil || got.Dir != tc.want || len(got.Files) != 1 || got.Files[0] != filepath.Join(tc.want, composeDeployFileName) {
+				t.Fatalf("deploy selection = %+v, %v", got, err)
+			}
+			if data, err := os.ReadFile(got.Files[0]); err != nil || string(data) != req.ComposeYAML {
+				t.Fatalf("deploy YAML = %q, %v", data, err)
+			}
+			_ = os.Remove(got.Files[0])
+		})
+	}
+}
+
 // A pre-created shared directory or link must not redirect the root-owned write.
 func TestComposeDeployRefusesRedirectedManagedPaths(t *testing.T) {
 	for _, mode := range []string{"root-link", "stack-link", "file-link", "shared-root"} {
