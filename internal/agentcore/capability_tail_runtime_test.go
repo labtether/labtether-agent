@@ -300,7 +300,7 @@ func TestUsersManagerHandleUsersListPropagatesCollectionError(t *testing.T) {
 }
 
 func TestParseUserSessionsOutputPreservesNonISOLoginTime(t *testing.T) {
-	sessions := system.ParseUserSessionsOutput([]byte("michael console Mar  5 21:14\n"))
+	sessions := system.ParseUserSessionsOutput([]byte("demo console Mar  5 21:14\n"))
 	if len(sessions) != 1 {
 		t.Fatalf("expected 1 session, got %d", len(sessions))
 	}
