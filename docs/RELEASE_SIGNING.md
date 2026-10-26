@@ -46,13 +46,17 @@ temporary directories inside a source checkout.
 
 ## Public Key
 
-Operators need the public key to turn on verification.
+Self-update refuses to run until a trusted public key is configured (or the
+operator sets `LABTETHER_AUTO_UPDATE_ACCEPT_UNSIGNED=true`). The key is
+published in three places that must stay identical:
 
-- Paste it into the `README.md` (or a dedicated `SIGNING_KEY.txt` in the repo)
-  so it ships with the source and docs.
-- Also publish it on the hub wiki / release notes page.
+- `scripts/release/agent-release-public-key.b64` in this repository (the
+  release contract verifies signatures with it);
+- `scripts/release/agent-release-public-key.b64` in the Hub repository, which
+  the Hub's install command uses to set the key on new agents;
+- the `README.md` "Release signing" section and its manual verification steps.
 
-Operators configure:
+Operators who install by hand configure:
 
 ```sh
 export LABTETHER_AUTO_UPDATE_TRUSTED_PUBLIC_KEY="<base64 public key>"
