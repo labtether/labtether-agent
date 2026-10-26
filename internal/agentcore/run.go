@@ -251,7 +251,8 @@ func Run(ctx context.Context, cfg RuntimeConfig, provider TelemetryProvider) err
 			}
 		}
 		go transport.reconnectLoop(ctx, func() {
-			replayBufferedTelemetry(transport, telemetryBuf)
+			// Unsent samples stay queued; the next collection tick retries them.
+			_ = replayBufferedTelemetry(transport, telemetryBuf)
 			sendWebRTCCapabilities(transport, webrtcCaps)
 			sendAgentSettingsState(transport, runtime, time.Now().UTC().Format(time.RFC3339Nano))
 			if dockerCollector != nil {

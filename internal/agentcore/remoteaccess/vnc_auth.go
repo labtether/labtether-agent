@@ -47,13 +47,10 @@ func CreateX11VNCPasswordFile(password string) (string, string, error) {
 	if err := validateX11VNCPassword(password); err != nil {
 		return "", "", err
 	}
+	// MkdirTemp creates the directory owner-only (0700).
 	dir, err := os.MkdirTemp("", x11vncAuthDirPattern)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to create x11vnc auth directory: %w", err)
-	}
-	if err := os.Chmod(dir, 0o700); err != nil { // #nosec G703 -- dir was just created by MkdirTemp.
-		RemoveVNCAuthDir(dir)
-		return "", "", fmt.Errorf("failed to secure x11vnc auth directory: %w", err)
 	}
 	path := filepath.Join(dir, x11vncPasswordFileName)
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600) // #nosec G304 -- fixed name inside a fresh private directory.
