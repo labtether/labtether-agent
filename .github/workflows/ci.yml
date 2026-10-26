@@ -176,3 +176,5 @@ jobs:
             grep -Fx "labtether-agent ci-${GITHUB_SHA}"
           docker run --rm --entrypoint /bin/sh labtether-agent:qa-contract \
             -eu -c 'test "$(id -u)" = 1001'
+          docker run --rm --entrypoint /bin/sh labtether-agent:qa-contract \
+            -eu -c 'test "$LABTETHER_TOKEN_FILE" = /var/lib/labtether/agent-token && touch /var/lib/labtether/write-probe'

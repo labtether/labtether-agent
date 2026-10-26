@@ -135,18 +135,34 @@ For most users, download the pre-built binary from [Releases](https://github.com
 
 ## Docker
 
-A container image is available for environments where a containerized agent is preferred:
+The agent image is public at `ghcr.io/labtether/labtether-agent` for
+`linux/amd64` and `linux/arm64`. Each release tag pushes an image with a GitHub
+build provenance attestation. Verify the tag, then run it pinned to that tag's
+digest (shown by `docker buildx imagetools inspect` or on the GHCR package page):
 
 ```bash
 gh attestation verify oci://ghcr.io/labtether/labtether-agent:vX.Y.Z -R labtether/labtether-agent
-docker run -d --cap-drop=ALL --security-opt=no-new-privileges \
+docker volume create labtether-agent-state
+docker run -d --name labtether-agent --restart unless-stopped \
+  --cap-drop=ALL --security-opt=no-new-privileges \
+  --mount type=volume,src=labtether-agent-state,dst=/var/lib/labtether \
   --mount type=bind,src=/secure/labtether-enrollment-token,dst=/run/secrets/labtether-enrollment-token,readonly \
   -e LABTETHER_WS_URL=wss://your-hub:8443/ws/agent \
   -e LABTETHER_ENROLLMENT_TOKEN_FILE=/run/secrets/labtether-enrollment-token \
   ghcr.io/labtether/labtether-agent:vX.Y.Z@sha256:RELEASE_DIGEST
 ```
 
-Use the immutable digest shown by the release rather than a mutable `latest` tag.
+The container runs as uid 1001. It keeps the issued agent token, saved Hub
+addresses and CA, settings and device key in `/var/lib/labtether`. Keep that
+volume so the agent stays enrolled across container updates. A new named volume
+takes its owner from the image; for a bind mount, create the host directory
+with owner 1001 and mode 0700 first. The enrollment token file must be readable
+by uid 1001.
+
+The enrollment token mount can stay read-only. After enrolling, the agent tries
+to delete the token file. When it cannot, it records the token as used in
+`/var/lib/labtether` and ignores it on every later start, so you can remove the
+secret and its mount at your next update. Do not use the mutable `latest` tag.
 
 ---
 
