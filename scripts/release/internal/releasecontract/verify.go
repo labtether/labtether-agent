@@ -8,7 +8,7 @@ import (
 	"sort"
 )
 
-const requiredReleaseGoVersion = "go1.27.2"
+const requiredReleaseGoVersion = "go1.27.3"
 
 func PrepareUnsignedAssets(
 	stage, tag, commit, builderGoVersion string,
