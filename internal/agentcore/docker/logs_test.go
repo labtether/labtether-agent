@@ -23,7 +23,9 @@ func TestDockerContainerLogs(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	body, err := client.containerLogs(context.Background(), "abc123", 100, true, false)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	body, err := client.containerLogs(ctx, "abc123", 100, true, false)
 	if err != nil {
 		t.Fatal(err)
 	}

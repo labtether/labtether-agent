@@ -33,26 +33,26 @@ func TestOrderedFileWriteWorkerPreservesChunkOffsets(t *testing.T) {
 		return protocol.Message{Type: protocol.MsgFileWrite, ID: requestID, Data: raw}
 	}
 
-	messages := make(chan protocol.Message, 2)
-	messages <- encode(protocol.FileWriteData{
+	messages := make(chan orderedFileWrite, 2)
+	enqueueOrderedFileWrite(context.Background(), transport, messages, encode(protocol.FileWriteData{
 		RequestID: requestID,
 		Path:      "uploaded.txt",
 		Data:      base64.StdEncoding.EncodeToString(contents),
 		Offset:    0,
 		Done:      false,
-	})
-	messages <- encode(protocol.FileWriteData{
+	}))
+	enqueueOrderedFileWrite(context.Background(), transport, messages, encode(protocol.FileWriteData{
 		RequestID: requestID,
 		Path:      "uploaded.txt",
 		Offset:    int64(len(contents)),
 		Done:      true,
-	})
+	}))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		runOrderedFileWriteWorker(ctx, transport, fileMgr, messages)
+		runOrderedFileWriteWorker(ctx, fileMgr, messages)
 	}()
 
 	select {
@@ -90,7 +90,7 @@ func TestOrderedFileWriteWorkerPreservesChunkOffsets(t *testing.T) {
 func TestEnqueueOrderedFileWriteRejectsOversizedPayloadBeforeQueueing(t *testing.T) {
 	transport, responses, cleanup := newAgentcoreCapturedTransport(t)
 	defer cleanup()
-	messages := make(chan protocol.Message, 2)
+	messages := make(chan orderedFileWrite, 2)
 	ctx := context.Background()
 
 	maximum := protocol.Message{Type: protocol.MsgFileWrite, Data: make([]byte, files.MaxFileWriteQueuedMessageSize-len(protocol.MsgFileWrite))}

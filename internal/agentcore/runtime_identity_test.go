@@ -294,6 +294,7 @@ func TestCanonicalIdentityReachesLocalAndBufferedTelemetryImmediately(t *testing
 	transport, messages, cleanup := newAgentcoreCapturedTransport(t)
 	defer cleanup()
 	transport.runtimeIdentity = identity
+	transport.connected = true
 	telemetryBuf := NewRingBuffer[TelemetrySample](2)
 	telemetryBuf.Push(TelemetrySample{AssetID: "startup-asset", CPUPercent: 17})
 	replayBufferedTelemetry(transport, telemetryBuf)

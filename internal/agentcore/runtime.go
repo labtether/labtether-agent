@@ -264,13 +264,11 @@ func (r *Runtime) publishOnce(ctx context.Context) {
 		r.logPublishWarning(err)
 	}
 
-	// Also send a dedicated telemetry message over WebSocket.
-	if r.transport != nil {
-		if r.transport.Connected() {
-			sendTelemetrySample(r.transport, sample)
-		} else if r.telemetryBuf != nil {
-			r.telemetryBuf.Push(sample)
-		}
+	// Live samples join the replay queue first so they cannot overtake its
+	// retained tail or disappear in a Connected-to-Send race.
+	if r.transport != nil && r.telemetryBuf != nil {
+		r.telemetryBuf.Push(sample)
+		_ = replayBufferedTelemetry(r.transport, r.telemetryBuf)
 	}
 }
 

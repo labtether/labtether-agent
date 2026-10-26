@@ -16,7 +16,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/labtether/labtether-agent/internal/securityruntime"
+	"github.com/labtether/labtether-agent/internal/agentcore/streaminput"
 	"github.com/labtether/protocol"
 )
 
@@ -24,11 +24,13 @@ const maxExecSessions = 10
 
 // dockerExecSession tracks an active exec session in a container.
 type dockerExecSession struct {
-	sessionID string
-	execID    string
-	conn      net.Conn // hijacked connection from Docker exec start
-	cancel    context.CancelFunc
-	done      chan struct{}
+	ctx         context.Context
+	sessionID   string
+	execID      string
+	inputWriter *streaminput.Writer
+	conn        net.Conn // hijacked connection from Docker exec start
+	cancel      context.CancelFunc
+	done        chan struct{}
 
 	mu          sync.Mutex
 	closeReason string
@@ -37,9 +39,11 @@ type dockerExecSession struct {
 
 // dockerExecManager manages Docker exec sessions on the agent.
 type DockerExecManager struct {
-	mu       sync.Mutex
-	sessions map[string]*dockerExecSession
-	client   *dockerClient
+	mu           sync.Mutex
+	sessions     map[string]*dockerExecSession
+	pending      map[string]*pendingExecStart
+	client       *dockerClient
+	setupTimeout time.Duration // zero selects the bounded production setup budget
 }
 
 func NewDockerExecManager(client *dockerClient) *DockerExecManager {
@@ -47,88 +51,6 @@ func NewDockerExecManager(client *dockerClient) *DockerExecManager {
 		sessions: make(map[string]*dockerExecSession),
 		client:   client,
 	}
-}
-
-func (em *DockerExecManager) HandleExecStart(transport Transport, msg protocol.Message) {
-	var req protocol.DockerExecStartData
-	if err := json.Unmarshal(msg.Data, &req); err != nil {
-		log.Printf("docker-exec: invalid start request: %v", err)
-		return
-	}
-
-	if req.SessionID == "" || req.ContainerID == "" {
-		log.Printf("docker-exec: missing session_id or container_id")
-		return
-	}
-	if !isValidContainerID(req.ContainerID) {
-		log.Printf("docker-exec: invalid container_id %q", req.ContainerID)
-		sendExecClosed(transport, req.SessionID, "invalid container ID")
-		return
-	}
-
-	em.mu.Lock()
-	if len(em.sessions) >= maxExecSessions {
-		em.mu.Unlock()
-		log.Printf("docker-exec: max sessions (%d) reached", maxExecSessions)
-		sendExecClosed(transport, req.SessionID, "max exec sessions reached")
-		return
-	}
-	if _, exists := em.sessions[req.SessionID]; exists {
-		em.mu.Unlock()
-		log.Printf("docker-exec: session %s already exists", req.SessionID)
-		return
-	}
-	em.mu.Unlock()
-
-	const dockerExecTimeout = 5 * time.Minute
-	ctx, cancel := context.WithTimeout(context.Background(), dockerExecTimeout)
-
-	// Create exec instance
-	cmd := req.Command
-	if len(cmd) == 0 {
-		cmd = []string{"/bin/sh"}
-	}
-	execID, err := em.client.createExec(ctx, req.ContainerID, cmd, req.TTY)
-	if err != nil {
-		cancel()
-		log.Printf("docker-exec: failed to create exec: %v", err)
-		sendExecClosed(transport, req.SessionID, "failed to create exec: "+err.Error())
-		return
-	}
-
-	// Start exec and hijack the connection for bidirectional I/O.
-	conn, err := em.startAndHijack(ctx, execID, req.TTY)
-	if err != nil {
-		cancel()
-		log.Printf("docker-exec: failed to start exec: %v", err)
-		sendExecClosed(transport, req.SessionID, "failed to start exec: "+err.Error())
-		return
-	}
-
-	sess := &dockerExecSession{
-		sessionID: req.SessionID,
-		execID:    execID,
-		conn:      conn,
-		cancel:    cancel,
-		done:      make(chan struct{}),
-	}
-
-	em.mu.Lock()
-	em.sessions[req.SessionID] = sess
-	em.mu.Unlock()
-
-	// Notify hub that exec is ready.
-	sendExecStarted(transport, req.SessionID)
-
-	// Stream output → hub.
-	go em.streamExecOutput(transport, sess)
-
-	// Wait for connection to close and clean up.
-	go func() {
-		<-sess.done
-		em.cleanup(req.SessionID)
-		sendExecClosed(transport, req.SessionID, sess.reasonOr("exec ended"))
-	}()
 }
 
 // startAndHijack starts an exec instance and returns the hijacked connection.
@@ -143,7 +65,7 @@ func (em *DockerExecManager) startAndHijack(ctx context.Context, execID string, 
 		return em.startAndHijackRawUnix(ctx, execID, jsonBody)
 	}
 
-	req, err := securityruntime.NewOutboundRequestWithContext(ctx, http.MethodPost,
+	req, err := em.client.newRequest(ctx, http.MethodPost,
 		em.client.baseURL+"/exec/"+execID+"/start",
 		bytes.NewReader(jsonBody))
 	if err != nil {
@@ -153,7 +75,7 @@ func (em *DockerExecManager) startAndHijack(ctx context.Context, execID string, 
 	req.Header.Set("Connection", "Upgrade")
 	req.Header.Set("Upgrade", "tcp")
 
-	resp, err := securityruntime.DoOutboundRequest(em.client.httpClient, req)
+	resp, err := em.client.doStreamRequest(req)
 	if err != nil {
 		return nil, err
 	}
@@ -174,7 +96,7 @@ func (em *DockerExecManager) startAndHijack(ctx context.Context, execID string, 
 		_ = resp.Body.Close()
 		return nil, fmt.Errorf("exec start stream is read-only; writable upgraded stream unavailable")
 	}
-	return &execConn{body: resp.Body, writer: writer}, nil
+	return bindDockerExecConnection(ctx, &execConn{body: resp.Body, writer: writer}), nil
 }
 
 // startAndHijackRawUnix opens a raw unix socket to Docker and performs an
@@ -190,6 +112,8 @@ func (em *DockerExecManager) startAndHijackRawUnix(ctx context.Context, execID s
 		return nil, err
 	}
 
+	conn = bindDockerExecConnection(ctx, conn)
+
 	request := fmt.Sprintf(
 		"POST /exec/%s/start HTTP/1.1\r\nHost: docker\r\nConnection: Upgrade\r\nUpgrade: tcp\r\nContent-Type: application/json\r\nContent-Length: %d\r\n\r\n",
 		execID,
@@ -204,7 +128,7 @@ func (em *DockerExecManager) startAndHijackRawUnix(ctx context.Context, execID s
 		return nil, err
 	}
 
-	reader := bufio.NewReader(conn)
+	reader := bufio.NewReader(io.LimitReader(conn, 64*1024))
 	statusLine, err := reader.ReadString('\n')
 	if err != nil {
 		_ = conn.Close()
@@ -320,36 +244,47 @@ func (em *DockerExecManager) HandleExecInput(msg protocol.Message) {
 	if len(decoded) == 0 {
 		return
 	}
-	if _, err := sess.conn.Write(decoded); err != nil {
-		sess.setReasonIfUnset("stdin write failed: " + err.Error())
-		log.Printf("docker-exec: stdin write failed for session %s: %v", payload.SessionID, err)
-		_ = sess.conn.Close()
-		sess.cancel()
+	if sess.inputWriter != nil {
+		_ = sess.inputWriter.Enqueue(decoded)
 	}
 }
 
 func (em *DockerExecManager) HandleExecResize(msg protocol.Message) {
+	if resize := em.PrepareExecResize(msg); resize != nil {
+		resize()
+	}
+}
+func (em *DockerExecManager) PrepareExecResize(msg protocol.Message) func() {
 	var req protocol.DockerExecResizeData
-	if err := json.Unmarshal(msg.Data, &req); err != nil {
-		return
+	if json.Unmarshal(msg.Data, &req) != nil || req.Cols <= 0 || req.Rows <= 0 {
+		return nil
 	}
-
 	em.mu.Lock()
-	sess, ok := em.sessions[req.SessionID]
+	sess := em.sessions[req.SessionID]
 	em.mu.Unlock()
-	if !ok {
-		return
+	if sess == nil {
+		return nil
 	}
-
-	if req.Cols <= 0 || req.Rows <= 0 {
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	_, err := em.client.post(ctx, fmt.Sprintf("/exec/%s/resize?h=%d&w=%d", sess.execID, req.Rows, req.Cols))
-	if err != nil {
-		log.Printf("docker-exec: resize failed for session %s: %v", req.SessionID, err)
+	return func() {
+		em.mu.Lock()
+		current := em.sessions[req.SessionID] == sess
+		em.mu.Unlock()
+		if !current {
+			return
+		}
+		sessionCtx := sess.ctx
+		if sessionCtx == nil {
+			sessionCtx = context.Background()
+		}
+		ctx, cancel := context.WithTimeout(sessionCtx, 5*time.Second)
+		defer cancel()
+		if ctx.Err() != nil {
+			return
+		}
+		_, err := em.client.post(ctx, fmt.Sprintf("/exec/%s/resize?h=%d&w=%d", sess.execID, req.Rows, req.Cols))
+		if err != nil {
+			log.Printf("docker-exec: resize failed for session %s: %v", req.SessionID, err)
+		}
 	}
 }
 
@@ -360,6 +295,10 @@ func (em *DockerExecManager) HandleExecClose(msg protocol.Message) {
 	}
 
 	em.mu.Lock()
+	if pending := em.pending[req.SessionID]; pending != nil {
+		pending.cancel()
+		delete(em.pending, req.SessionID)
+	}
 	sess, ok := em.sessions[req.SessionID]
 	em.mu.Unlock()
 	if !ok {
@@ -367,7 +306,7 @@ func (em *DockerExecManager) HandleExecClose(msg protocol.Message) {
 	}
 
 	sess.beginClose("closed by hub")
-	_ = sess.conn.Close()
+	_ = sess.closeInput()
 	sess.cancel()
 }
 
@@ -436,22 +375,30 @@ func (s *dockerExecSession) reasonOr(fallback string) string {
 	return fallback
 }
 
-func (em *DockerExecManager) cleanup(sessionID string) {
+func (em *DockerExecManager) cleanupSession(sess *dockerExecSession) bool {
 	em.mu.Lock()
-	defer em.mu.Unlock()
-	if sess, ok := em.sessions[sessionID]; ok {
-		_ = sess.conn.Close()
-		sess.cancel()
-		delete(em.sessions, sessionID)
+	current := em.sessions[sess.sessionID] == sess
+	if current {
+		delete(em.sessions, sess.sessionID)
 	}
+	em.mu.Unlock()
+	_ = sess.closeInput()
+	if sess.cancel != nil {
+		sess.cancel()
+	}
+	return current
 }
 
 func (em *DockerExecManager) CloseAll() {
 	em.mu.Lock()
 	defer em.mu.Unlock()
+	for id, pending := range em.pending {
+		pending.cancel()
+		delete(em.pending, id)
+	}
 	for id, sess := range em.sessions {
 		sess.beginClose("agent shutting down")
-		_ = sess.conn.Close()
+		_ = sess.closeInput()
 		sess.cancel()
 		delete(em.sessions, id)
 	}
@@ -473,4 +420,14 @@ func sendExecClosed(transport Transport, sessionID, reason string) {
 		ID:   sessionID,
 		Data: data,
 	})
+}
+
+func (s *dockerExecSession) closeInput() error {
+	if s.inputWriter != nil {
+		return s.inputWriter.Close()
+	}
+	if s.conn != nil {
+		return s.conn.Close()
+	}
+	return nil
 }

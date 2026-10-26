@@ -1,10 +1,6 @@
 package docker
 
-import (
-	"bytes"
-	"encoding/binary"
-	"testing"
-)
+import "testing"
 
 func TestSplitDockerParamList(t *testing.T) {
 	got := splitDockerParamList("FOO=bar, BAZ=qux\nQUUX=corge", ",")
@@ -56,28 +52,5 @@ func TestParseDockerPortBindings(t *testing.T) {
 	}
 	if got[2].HostPort != "5353" || got[2].ContainerPort != "5353" || got[2].Protocol != "udp" {
 		t.Fatalf("binding[2] = %+v, want host=5353 container=5353 proto=udp", got[2])
-	}
-}
-
-func TestDecodeDockerLogPayload(t *testing.T) {
-	payload := bytes.NewBuffer(nil)
-	writeFrame := func(stream byte, data string) {
-		header := []byte{stream, 0, 0, 0, 0, 0, 0, 0}
-		binary.BigEndian.PutUint32(header[4:], uint32(len(data)))
-		_, _ = payload.Write(header)
-		_, _ = payload.WriteString(data)
-	}
-
-	writeFrame(1, "hello\n")
-	writeFrame(2, "world\n")
-
-	got := decodeDockerLogPayload(payload.Bytes())
-	if got != "hello\nworld\n" {
-		t.Fatalf("decoded payload = %q, want %q", got, "hello\nworld\n")
-	}
-
-	plain := "plain text logs"
-	if decodeDockerLogPayload([]byte(plain)) != plain {
-		t.Fatalf("plain decode mismatch")
 	}
 }

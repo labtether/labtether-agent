@@ -135,6 +135,9 @@ func (dc *DockerCollector) HandleComposeAction(transport Transport, msg protocol
 		return
 	}
 	cmd.Dir = configDir
+	// A descendant keeping inherited pipes open must not occupy this handler
+	// forever. This bounds pipe draining after exit or cancellation.
+	cmd.WaitDelay = time.Second
 	outputCapture := securityruntime.NewCappedRetainingWriter(composeActionOutputLimit)
 	cmd.Stdout = outputCapture
 	cmd.Stderr = outputCapture

@@ -8,7 +8,7 @@ import (
 
 // dispatchNodeMessage owns host inventory and management operations. Authorization
 // remains in receiveLoop, before any domain dispatcher is called.
-func dispatchNodeMessage(msg protocol.Message, transport *wsTransport, dispatch func(string, func()),
+func dispatchNodeMessage(msg protocol.Message, transport backends.MessageSender, dispatch func(string, func()),
 	processMgr *system.ProcessManager, serviceMgr *backends.ServiceManager, journalMgr *backends.JournalManager,
 	diskMgr *system.DiskManager, networkMgr *networkManager, packageMgr *backends.PackageManager,
 	cronMgr *backends.CronManager, usersMgr *system.UsersManager) bool {

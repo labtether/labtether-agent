@@ -46,7 +46,7 @@ func TestValidateExecBinaryBlocksWhenAllowlistEnabled(t *testing.T) {
 func TestValidateExecBinaryAllowsDefaultDesktopUtilities(t *testing.T) {
 	t.Setenv(envExecAllowlistMode, "")
 	t.Setenv(envExecAllowedBinaries, "")
-	for _, name := range []string{"wl-copy", "wl-paste", "xauth", "xclip", "xdotool", "xsel", "xset", "ydotool"} {
+	for _, name := range []string{"wl-copy", "wl-paste", "xauth", "xclip", "xdotool", "xmodmap", "labtether-x11-input", "xsel", "xset", "ydotool"} {
 		if err := ValidateExecBinary(name); err != nil {
 			t.Fatalf("expected %q to be allowlisted, got %v", name, err)
 		}

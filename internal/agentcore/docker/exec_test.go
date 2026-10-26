@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/labtether/labtether-agent/internal/agentcore/streaminput"
 	"github.com/labtether/protocol"
 )
 
@@ -72,10 +73,11 @@ func TestDockerExecManagerCloseAllMarksIntentionalStreamClosure(t *testing.T) {
 	local, remote := net.Pipe()
 	defer remote.Close()
 	sess := &dockerExecSession{
-		sessionID: "sess-close-all",
-		conn:      local,
-		cancel:    func() {},
-		done:      make(chan struct{}),
+		sessionID:   "sess-close-all",
+		conn:        local,
+		inputWriter: streaminput.New(local, nil),
+		cancel:      func() {},
+		done:        make(chan struct{}),
 	}
 	em.sessions[sess.sessionID] = sess
 
@@ -137,12 +139,14 @@ func TestDockerExecInputWritesToSessionConn(t *testing.T) {
 	sessionID := "sess-1"
 	em.mu.Lock()
 	em.sessions[sessionID] = &dockerExecSession{
-		sessionID: sessionID,
-		conn:      local,
-		cancel:    func() {},
-		done:      make(chan struct{}),
+		sessionID:   sessionID,
+		conn:        local,
+		inputWriter: streaminput.New(local, nil),
+		cancel:      func() {},
+		done:        make(chan struct{}),
 	}
 	em.mu.Unlock()
+	defer em.CloseAll()
 
 	expected := "echo test\n"
 	raw, _ := json.Marshal(protocol.DockerExecInputData{

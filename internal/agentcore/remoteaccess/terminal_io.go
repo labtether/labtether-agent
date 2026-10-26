@@ -7,7 +7,6 @@ import (
 	"log"
 	"os"
 	"os/exec"
-	"time"
 
 	"github.com/labtether/protocol"
 )
@@ -16,6 +15,10 @@ import (
 func (tm *TerminalManager) CloseAll() {
 	tm.Mu.Lock()
 	defer tm.Mu.Unlock()
+	for id, pending := range tm.pending {
+		pending.cancel()
+		delete(tm.pending, id)
+	}
 	for id, sess := range tm.Sessions {
 		sess.terminate()
 		delete(tm.Sessions, id)
@@ -50,25 +53,17 @@ func (tm *TerminalManager) streamOutput(transport MessageSender, sess *TerminalS
 	}
 }
 
-func (tm *TerminalManager) removeReservation(reservation *TerminalSession) bool {
-	tm.Mu.Lock()
-	defer tm.Mu.Unlock()
-	if tm.Sessions[reservation.sessionID] == reservation {
-		delete(tm.Sessions, reservation.sessionID)
-		return true
-	}
-	return false
-}
-
+// cleanupSession removes only the exact session that still owns its ID. A late
+// reader from an old session must never close a replacement with the same ID.
 func (tm *TerminalManager) cleanupSession(sess *TerminalSession) bool {
 	tm.Mu.Lock()
-	removed := tm.Sessions[sess.sessionID] == sess
-	if removed {
+	current := tm.Sessions[sess.sessionID] == sess
+	if current {
 		delete(tm.Sessions, sess.sessionID)
 	}
 	tm.Mu.Unlock()
-	sess.terminate()
-	return removed
+	sess.close()
+	return current
 }
 
 func (s *TerminalSession) terminate() {
@@ -129,18 +124,14 @@ func (s *TerminalSession) read(buf []byte) (int, error) {
 	return s.output.Read(buf)
 }
 
-func (s *TerminalSession) write(data []byte) (int, error) {
-	if s.Ptmx != nil {
-		return s.Ptmx.Write(data)
-	}
-	if s.input == nil {
-		return 0, io.ErrClosedPipe
-	}
-	return s.input.Write(data)
-}
-
 func (s *TerminalSession) close() {
+	if s.cancel != nil {
+		s.cancel()
+	}
 	s.closeOnce.Do(func() {
+		if sessInput := s.inputWriter; sessInput != nil {
+			_ = sessInput.Close()
+		}
 		if s.Ptmx != nil {
 			_ = s.Ptmx.Close()
 		}
@@ -151,12 +142,4 @@ func (s *TerminalSession) close() {
 			_ = s.output.Close()
 		}
 	})
-}
-
-// A stalled shell must not hold the ordered input worker forever. Closing its
-// I/O and process unblocks an in-flight pipe or PTY write when the budget ends.
-func (s *TerminalSession) writeWithTimeout(data []byte, timeout time.Duration) (int, error) {
-	timer := time.AfterFunc(timeout, s.terminate)
-	defer timer.Stop()
-	return s.write(data)
 }

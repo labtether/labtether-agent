@@ -418,7 +418,7 @@ func TestWebRTCManagerHandleWebRTCInputQueuesEvent(t *testing.T) {
 			X:         11,
 			Y:         22,
 		}),
-	})
+	}, nil)
 
 	select {
 	case evt := <-sess.inputCh:

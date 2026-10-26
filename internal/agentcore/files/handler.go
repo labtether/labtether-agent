@@ -52,6 +52,7 @@ type MessageSender interface {
 type Manager struct {
 	mu                  sync.Mutex
 	writers             map[string]*PendingWrite // request_id -> pending write
+	writeEpoch          uint64                   // incremented by CloseAll before retiring pending writes
 	pendingWriteNow     func() time.Time
 	pendingWriteIdleTTL time.Duration
 	BaseDir             string // restricted base directory (empty = home dir)

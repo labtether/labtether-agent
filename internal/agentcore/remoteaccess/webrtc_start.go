@@ -1,6 +1,7 @@
 package remoteaccess
 
 import (
+	"context"
 	"encoding/json"
 	"github.com/labtether/protocol"
 	"github.com/pion/interceptor"
@@ -64,27 +65,37 @@ func normalizeWebRTCSessionVideoSettings(req protocol.WebRTCSessionData, cfg Web
 }
 
 func (wm *WebRTCManager) HandleWebRTCStart(transport MessageSender, msg protocol.Message) {
+	if start := wm.PrepareWebRTCStart(transport, msg); start != nil {
+		start()
+	}
+}
+
+// PrepareWebRTCStart reserves the owner before socket dispatch returns. The
+// deferred worker belongs to this transport epoch even if reconnect runs first.
+func (wm *WebRTCManager) PrepareWebRTCStart(transport MessageSender, msg protocol.Message) func() {
 	var req protocol.WebRTCSessionData
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
-		log.Printf("webrtc: invalid start request: %v", err)
-		return
+		return func() { log.Printf("webrtc: invalid start request: %v", err) }
 	}
 	req.SessionID = strings.TrimSpace(req.SessionID)
-	if strings.TrimSpace(req.SessionID) == "" {
-		log.Printf("webrtc: missing session_id")
-		return
+	if req.SessionID == "" {
+		return func() { log.Printf("webrtc: missing session_id") }
 	}
-
 	if !wm.caps.Available {
-		SendWebRTCStopped(transport, req.SessionID, "webrtc unavailable")
-		return
+		return func() { SendWebRTCStopped(transport, req.SessionID, "webrtc unavailable") }
 	}
-
-	pending, rejectionReason := wm.reserveSessionStart(req.SessionID)
+	parent := context.Background()
+	if sender, ok := transport.(interface{ Context() context.Context }); ok {
+		parent = sender.Context()
+	}
+	pending, rejectionReason := wm.reserveSessionStartContext(parent, req.SessionID)
 	if pending == nil {
-		SendWebRTCStopped(transport, req.SessionID, rejectionReason)
-		return
+		return func() { SendWebRTCStopped(transport, req.SessionID, rejectionReason) }
 	}
+	return func() { wm.startWebRTCSession(transport, req, pending) }
+}
+
+func (wm *WebRTCManager) startWebRTCSession(transport MessageSender, req protocol.WebRTCSessionData, pending *pendingWebRTCStart) {
 	registered := false
 	defer func() {
 		if !registered {
@@ -92,6 +103,9 @@ func (wm *WebRTCManager) HandleWebRTCStart(transport MessageSender, msg protocol
 		}
 	}()
 	ctx := pending.ctx
+	if ctx.Err() != nil {
+		return
+	}
 
 	settings := map[string]string{}
 	if wm.settings != nil {
@@ -228,6 +242,7 @@ func (wm *WebRTCManager) HandleWebRTCStart(transport MessageSender, msg protocol
 		videoPort:      videoPort,
 		audioPort:      audioPort,
 		inputCh:        make(chan WebRTCInputEvent, 128),
+		inputDone:      make(chan struct{}),
 		cancel:         pending.cancel,
 		done:           make(chan struct{}),
 		ManagedDisplay: acquiredDisplay,
@@ -241,6 +256,11 @@ func (wm *WebRTCManager) HandleWebRTCStart(transport MessageSender, msg protocol
 	if sess.inputBackend == "" {
 		sess.inputBackend = "auto"
 	}
+	sess.onInputFailure = func(reason string) { wm.failWebRTCInput(transport, sess, reason) }
+	go func() {
+		defer close(sess.inputDone)
+		InjectInputEvents(ctx, sess.inputCh, display, xauthPath, sess)
+	}()
 	if !wm.bindPendingSession(req.SessionID, pending, sess) {
 		sess.close("session start canceled")
 		return
@@ -260,7 +280,7 @@ func (wm *WebRTCManager) HandleWebRTCStart(transport MessageSender, msg protocol
 				if err != nil {
 					return
 				}
-				sess.queueInputEvent(evt)
+				wm.enqueueWebRTCInput(transport, sess, evt)
 			})
 		case "clipboard":
 			dc.OnMessage(func(msg webrtc.DataChannelMessage) {
@@ -274,7 +294,7 @@ func (wm *WebRTCManager) HandleWebRTCStart(transport MessageSender, msg protocol
 				if !wm.sessionIsCurrent(req.SessionID, sess) {
 					return
 				}
-				wm.handleFileTransferDataChannelMessage(dc, msg)
+				wm.handleFileTransferDataChannelMessageContext(ctx, dc, msg)
 			})
 		}
 	})
@@ -434,7 +454,6 @@ func (wm *WebRTCManager) HandleWebRTCStart(transport MessageSender, msg protocol
 	if audioTrack != nil && audioPort > 0 {
 		go ReadRTPToTrack(ctx, audioPort, audioTrack)
 	}
-	go InjectInputEvents(ctx, sess.inputCh, display, xauthPath, sess)
 
 	log.Printf("webrtc: session started id=%s encoder=%s audio=%s", req.SessionID, encName, audioSource)
 }

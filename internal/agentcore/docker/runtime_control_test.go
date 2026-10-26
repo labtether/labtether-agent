@@ -147,6 +147,10 @@ func TestHandleDockerActionContainerLogsReturnsDecodedLogsWithoutRefresh(t *test
 	transport := newRecordingCollectorTransport(true)
 
 	srv, client := newSecureDockerClientFixture(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/containers/abc123/json" {
+			_, _ = w.Write([]byte(`{"Config":{"Tty":false}}`))
+			return
+		}
 		if r.URL.Path != "/containers/abc123/logs" {
 			http.NotFound(w, r)
 			return
@@ -203,6 +207,10 @@ func TestDockerLogManagerHandleLogsStartStreamsAndCleansUp(t *testing.T) {
 	transport := newRecordingCollectorTransport(true)
 
 	srv, client := newSecureDockerClientFixture(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/containers/ct-1/json" {
+			_, _ = w.Write([]byte(`{"Config":{"Tty":false}}`))
+			return
+		}
 		if r.URL.Path != "/containers/ct-1/logs" {
 			http.NotFound(w, r)
 			return

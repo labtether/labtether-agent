@@ -10,7 +10,7 @@ import (
 )
 
 // handleConfigUpdate applies runtime configuration changes from the hub.
-func handleConfigUpdate(transport *wsTransport, msg protocol.Message, runtime *Runtime) {
+func handleConfigUpdate(transport agentMessageSender, msg protocol.Message, runtime *Runtime) {
 	var data protocol.ConfigUpdateData
 	if err := json.Unmarshal(msg.Data, &data); err != nil {
 		log.Printf("agentws: invalid config update: %v", err)
@@ -78,7 +78,7 @@ func handleConfigUpdate(transport *wsTransport, msg protocol.Message, runtime *R
 	sendLegacyConfigApplied(transport, runtime)
 }
 
-func sendLegacyConfigApplied(transport *wsTransport, runtime *Runtime) {
+func sendLegacyConfigApplied(transport agentMessageSender, runtime *Runtime) {
 	ackData, _ := json.Marshal(protocol.ConfigAppliedData{
 		CollectIntervalSec:   runtime.effectiveCollectIntervalSec(),
 		HeartbeatIntervalSec: runtime.effectiveHeartbeatIntervalSec(),
@@ -89,7 +89,7 @@ func sendLegacyConfigApplied(transport *wsTransport, runtime *Runtime) {
 	})
 }
 
-func handleAgentSettingsApply(transport *wsTransport, msg protocol.Message, runtime *Runtime) {
+func handleAgentSettingsApply(transport agentMessageSender, msg protocol.Message, runtime *Runtime) {
 	var req protocol.AgentSettingsApplyData
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		log.Printf("agentws: invalid agent.settings.apply: %v", err)
@@ -139,7 +139,7 @@ func handleAgentSettingsApply(transport *wsTransport, msg protocol.Message, runt
 	sendAgentSettingsState(transport, runtime, req.Revision)
 }
 
-func sendAgentSettingsApplied(transport *wsTransport, runtime *Runtime, response protocol.AgentSettingsAppliedData) {
+func sendAgentSettingsApplied(transport agentMessageSender, runtime *Runtime, response protocol.AgentSettingsAppliedData) {
 	if runtime != nil && runtime.deviceIdentity != nil {
 		response.Fingerprint = runtime.deviceIdentity.Fingerprint
 	}

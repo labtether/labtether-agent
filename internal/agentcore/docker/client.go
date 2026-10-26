@@ -458,9 +458,12 @@ func (c *dockerClient) containerLogs(ctx context.Context, containerID string, ta
 	if err != nil {
 		return nil, err
 	}
-	// Use a client without timeout for long-lived log streaming.
-	streamClient := &http.Client{Transport: c.httpClient.Transport}
-	resp, err := c.doRequest(streamClient, req)
+	var resp *http.Response
+	if follow {
+		resp, err = c.doStreamRequest(req)
+	} else {
+		resp, err = c.doRequest(c.httpClient, req)
+	}
 	if err != nil {
 		return nil, err
 	}

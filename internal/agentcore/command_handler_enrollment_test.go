@@ -2,6 +2,7 @@ package agentcore
 
 import (
 	"context"
+	"github.com/labtether/labtether-agent/internal/agentcore/remoteaccess"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
+	"github.com/labtether/labtether-agent/internal/agentcore/docker"
 	"github.com/labtether/labtether-agent/internal/agentcore/files"
 	"github.com/labtether/protocol"
 )
@@ -46,7 +48,7 @@ func TestReceiveLoopDoesNotDispatchCommandsUntilAuthenticated(t *testing.T) {
 	t.Cleanup(func() { handleCommandRequest = originalHandleCommandRequest })
 
 	commandCalls := make(chan struct{}, 2)
-	handleCommandRequest = func(_ *wsTransport, _ protocol.Message, _ RuntimeConfig) {
+	handleCommandRequest = func(_ remoteaccess.MessageSender, _ protocol.Message, _ RuntimeConfig) {
 		commandCalls <- struct{}{}
 	}
 
@@ -82,7 +84,7 @@ func TestReceiveLoopDoesNotDispatchCommandsUntilAuthenticated(t *testing.T) {
 	})
 }
 
-func startReceiveLoopForEnrollmentTest(t *testing.T, enrollmentPending bool) (*wsTransport, *websocket.Conn, func()) {
+func startReceiveLoopForEnrollmentTest(t *testing.T, enrollmentPending bool, collectors ...*docker.DockerCollector) (*wsTransport, *websocket.Conn, func()) {
 	t.Helper()
 
 	serverConnCh := make(chan *websocket.Conn, 1)
@@ -125,6 +127,10 @@ func startReceiveLoopForEnrollmentTest(t *testing.T, enrollmentPending bool) (*w
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	fileBaseDir := t.TempDir()
+	var collector *docker.DockerCollector
+	if len(collectors) > 0 {
+		collector = collectors[0]
+	}
 	go func() {
 		defer close(done)
 		receiveLoop(
@@ -138,7 +144,7 @@ func startReceiveLoopForEnrollmentTest(t *testing.T, enrollmentPending bool) (*w
 			&files.Manager{BaseDir: fileBaseDir},
 			nil, nil, nil, nil, nil, nil, nil, nil,
 			nil, nil,
-			nil, nil, nil, nil,
+			collector, nil, nil, nil,
 		)
 	}()
 

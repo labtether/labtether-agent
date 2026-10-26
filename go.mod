@@ -6,6 +6,7 @@ require (
 	github.com/Microsoft/go-winio v0.6.3
 	github.com/creack/pty v1.1.24
 	github.com/gorilla/websocket v1.5.3
+	github.com/jezek/xgb v1.3.1
 	github.com/labtether/protocol v1.6.5
 	github.com/pion/interceptor v0.1.49
 	github.com/pion/rtp v1.10.5

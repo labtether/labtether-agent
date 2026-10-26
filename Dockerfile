@@ -26,7 +26,8 @@ RUN apk add --no-cache \
     gst-plugins-bad=1.28.3-r0 \
     gst-plugins-ugly=1.28.3-r0 \
     gst-libav=1.28.3-r0 \
-    xdotool=4.20260303.1-r0 && \
+    xdotool=4.20260303.1-r0 \
+    xmodmap=1.0.11-r1 && \
     adduser -D -u 1001 agent
 # Run as a non-root user. PTY sessions are proxied through the hub so root is not required.
 COPY --from=builder /out/service /service

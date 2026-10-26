@@ -3,7 +3,6 @@ package remoteaccess
 import (
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"log"
 	"net"
 	"os"
@@ -12,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/labtether/labtether-agent/internal/agentcore/streaminput"
 	"github.com/labtether/protocol"
 )
 
@@ -29,6 +29,7 @@ type DesktopSession struct {
 	xvfbCmd        *exec.Cmd // nil if no Xvfb headless fallback was used
 	bootstrapCmd   *exec.Cmd // nil if no fallback shell/window was started
 	vncConn        net.Conn
+	inputWriter    *streaminput.Writer
 	vncAuthFile    string
 	port           int
 	done           chan struct{}
@@ -43,6 +44,7 @@ type DesktopManager struct {
 	Mu         sync.Mutex
 	Sessions   map[string]*DesktopSession
 	DisplayMgr *DisplayManager
+	pending    map[string]*pendingDesktopStart
 }
 
 func NewDesktopManager(dispMgr *DisplayManager) *DesktopManager {
@@ -50,107 +52,6 @@ func NewDesktopManager(dispMgr *DisplayManager) *DesktopManager {
 		Sessions:   make(map[string]*DesktopSession),
 		DisplayMgr: dispMgr,
 	}
-}
-
-// handleDesktopStart starts a VNC server and connects to it.
-func (dm *DesktopManager) HandleDesktopStart(transport MessageSender, msg protocol.Message) {
-	var req protocol.DesktopStartData
-	if err := json.Unmarshal(msg.Data, &req); err != nil {
-		log.Printf("desktop: invalid start request: %v", err)
-		return
-	}
-
-	if req.SessionID == "" {
-		log.Printf("desktop: start request missing session_id")
-		return
-	}
-
-	dm.Mu.Lock()
-	if len(dm.Sessions) >= MaxDesktopSessions {
-		dm.Mu.Unlock()
-		log.Printf("desktop: max sessions (%d) reached", MaxDesktopSessions)
-		SendDesktopClosed(transport, req.SessionID, "max desktop sessions reached")
-		return
-	}
-	if _, exists := dm.Sessions[req.SessionID]; exists {
-		dm.Mu.Unlock()
-		log.Printf("desktop: session %s already exists", req.SessionID)
-		return
-	}
-	// Reserve slot to make session-limit check atomic across concurrent starts.
-	reservation := &DesktopSession{sessionID: req.SessionID, done: make(chan struct{})}
-	dm.Sessions[req.SessionID] = reservation
-	dm.Mu.Unlock()
-
-	display := req.Display
-	quality := req.Quality
-	if quality == "" {
-		quality = "medium"
-	}
-
-	// Start VNC server.
-	vncCmd, xvfbCmd, bootstrapCmd, port, vncAuthFile, err := StartDesktopVNCServer(display, quality, req.VNCPassword)
-	if err != nil {
-		owned := dm.cleanupSession(reservation)
-		log.Printf("desktop: failed to start VNC server for session %s: %v", req.SessionID, err)
-		if owned {
-			SendDesktopClosed(transport, req.SessionID, fmt.Sprintf("failed to start VNC: %v", err))
-		}
-		return
-	}
-
-	// TCP connect to the local VNC server.
-	addr := fmt.Sprintf("127.0.0.1:%d", port)
-	vncConn, err := DialDesktopVNC("tcp", addr, 5*time.Second)
-	if err != nil {
-		owned := dm.cleanupSession(reservation)
-		log.Printf("desktop: failed to connect to VNC on port %d for session %s: %v", port, req.SessionID, err)
-		TerminateProcess(vncCmd)
-		TerminateProcess(xvfbCmd)
-		TerminateProcess(bootstrapCmd)
-		RemoveProcessLog(vncAuthFile)
-		if owned {
-			SendDesktopClosed(transport, req.SessionID, fmt.Sprintf("failed to connect to VNC: %v", err))
-		}
-		return
-	}
-
-	sess := &DesktopSession{
-		sessionID:    req.SessionID,
-		vncCmd:       vncCmd,
-		xvfbCmd:      xvfbCmd,
-		bootstrapCmd: bootstrapCmd,
-		vncConn:      vncConn,
-		vncAuthFile:  vncAuthFile,
-		port:         port,
-		done:         make(chan struct{}),
-	}
-
-	dm.Mu.Lock()
-	if current := dm.Sessions[req.SessionID]; current != reservation {
-		dm.Mu.Unlock()
-		_ = vncConn.Close()
-		TerminateProcess(vncCmd)
-		TerminateProcess(xvfbCmd)
-		TerminateProcess(bootstrapCmd)
-		RemoveProcessLog(vncAuthFile)
-		return
-	}
-	dm.Sessions[req.SessionID] = sess
-	dm.Mu.Unlock()
-
-	// Notify hub that desktop is ready.
-	SendDesktopStarted(transport, req.SessionID, req.Width, req.Height)
-
-	// Stream VNC output → hub.
-	go dm.streamVNCOutput(transport, sess)
-
-	// Monitor Xvfb process — close session if it exits unexpectedly.
-	if sess.xvfbCmd != nil {
-		go dm.watchXvfbExit(transport, sess)
-	}
-
-	log.Printf("desktop: session %s started on port %d", req.SessionID, port)
 }
 
 // handleDesktopData writes incoming VNC data to the local VNC connection.
@@ -164,7 +65,7 @@ func (dm *DesktopManager) HandleDesktopData(msg protocol.Message) {
 	dm.Mu.Lock()
 	sess, ok := dm.Sessions[payload.SessionID]
 	dm.Mu.Unlock()
-	if !ok || sess == nil || sess.vncConn == nil {
+	if !ok || sess == nil {
 		log.Printf("desktop: input data for unknown session %s", payload.SessionID)
 		return
 	}
@@ -175,29 +76,44 @@ func (dm *DesktopManager) HandleDesktopData(msg protocol.Message) {
 		return
 	}
 
-	if err := sess.vncConn.SetWriteDeadline(time.Now().Add(5 * time.Second)); err != nil {
-		dm.closeSessionResources(sess)
-		return
-	}
-	if _, writeErr := sess.vncConn.Write(decoded); writeErr != nil {
-		log.Printf("desktop: failed to write to VNC for session %s: %v", payload.SessionID, writeErr)
-		dm.closeSessionResources(sess)
+	if sess.inputWriter != nil {
+		_ = sess.inputWriter.Enqueue(decoded)
 	}
 }
 
 // handleDesktopClose terminates a desktop session.
 func (dm *DesktopManager) HandleDesktopClose(msg protocol.Message) {
-	var req protocol.DesktopCloseData
-	if err := json.Unmarshal(msg.Data, &req); err != nil {
-		return
+	if stop := dm.PrepareDesktopClose(msg); stop != nil {
+		stop()
 	}
+}
 
-	dm.cleanup(req.SessionID)
+func (dm *DesktopManager) PrepareDesktopClose(msg protocol.Message) func() {
+	var req protocol.DesktopCloseData
+	if json.Unmarshal(msg.Data, &req) != nil {
+		return nil
+	}
+	dm.Mu.Lock()
+	if pending := dm.pending[req.SessionID]; pending != nil {
+		pending.cancel()
+		delete(dm.pending, req.SessionID)
+	}
+	sess := dm.Sessions[req.SessionID]
+	delete(dm.Sessions, req.SessionID)
+	dm.Mu.Unlock()
+	if sess == nil {
+		return nil
+	}
+	return func() { dm.closeSessionResources(sess) }
 }
 
 // closeAll terminates all active desktop sessions (called on agent shutdown).
 func (dm *DesktopManager) CloseAll() {
 	dm.Mu.Lock()
+	for id, pending := range dm.pending {
+		pending.cancel()
+		delete(dm.pending, id)
+	}
 	sessions := make([]*DesktopSession, 0, len(dm.Sessions))
 	for _, sess := range dm.Sessions {
 		sessions = append(sessions, sess)
@@ -235,6 +151,7 @@ func (dm *DesktopManager) streamVNCOutput(transport MessageSender, sess *Desktop
 				ID:   sess.sessionID,
 				Data: data,
 			}); sendErr != nil {
+				// A failed Hub transport must not keep the VNC stream alive.
 				dm.cleanupSession(sess)
 				return
 			}
@@ -242,7 +159,7 @@ func (dm *DesktopManager) streamVNCOutput(transport MessageSender, sess *Desktop
 		if err != nil {
 			log.Printf("desktop: VNC stream ended for session %s after %d bytes %d frames: %v", sess.sessionID, totalBytes, frameCount, err)
 			if dm.cleanupSession(sess) {
-				SendDesktopClosed(transport, sess.sessionID, "VNC connection closed")
+				SendDesktopClosed(transport, sess.sessionID, sess.inputWriter.Reason("VNC connection closed"))
 			}
 			return
 		}
@@ -254,16 +171,22 @@ func (dm *DesktopManager) watchXvfbExit(transport MessageSender, sess *DesktopSe
 		return
 	}
 	_ = sess.xvfbCmd.Wait()
-	if dm.cleanupSession(sess) {
+	// Check if session is still active (not already cleaned up).
+	dm.Mu.Lock()
+	current, stillActive := dm.Sessions[sess.sessionID]
+	dm.Mu.Unlock()
+	if stillActive && current == sess {
 		log.Printf("desktop: Xvfb exited unexpectedly for session %s, closing", sess.sessionID)
-		SendDesktopClosed(transport, sess.sessionID, "Xvfb process exited unexpectedly")
+		if dm.cleanupSession(sess) {
+			SendDesktopClosed(transport, sess.sessionID, "Xvfb process exited unexpectedly")
+		}
 	}
 }
 
 func (dm *DesktopManager) cleanup(sessionID string) {
 	dm.Mu.Lock()
 	sess, ok := dm.Sessions[sessionID]
-	if ok && (sess == nil || sess.vncConn == nil) {
+	if ok {
 		delete(dm.Sessions, sessionID)
 	}
 	dm.Mu.Unlock()
@@ -272,18 +195,16 @@ func (dm *DesktopManager) cleanup(sessionID string) {
 	}
 }
 
-// cleanupSession removes only the stream that owns this session ID. A late
-// reader from a closed session must never close a newer session with the same ID.
+// cleanupSession prevents an old stream exit from deleting a replacement.
 func (dm *DesktopManager) cleanupSession(sess *DesktopSession) bool {
 	dm.Mu.Lock()
-	current := dm.Sessions[sess.sessionID]
-	removed := current == sess
-	if removed {
+	current := dm.Sessions[sess.sessionID] == sess
+	if current {
 		delete(dm.Sessions, sess.sessionID)
 	}
 	dm.Mu.Unlock()
 	dm.closeSessionResources(sess)
-	return removed
+	return current
 }
 
 func (dm *DesktopManager) closeSessionResources(sess *DesktopSession) {
@@ -291,6 +212,9 @@ func (dm *DesktopManager) closeSessionResources(sess *DesktopSession) {
 		return
 	}
 	sess.closeOnce.Do(func() {
+		if sess.inputWriter != nil {
+			_ = sess.inputWriter.Close()
+		}
 		if sess.vncConn != nil {
 			_ = sess.vncConn.Close()
 		}
