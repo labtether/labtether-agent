@@ -77,9 +77,6 @@ type stagedOutput struct {
 }
 
 func main() {
-	// Owner-requested signing pause. Remove only after explicit approval.
-	fmt.Fprintln(os.Stderr, "Code signing is paused by owner request (2026-09-05).")
-	os.Exit(1)
 	version := flag.String("version", "", "release version (e.g. v1.2.3)")
 	goos := flag.String("os", "", "target GOOS")
 	arch := flag.String("arch", "", "target GOARCH")
