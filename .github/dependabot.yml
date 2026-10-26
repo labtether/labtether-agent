@@ -1,6 +1,7 @@
 version: 2
 updates:
   - package-ecosystem: gomod
+    open-pull-requests-limit: 0
     directory: /
     schedule:
       interval: weekly
@@ -10,6 +11,7 @@ updates:
       go-minor-patch:
         update-types: [minor, patch]
   - package-ecosystem: github-actions
+    open-pull-requests-limit: 0
     directory: /
     schedule:
       interval: weekly
@@ -17,6 +19,7 @@ updates:
       default-days: 7
 
   - package-ecosystem: docker
+    open-pull-requests-limit: 0
     directory: /
     schedule:
       interval: weekly
