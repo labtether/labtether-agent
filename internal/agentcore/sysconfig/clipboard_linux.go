@@ -33,7 +33,6 @@ var (
 )
 
 var ClipboardLookPath = exec.LookPath
-var ClipboardNewCommand = securityruntime.NewCommand
 
 func buildLinuxClipboardEnv() []string {
 	return buildLinuxClipboardEnvForSession(detectLinuxClipboardSession())
@@ -102,15 +101,6 @@ func buildX11ClipboardEnv(display, xauthPath string) []string {
 	return result
 }
 
-func clipboardCommandOutput(env []string, name string, args ...string) ([]byte, error) {
-	cmd, err := ClipboardNewCommand(name, args...)
-	if err != nil {
-		return nil, err
-	}
-	cmd.Env = env
-	return securityruntime.CaptureOutput(cmd, securityruntime.DefaultCommandOutputLimit)
-}
-
 // PlatformClipboardRead reads the Linux clipboard using the native session tool.
 func PlatformClipboardRead(format string) (text string, imgBase64 string, err error) {
 	wantsImage := format == "image" || format == "image/png"
@@ -147,7 +137,7 @@ func PlatformClipboardRead(format string) (text string, imgBase64 string, err er
 		if wantsImage {
 			return "", base64.StdEncoding.EncodeToString(out), nil
 		}
-		return strings.TrimRight(string(out), "\n"), "", nil
+		return string(out), "", nil
 	}
 	if wantsImage {
 		return "", "", fmt.Errorf("image clipboard read requires xclip to be installed")
@@ -158,7 +148,7 @@ func PlatformClipboardRead(format string) (text string, imgBase64 string, err er
 		if err != nil {
 			return "", "", fmt.Errorf("xsel failed: %w", err)
 		}
-		return strings.TrimRight(string(out), "\n"), "", nil
+		return string(out), "", nil
 	}
 
 	return "", "", fmt.Errorf("clipboard read requires xclip or xsel to be installed")
@@ -178,7 +168,7 @@ func PlatformClipboardWriteText(text string) error {
 		}
 		cmd.Env = env
 		cmd.Stdin = strings.NewReader(text)
-		if err := cmd.Run(); err != nil {
+		if err := runClipboardCommand(cmd, clipboardCommandTimeout); err != nil {
 			return fmt.Errorf("wl-copy failed: %w", err)
 		}
 		return nil
@@ -192,7 +182,7 @@ func PlatformClipboardWriteText(text string) error {
 		}
 		cmd.Env = env
 		cmd.Stdin = strings.NewReader(text)
-		if err := cmd.Run(); err != nil {
+		if err := runClipboardCommand(cmd, clipboardCommandTimeout); err != nil {
 			return fmt.Errorf("xclip failed: %w", err)
 		}
 		return nil
@@ -205,7 +195,7 @@ func PlatformClipboardWriteText(text string) error {
 		}
 		cmd.Env = env
 		cmd.Stdin = strings.NewReader(text)
-		if err := cmd.Run(); err != nil {
+		if err := runClipboardCommand(cmd, clipboardCommandTimeout); err != nil {
 			return fmt.Errorf("xsel failed: %w", err)
 		}
 		return nil
@@ -241,7 +231,7 @@ func PlatformClipboardWriteImage(base64Data string) error {
 		}
 		cmd.Env = env
 		cmd.Stdin = bytes.NewReader(decoded)
-		if runErr := cmd.Run(); runErr != nil {
+		if runErr := runClipboardCommand(cmd, clipboardCommandTimeout); runErr != nil {
 			return fmt.Errorf("wl-copy failed: %w", runErr)
 		}
 		return nil
@@ -256,7 +246,7 @@ func PlatformClipboardWriteImage(base64Data string) error {
 	}
 	cmd.Env = env
 	cmd.Stdin = bytes.NewReader(decoded)
-	if runErr := cmd.Run(); runErr != nil {
+	if runErr := runClipboardCommand(cmd, clipboardCommandTimeout); runErr != nil {
 		return fmt.Errorf("xclip failed: %w", runErr)
 	}
 	return nil

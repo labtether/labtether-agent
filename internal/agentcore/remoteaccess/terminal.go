@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/creack/pty"
 
@@ -22,16 +23,20 @@ import (
 
 // TerminalSession tracks an active PTY shell session on the agent.
 type TerminalSession struct {
-	sessionID string
-	Ptmx      *os.File
-	input     io.WriteCloser
-	output    io.ReadCloser
-	cmd       *exec.Cmd
-	done      chan struct{}
-	closeOnce sync.Once
+	sessionID  string
+	Ptmx       *os.File
+	input      io.WriteCloser
+	output     io.ReadCloser
+	cmd        *exec.Cmd
+	done       chan struct{}
+	outputDone chan struct{}
+	closeOnce  sync.Once
 }
 
 const MaxTerminalSessions = 10
+const terminalOutputDrainTimeout = 2 * time.Second
+
+var StartTerminalPTY = pty.StartWithSize
 
 // TerminalManager manages PTY sessions on the agent.
 type TerminalManager struct {
@@ -85,7 +90,15 @@ func (tm *TerminalManager) HandleTerminalStart(transport MessageSender, msg prot
 		log.Printf("terminal: session %s already exists", req.SessionID)
 		return
 	}
+	reservation := &TerminalSession{sessionID: req.SessionID}
+	tm.Sessions[req.SessionID] = reservation
 	tm.Mu.Unlock()
+	defer tm.removeReservation(reservation)
+	failStart := func(reason string) {
+		if tm.removeReservation(reservation) {
+			SendTerminalClosed(transport, req.SessionID, reason)
+		}
+	}
 
 	// Find a shell
 	shell := req.Shell
@@ -113,7 +126,7 @@ func (tm *TerminalManager) HandleTerminalStart(transport MessageSender, msg prot
 			cmd, err = securityruntime.NewCommand(tmuxPath, "new-session", "-A", "-s", req.TmuxSession)
 			if err != nil {
 				log.Printf("terminal: tmux command blocked by runtime policy for session %s: %v", req.SessionID, err)
-				SendTerminalClosed(transport, req.SessionID, "failed to start tmux: "+err.Error())
+				failStart("failed to start tmux: " + err.Error())
 				return
 			}
 			tmuxAttached = true
@@ -122,7 +135,7 @@ func (tm *TerminalManager) HandleTerminalStart(transport MessageSender, msg prot
 			cmd, err = securityruntime.NewCommand(shell)
 			if err != nil {
 				log.Printf("terminal: shell command blocked by runtime policy for session %s: %v", req.SessionID, err)
-				SendTerminalClosed(transport, req.SessionID, "failed to start shell: "+err.Error())
+				failStart("failed to start shell: " + err.Error())
 				return
 			}
 		}
@@ -130,15 +143,15 @@ func (tm *TerminalManager) HandleTerminalStart(transport MessageSender, msg prot
 		cmd, err = securityruntime.NewCommand(shell)
 		if err != nil {
 			log.Printf("terminal: shell command blocked by runtime policy for session %s: %v", req.SessionID, err)
-			SendTerminalClosed(transport, req.SessionID, "failed to start shell: "+err.Error())
+			failStart("failed to start shell: " + err.Error())
 			return
 		}
 	}
 	cmd.Env = append(securityruntime.SanitizedChildEnv(), "TERM=xterm-256color")
 
-	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{
-		Cols: uint16(cols),
-		Rows: uint16(rows),
+	ptmx, err := StartTerminalPTY(cmd, &pty.Winsize{
+		Cols: ClampUint16(cols),
+		Rows: ClampUint16(rows),
 	})
 	var input io.WriteCloser
 	var output io.ReadCloser
@@ -152,20 +165,29 @@ func (tm *TerminalManager) HandleTerminalStart(transport MessageSender, msg prot
 	}
 	if err != nil {
 		log.Printf("terminal: failed to start PTY for session %s: %v", req.SessionID, err)
-		SendTerminalClosed(transport, req.SessionID, "failed to start shell: "+err.Error())
+		failStart("failed to start shell: " + err.Error())
 		return
 	}
 
 	sess := &TerminalSession{
-		sessionID: req.SessionID,
-		Ptmx:      ptmx,
-		input:     input,
-		output:    output,
-		cmd:       cmd,
-		done:      make(chan struct{}),
+		sessionID:  req.SessionID,
+		Ptmx:       ptmx,
+		input:      input,
+		output:     output,
+		cmd:        cmd,
+		done:       make(chan struct{}),
+		outputDone: make(chan struct{}),
 	}
 
 	tm.Mu.Lock()
+	if tm.Sessions[req.SessionID] != reservation {
+		tm.Mu.Unlock()
+		sess.terminate()
+		if pipeProcessDone == nil {
+			_ = cmd.Wait()
+		}
+		return
+	}
 	tm.Sessions[req.SessionID] = sess
 	tm.Mu.Unlock()
 
@@ -178,13 +200,15 @@ func (tm *TerminalManager) HandleTerminalStart(transport MessageSender, msg prot
 	// streamOutput is still reading causes "file already closed" errors
 	// and loses any buffered output, which breaks large-output tests.
 	go func() {
+		defer close(sess.outputDone)
 		tm.streamOutput(transport, sess)
-		tm.cleanup(req.SessionID)
-		SendTerminalClosed(transport, req.SessionID, "shell exited")
+		if tm.cleanupSession(sess) {
+			SendTerminalClosed(transport, req.SessionID, "shell exited")
+		}
 	}()
 
-	// Observe process exit for lifecycle signalling only. Do NOT close
-	// the PTY here — streamOutput owns that.
+	// Wait for process exit, preserving normal final output before bounding
+	// a descendant that keeps the terminal open after its shell has exited.
 	go func() {
 		if pipeProcessDone != nil {
 			_ = <-pipeProcessDone
@@ -192,6 +216,13 @@ func (tm *TerminalManager) HandleTerminalStart(transport MessageSender, msg prot
 			_ = cmd.Wait()
 		}
 		close(sess.done)
+		select {
+		case <-sess.outputDone:
+		case <-time.After(terminalOutputDrainTimeout):
+			// A background child may retain the slave PTY after the shell exits.
+			// Give normal output time to drain, then release the orphaned stream.
+			sess.close()
+		}
 	}()
 }
 
@@ -214,7 +245,7 @@ func (tm *TerminalManager) HandleTerminalData(msg protocol.Message) {
 		return
 	}
 
-	_, _ = sess.write(decoded)
+	_, _ = sess.writeWithTimeout(decoded, 5*time.Second)
 }
 
 // HandleTerminalResize changes the PTY window size.
@@ -263,11 +294,12 @@ func (tm *TerminalManager) HandleTerminalClose(msg protocol.Message) {
 		return
 	}
 
-	// Close terminal I/O — this will cause the shell process to exit.
-	sess.close()
-	if sess.cmd.Process != nil {
-		_ = sess.cmd.Process.Kill()
+	if sess.cmd == nil {
+		tm.removeReservation(sess)
+		return
 	}
+	// Keep the active slot until its output reader sends the close event.
+	sess.terminate()
 }
 
 func (tm *TerminalManager) HandleTerminalTmuxKill(transport MessageSender, msg protocol.Message) {
@@ -360,134 +392,6 @@ func (tm *TerminalManager) HandleTerminalTmuxKill(transport MessageSender, msg p
 		return
 	}
 	sendResult("succeeded", TruncateCommandOutput(output, MaxCommandOutputBytes))
-}
-
-// CloseAll terminates all active sessions (called on agent shutdown).
-func (tm *TerminalManager) CloseAll() {
-	tm.Mu.Lock()
-	defer tm.Mu.Unlock()
-	for id, sess := range tm.Sessions {
-		sess.close()
-		if sess.cmd.Process != nil {
-			_ = sess.cmd.Process.Kill()
-		}
-		delete(tm.Sessions, id)
-	}
-}
-
-// streamOutput reads from the PTY and sends output to the hub.
-func (tm *TerminalManager) streamOutput(transport MessageSender, sess *TerminalSession) {
-	buf := make([]byte, 4096)
-	for {
-		n, err := sess.read(buf)
-		if n > 0 {
-			encoded := base64.StdEncoding.EncodeToString(buf[:n])
-			data, _ := json.Marshal(protocol.TerminalDataPayload{
-				SessionID: sess.sessionID,
-				Data:      encoded,
-			})
-			_ = transport.Send(protocol.Message{
-				Type: protocol.MsgTerminalData,
-				ID:   sess.sessionID,
-				Data: data,
-			})
-		}
-		if err != nil {
-			if err != io.EOF {
-				log.Printf("terminal: read error for session %s: %v", sess.sessionID, err)
-			}
-			return
-		}
-	}
-}
-
-func (tm *TerminalManager) cleanup(sessionID string) {
-	tm.Mu.Lock()
-	defer tm.Mu.Unlock()
-	if sess, ok := tm.Sessions[sessionID]; ok {
-		sess.close()
-		delete(tm.Sessions, sessionID)
-	}
-}
-
-func startPipeBackedTerminal(cmd *exec.Cmd) (io.WriteCloser, io.ReadCloser, <-chan error, error) {
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		_ = stdin.Close()
-		return nil, nil, nil, err
-	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		_ = stdin.Close()
-		_ = stdout.Close()
-		return nil, nil, nil, err
-	}
-	combinedReader, combinedWriter := io.Pipe()
-	if err := cmd.Start(); err != nil {
-		_ = stdin.Close()
-		_ = stdout.Close()
-		_ = stderr.Close()
-		_ = combinedReader.Close()
-		_ = combinedWriter.Close()
-		return nil, nil, nil, err
-	}
-
-	var copies sync.WaitGroup
-	copies.Add(2)
-	copyStream := func(source io.ReadCloser) {
-		defer copies.Done()
-		defer source.Close()
-		_, _ = io.Copy(combinedWriter, source)
-	}
-	go copyStream(stdout)
-	go copyStream(stderr)
-	processDone := make(chan error, 1)
-	go func() {
-		copies.Wait()
-		_ = combinedWriter.Close()
-		processDone <- cmd.Wait()
-		close(processDone)
-	}()
-
-	return stdin, combinedReader, processDone, nil
-}
-
-func (s *TerminalSession) read(buf []byte) (int, error) {
-	if s.Ptmx != nil {
-		return s.Ptmx.Read(buf)
-	}
-	if s.output == nil {
-		return 0, io.EOF
-	}
-	return s.output.Read(buf)
-}
-
-func (s *TerminalSession) write(data []byte) (int, error) {
-	if s.Ptmx != nil {
-		return s.Ptmx.Write(data)
-	}
-	if s.input == nil {
-		return 0, io.ErrClosedPipe
-	}
-	return s.input.Write(data)
-}
-
-func (s *TerminalSession) close() {
-	s.closeOnce.Do(func() {
-		if s.Ptmx != nil {
-			_ = s.Ptmx.Close()
-		}
-		if s.input != nil {
-			_ = s.input.Close()
-		}
-		if s.output != nil {
-			_ = s.output.Close()
-		}
-	})
 }
 
 func sendTerminalStartedWithTmux(transport MessageSender, sessionID string, tmuxAttached bool) {

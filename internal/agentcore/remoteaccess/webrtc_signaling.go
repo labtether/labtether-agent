@@ -121,8 +121,7 @@ func (wm *WebRTCManager) HandleWebRTCInput(msg protocol.Message) {
 	if !ok {
 		return
 	}
-	select {
-	case sess.inputCh <- WebRTCInputEvent{
+	sess.queueInputEvent(WebRTCInputEvent{
 		Type:    strings.TrimSpace(data.Type),
 		KeyCode: data.KeyCode,
 		Code:    strings.TrimSpace(data.Code),
@@ -131,9 +130,7 @@ func (wm *WebRTCManager) HandleWebRTCInput(msg protocol.Message) {
 		Y:       data.Y,
 		Button:  data.Button,
 		DeltaY:  data.DeltaY,
-	}:
-	default:
-	}
+	})
 }
 
 func (wm *WebRTCManager) handleClipboardDataChannelMessage(dc *webrtc.DataChannel, msg webrtc.DataChannelMessage) {

@@ -87,6 +87,7 @@ func (lm *LogManager) Start(ctx context.Context, transport MessageSender) {
 					return
 				}
 				if transport == nil || !transport.Connected() {
+					clear(batch)
 					batch = batch[:0]
 					flushAt = time.Now().Add(logBatchMaxAge)
 					return
@@ -97,6 +98,7 @@ func (lm *LogManager) Start(ctx context.Context, transport MessageSender) {
 				})
 				if err != nil {
 					log.Printf("logmgr: failed to marshal log batch: %v", err)
+					clear(batch)
 					batch = batch[:0]
 					flushAt = time.Now().Add(logBatchMaxAge)
 					return
@@ -105,6 +107,7 @@ func (lm *LogManager) Start(ctx context.Context, transport MessageSender) {
 					Type: protocol.MsgLogBatch,
 					Data: data,
 				})
+				clear(batch)
 				batch = batch[:0]
 				flushAt = time.Now().Add(logBatchMaxAge)
 			}

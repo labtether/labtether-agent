@@ -32,6 +32,7 @@ type DesktopSession struct {
 	vncAuthFile    string
 	port           int
 	done           chan struct{}
+	closeOnce      sync.Once
 	ManagedDisplay string // non-empty if display lifecycle is owned by DisplayManager
 }
 
@@ -77,7 +78,8 @@ func (dm *DesktopManager) HandleDesktopStart(transport MessageSender, msg protoc
 		return
 	}
 	// Reserve slot to make session-limit check atomic across concurrent starts.
-	dm.Sessions[req.SessionID] = nil
+	reservation := &DesktopSession{sessionID: req.SessionID, done: make(chan struct{})}
+	dm.Sessions[req.SessionID] = reservation
 	dm.Mu.Unlock()
 
 	display := req.Display
@@ -89,13 +91,11 @@ func (dm *DesktopManager) HandleDesktopStart(transport MessageSender, msg protoc
 	// Start VNC server.
 	vncCmd, xvfbCmd, bootstrapCmd, port, vncAuthFile, err := StartDesktopVNCServer(display, quality, req.VNCPassword)
 	if err != nil {
-		dm.Mu.Lock()
-		if current, exists := dm.Sessions[req.SessionID]; exists && current == nil {
-			delete(dm.Sessions, req.SessionID)
-		}
-		dm.Mu.Unlock()
+		owned := dm.cleanupSession(reservation)
 		log.Printf("desktop: failed to start VNC server for session %s: %v", req.SessionID, err)
-		SendDesktopClosed(transport, req.SessionID, fmt.Sprintf("failed to start VNC: %v", err))
+		if owned {
+			SendDesktopClosed(transport, req.SessionID, fmt.Sprintf("failed to start VNC: %v", err))
+		}
 		return
 	}
 
@@ -103,17 +103,15 @@ func (dm *DesktopManager) HandleDesktopStart(transport MessageSender, msg protoc
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
 	vncConn, err := DialDesktopVNC("tcp", addr, 5*time.Second)
 	if err != nil {
-		dm.Mu.Lock()
-		if current, exists := dm.Sessions[req.SessionID]; exists && current == nil {
-			delete(dm.Sessions, req.SessionID)
-		}
-		dm.Mu.Unlock()
+		owned := dm.cleanupSession(reservation)
 		log.Printf("desktop: failed to connect to VNC on port %d for session %s: %v", port, req.SessionID, err)
 		TerminateProcess(vncCmd)
 		TerminateProcess(xvfbCmd)
 		TerminateProcess(bootstrapCmd)
 		RemoveProcessLog(vncAuthFile)
-		SendDesktopClosed(transport, req.SessionID, fmt.Sprintf("failed to connect to VNC: %v", err))
+		if owned {
+			SendDesktopClosed(transport, req.SessionID, fmt.Sprintf("failed to connect to VNC: %v", err))
+		}
 		return
 	}
 
@@ -129,14 +127,13 @@ func (dm *DesktopManager) HandleDesktopStart(transport MessageSender, msg protoc
 	}
 
 	dm.Mu.Lock()
-	if _, stillReserved := dm.Sessions[req.SessionID]; !stillReserved {
+	if current := dm.Sessions[req.SessionID]; current != reservation {
 		dm.Mu.Unlock()
 		_ = vncConn.Close()
 		TerminateProcess(vncCmd)
 		TerminateProcess(xvfbCmd)
 		TerminateProcess(bootstrapCmd)
 		RemoveProcessLog(vncAuthFile)
-		SendDesktopClosed(transport, req.SessionID, "desktop session cancelled during startup")
 		return
 	}
 	dm.Sessions[req.SessionID] = sess
@@ -167,7 +164,7 @@ func (dm *DesktopManager) HandleDesktopData(msg protocol.Message) {
 	dm.Mu.Lock()
 	sess, ok := dm.Sessions[payload.SessionID]
 	dm.Mu.Unlock()
-	if !ok {
+	if !ok || sess == nil || sess.vncConn == nil {
 		log.Printf("desktop: input data for unknown session %s", payload.SessionID)
 		return
 	}
@@ -178,8 +175,13 @@ func (dm *DesktopManager) HandleDesktopData(msg protocol.Message) {
 		return
 	}
 
+	if err := sess.vncConn.SetWriteDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		dm.closeSessionResources(sess)
+		return
+	}
 	if _, writeErr := sess.vncConn.Write(decoded); writeErr != nil {
 		log.Printf("desktop: failed to write to VNC for session %s: %v", payload.SessionID, writeErr)
+		dm.closeSessionResources(sess)
 	}
 }
 
@@ -228,16 +230,20 @@ func (dm *DesktopManager) streamVNCOutput(transport MessageSender, sess *Desktop
 				SessionID: sess.sessionID,
 				Data:      encoded,
 			})
-			_ = transport.Send(protocol.Message{
+			if sendErr := transport.Send(protocol.Message{
 				Type: protocol.MsgDesktopData,
 				ID:   sess.sessionID,
 				Data: data,
-			})
+			}); sendErr != nil {
+				dm.cleanupSession(sess)
+				return
+			}
 		}
 		if err != nil {
 			log.Printf("desktop: VNC stream ended for session %s after %d bytes %d frames: %v", sess.sessionID, totalBytes, frameCount, err)
-			dm.cleanup(sess.sessionID)
-			SendDesktopClosed(transport, sess.sessionID, "VNC connection closed")
+			if dm.cleanupSession(sess) {
+				SendDesktopClosed(transport, sess.sessionID, "VNC connection closed")
+			}
 			return
 		}
 	}
@@ -248,13 +254,8 @@ func (dm *DesktopManager) watchXvfbExit(transport MessageSender, sess *DesktopSe
 		return
 	}
 	_ = sess.xvfbCmd.Wait()
-	// Check if session is still active (not already cleaned up).
-	dm.Mu.Lock()
-	_, stillActive := dm.Sessions[sess.sessionID]
-	dm.Mu.Unlock()
-	if stillActive {
+	if dm.cleanupSession(sess) {
 		log.Printf("desktop: Xvfb exited unexpectedly for session %s, closing", sess.sessionID)
-		dm.cleanup(sess.sessionID)
 		SendDesktopClosed(transport, sess.sessionID, "Xvfb process exited unexpectedly")
 	}
 }
@@ -262,7 +263,7 @@ func (dm *DesktopManager) watchXvfbExit(transport MessageSender, sess *DesktopSe
 func (dm *DesktopManager) cleanup(sessionID string) {
 	dm.Mu.Lock()
 	sess, ok := dm.Sessions[sessionID]
-	if ok {
+	if ok && (sess == nil || sess.vncConn == nil) {
 		delete(dm.Sessions, sessionID)
 	}
 	dm.Mu.Unlock()
@@ -271,24 +272,40 @@ func (dm *DesktopManager) cleanup(sessionID string) {
 	}
 }
 
+// cleanupSession removes only the stream that owns this session ID. A late
+// reader from a closed session must never close a newer session with the same ID.
+func (dm *DesktopManager) cleanupSession(sess *DesktopSession) bool {
+	dm.Mu.Lock()
+	current := dm.Sessions[sess.sessionID]
+	removed := current == sess
+	if removed {
+		delete(dm.Sessions, sess.sessionID)
+	}
+	dm.Mu.Unlock()
+	dm.closeSessionResources(sess)
+	return removed
+}
+
 func (dm *DesktopManager) closeSessionResources(sess *DesktopSession) {
 	if sess == nil {
 		return
 	}
-	_ = sess.vncConn.Close()
-	TerminateProcess(sess.vncCmd)
-	if sess.ManagedDisplay != "" && dm.DisplayMgr != nil {
-		dm.DisplayMgr.release(sess.ManagedDisplay)
-	} else {
-		TerminateProcess(sess.xvfbCmd)
-	}
-	TerminateProcess(sess.bootstrapCmd)
-	RemoveProcessLog(sess.vncAuthFile)
-	select {
-	case <-sess.done:
-	default:
-		close(sess.done)
-	}
+	sess.closeOnce.Do(func() {
+		if sess.vncConn != nil {
+			_ = sess.vncConn.Close()
+		}
+		TerminateProcess(sess.vncCmd)
+		if sess.ManagedDisplay != "" && dm.DisplayMgr != nil {
+			dm.DisplayMgr.release(sess.ManagedDisplay)
+		} else {
+			TerminateProcess(sess.xvfbCmd)
+		}
+		TerminateProcess(sess.bootstrapCmd)
+		RemoveProcessLog(sess.vncAuthFile)
+		if sess.done != nil {
+			close(sess.done)
+		}
+	})
 }
 
 func TerminateProcess(cmd *exec.Cmd) {

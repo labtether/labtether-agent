@@ -207,6 +207,19 @@ func (wm *WebRTCManager) HandleWebRTCStart(transport MessageSender, msg protocol
 		WakeX11Display(display, xauthPath)
 	}
 
+	width, height, fps := normalizeWebRTCSessionVideoSettings(req, webrtcCfg)
+	geometry := webRTCCaptureGeometry{videoWidth: width, videoHeight: height}
+	if sessionInfo.Type != DesktopSessionTypeWayland {
+		sourceWidth, sourceHeight, geometryErr := ReadWebRTCCaptureGeometry(ctx, display, xauthPath)
+		if geometryErr != nil {
+			log.Printf("webrtc: input scaling unavailable session=%s: %v", req.SessionID, geometryErr)
+		} else {
+			geometry.sourceWidth, geometry.sourceHeight = sourceWidth, sourceHeight
+			width, height = fitWebRTCVideoSize(sourceWidth, sourceHeight, width, height)
+			geometry.videoWidth, geometry.videoHeight = width, height
+		}
+	}
+
 	sess := &WebRTCSession{
 		sessionID:      req.SessionID,
 		pc:             pc,
@@ -223,6 +236,7 @@ func (wm *WebRTCManager) HandleWebRTCStart(transport MessageSender, msg protocol
 		desktopBackend: strings.TrimSpace(wm.caps.DesktopBackend),
 		sessionInfo:    sessionInfo,
 		inputBackend:   strings.TrimSpace(strings.ToLower(webrtcCfg.WaylandInputBackend)),
+		inputGeometry:  geometry,
 	}
 	if sess.inputBackend == "" {
 		sess.inputBackend = "auto"
@@ -246,10 +260,7 @@ func (wm *WebRTCManager) HandleWebRTCStart(transport MessageSender, msg protocol
 				if err != nil {
 					return
 				}
-				select {
-				case sess.inputCh <- evt:
-				default:
-				}
+				sess.queueInputEvent(evt)
 			})
 		case "clipboard":
 			dc.OnMessage(func(msg webrtc.DataChannelMessage) {
@@ -329,7 +340,6 @@ func (wm *WebRTCManager) HandleWebRTCStart(transport MessageSender, msg protocol
 			}
 		}
 	})
-	width, height, fps := normalizeWebRTCSessionVideoSettings(req, webrtcCfg)
 	videoBitrate := WebRTCVideoBitrateForQuality(req.Quality)
 
 	videoPipeline := BuildGStreamerVideoPipeline(GstPipelineConfig{

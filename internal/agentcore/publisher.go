@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -21,16 +23,24 @@ func NewHeartbeatPublisher(cfg RuntimeConfig, staticMetadata map[string]string) 
 }
 
 func newHeartbeatPublisherWithRuntimeIdentity(cfg RuntimeConfig, staticMetadata map[string]string, identity *runtimeIdentitySource) HeartbeatPublisher {
-	transport := &http.Transport{}
+	transport := &http.Transport{
+		MaxIdleConns:        2,
+		MaxIdleConnsPerHost: 1,
+		IdleConnTimeout:     90 * time.Second,
+	}
 	if tlsCfg := buildTLSConfig(&cfg); tlsCfg != nil {
 		transport.TLSClientConfig = tlsCfg
 	}
+	scheme := "https"
+	if endpoint, err := url.Parse(cfg.APIBaseURL); err == nil && endpoint.Scheme != "" {
+		scheme = endpoint.Scheme
+	}
 
 	return &apiHeartbeatPublisher{
-		client: &http.Client{
+		client: securityruntime.NewReusableOutboundHTTPClient(&http.Client{
 			Timeout:   6 * time.Second,
 			Transport: transport,
-		},
+		}, scheme),
 		source:   cfg.Source,
 		meta:     cloneStringMap(staticMetadata),
 		identity: identity,
@@ -98,6 +108,9 @@ func (p *apiHeartbeatPublisher) Publish(ctx context.Context, sample TelemetrySam
 		return fmt.Errorf("send heartbeat: %w", err)
 	}
 	defer resp.Body.Close()
+	// Read normal small acknowledgements so Go 1.26 can reuse the connection.
+	// A large or stalled response remains bounded by this cap and client timeout.
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64*1024))
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("heartbeat rejected with status %d", resp.StatusCode)

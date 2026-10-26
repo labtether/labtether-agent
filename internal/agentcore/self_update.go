@@ -127,7 +127,7 @@ func checkAndApplySelfUpdateWithOptions(cfg RuntimeConfig, opts selfUpdateOption
 		return false, "agent is already up to date", nil
 	}
 
-	binaryBytes, err := downloadReleaseBinary(cfg, checkURL, downloadURL, release.SizeBytes)
+	binaryBytes, err := downloadReleaseBinary(cfg, downloadURL, release.SizeBytes)
 	if err != nil {
 		return false, "", fmt.Errorf("download release binary: %w", err)
 	}
@@ -225,7 +225,7 @@ func fetchReleaseMetadata(cfg RuntimeConfig, endpoint string) (agentReleaseMetad
 	if err != nil {
 		return agentReleaseMetadata{}, err
 	}
-	if token := strings.TrimSpace(cfg.APIToken); token != "" && shouldAttachUpdateMetadataToken(cfg, requestURL.String()) {
+	if token := strings.TrimSpace(cfg.APIToken); token != "" && shouldAttachUpdateToken(cfg, requestURL.String()) {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
 	resp, err := securityruntime.DoOutboundRequest(client, req)
@@ -262,13 +262,13 @@ func fetchReleaseMetadata(cfg RuntimeConfig, endpoint string) (agentReleaseMetad
 	return payload, nil
 }
 
-func downloadReleaseBinary(cfg RuntimeConfig, checkURL, absoluteURL string, expectedSize int64) ([]byte, error) {
+func downloadReleaseBinary(cfg RuntimeConfig, absoluteURL string, expectedSize int64) ([]byte, error) {
 	client := newSelfUpdateHTTPClient(cfg)
 	req, err := securityruntime.NewOutboundRequestWithContext(context.Background(), http.MethodGet, absoluteURL, nil)
 	if err != nil {
 		return nil, err
 	}
-	if token := strings.TrimSpace(cfg.APIToken); token != "" && shouldAttachUpdateToken(checkURL, absoluteURL) {
+	if token := strings.TrimSpace(cfg.APIToken); token != "" && shouldAttachUpdateToken(cfg, absoluteURL) {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
 	resp, err := securityruntime.DoOutboundRequest(client, req)
@@ -349,11 +349,8 @@ func newSelfUpdateHTTPClient(cfg RuntimeConfig) *http.Client {
 	}
 }
 
-func shouldAttachUpdateToken(checkURL, downloadURL string) bool {
-	return sameOrigin(checkURL, downloadURL)
-}
-
-func shouldAttachUpdateMetadataToken(cfg RuntimeConfig, endpoint string) bool {
+func shouldAttachUpdateToken(cfg RuntimeConfig, endpoint string) bool {
+	// A custom update source never changes the audience of the Hub credential.
 	canonicalConfig := cfg
 	canonicalConfig.AutoUpdateCheckURL = ""
 	canonicalEndpoint := buildAgentReleaseCheckURL(canonicalConfig)

@@ -5,7 +5,6 @@ import (
 	"github.com/labtether/protocol"
 	"log"
 	"sort"
-	"strings"
 	"time"
 )
 
@@ -60,16 +59,13 @@ func (dc *DockerCollector) collectAndSendStats(ctx context.Context) {
 	}
 
 	now := time.Now()
-	runningIDs := dc.currentRunningContainerIDs()
-	runningHash := strings.Join(runningIDs, ",")
-	runningSet := make(map[string]struct{}, len(runningIDs))
-	for _, containerID := range runningIDs {
-		runningSet[containerID] = struct{}{}
-	}
+	running := dc.runningContainerSnapshot()
+	runningIDs := running.ids
+	runningHash := running.hash
 
 	dc.statsMu.Lock()
 	for id := range dc.statsSchedule {
-		if _, ok := runningSet[id]; !ok {
+		if _, ok := running.set[id]; !ok {
 			delete(dc.statsSchedule, id)
 		}
 	}
@@ -80,17 +76,25 @@ func (dc *DockerCollector) collectAndSendStats(ctx context.Context) {
 		}
 	}
 	var due []string
-	for _, id := range runningIDs {
+	start := sort.SearchStrings(runningIDs, dc.statsCursor)
+	if start < len(runningIDs) && runningIDs[start] == dc.statsCursor {
+		start++
+	}
+	for offset := range len(runningIDs) {
+		id := runningIDs[(start+offset)%len(runningIDs)]
 		schedule := dc.statsSchedule[id]
 		if schedule == nil {
 			continue
 		}
-		if !schedule.hasSample || !now.Before(schedule.nextSample) {
+		if !now.Before(schedule.nextSample) {
 			due = append(due, id)
+			if len(due) == dockerStatsMaxSamplesTick {
+				break
+			}
 		}
 	}
-	if len(due) > dockerStatsMaxSamplesTick {
-		due = due[:dockerStatsMaxSamplesTick]
+	if len(due) > 0 {
+		dc.statsCursor = due[len(due)-1]
 	}
 	dc.statsMu.Unlock()
 
@@ -120,6 +124,12 @@ func (dc *DockerCollector) collectAndSendStats(ctx context.Context) {
 	}
 
 	dc.statsMu.Lock()
+	shouldSend := sampled > 0 || runningHash != dc.lastRunningSetHash || (len(runningIDs) > 0 && now.Sub(dc.lastStatsPublish) >= dc.interval)
+	if !shouldSend {
+		dc.statsMu.Unlock()
+		return
+	}
+	// runningIDs is already sorted. Build the payload only when it will be sent.
 	payloadStats := make([]protocol.DockerContainerStats, 0, len(runningIDs))
 	for _, containerID := range runningIDs {
 		schedule := dc.statsSchedule[containerID]
@@ -127,15 +137,7 @@ func (dc *DockerCollector) collectAndSendStats(ctx context.Context) {
 			payloadStats = append(payloadStats, schedule.lastStats)
 		}
 	}
-	sort.Slice(payloadStats, func(i, j int) bool {
-		return payloadStats[i].ID < payloadStats[j].ID
-	})
-	shouldSend := sampled > 0 || runningHash != dc.lastRunningSetHash || (len(runningIDs) > 0 && now.Sub(dc.lastStatsPublish) >= dc.interval)
 	dc.statsMu.Unlock()
-
-	if !shouldSend {
-		return
-	}
 
 	payload := protocol.DockerStatsData{HostID: dc.currentAssetID(), Containers: payloadStats}
 	if err := dc.sendDockerMessage(protocol.MsgDockerStats, payload); err != nil {

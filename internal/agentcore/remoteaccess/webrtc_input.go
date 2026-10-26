@@ -9,6 +9,7 @@ import (
 	"log"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type WebRTCInputEvent struct {
@@ -23,7 +24,12 @@ type WebRTCInputEvent struct {
 }
 
 func InjectInputEvents(ctx context.Context, ch <-chan WebRTCInputEvent, display, xauthPath string, sess *WebRTCSession) {
+	pressed := &webRTCPressedInput{}
+	defer pressed.release(display, xauthPath, sess)
 	for {
+		if ctx.Err() != nil {
+			return
+		}
 		select {
 		case <-ctx.Done():
 			return
@@ -31,7 +37,15 @@ func InjectInputEvents(ctx context.Context, ch <-chan WebRTCInputEvent, display,
 			if !ok {
 				return
 			}
-			if err := InjectSingleInput(evt, display, xauthPath, sess); err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			// Remember downs before injection, so a partial command failure still
+			// gets a best-effort release. Remove releases only after success.
+			if eventType := strings.ToLower(strings.TrimSpace(evt.Type)); eventType == "keydown" || eventType == "mousedown" {
+				pressed.observe(evt)
+			}
+			if err := injectOwnedWebRTCInput(ctx, evt, display, xauthPath, sess); err != nil {
 				sessionID := ""
 				backend := DesktopBackendX11
 				if sess != nil {
@@ -45,7 +59,12 @@ func InjectInputEvents(ctx context.Context, ch <-chan WebRTCInputEvent, display,
 					ValueOrDash(strings.TrimSpace(strings.ToLower(evt.Type))),
 					err,
 				)
+				if sess != nil {
+					sess.close("input injection failed")
+				}
+				return
 			}
+			pressed.observe(evt)
 		}
 	}
 }
@@ -99,7 +118,14 @@ func InjectSingleInput(evt WebRTCInputEvent, display, xauthPath string, sess *We
 		}
 		return fmt.Errorf("unsupported X11 keyup event")
 	case "mousemove":
-		return run("mousemove", "--screen", "0", strconv.Itoa(evt.X), strconv.Itoa(evt.Y))
+		if sess != nil {
+			evt = sess.inputGeometry.mapInput(evt)
+		}
+		screen := "0"
+		if _, selected, ok := strings.Cut(NormalizeX11DisplayIdentifier(display), "."); ok {
+			screen = selected
+		}
+		return run("mousemove", "--screen", screen, strconv.Itoa(evt.X), strconv.Itoa(evt.Y))
 	case "mousedown":
 		return run("mousedown", strconv.Itoa(evt.Button+1))
 	case "mouseup":
@@ -125,7 +151,16 @@ func RunWebRTCInputCommand(name string, env []string, args ...string) error {
 		return fmt.Errorf("build %s input command: %w", name, err)
 	}
 	cmd.Env = env
-	out, runErr := securityruntime.CaptureCombinedOutput(cmd, securityruntime.DefaultCommandOutputLimit)
+	output := securityruntime.NewCappedRetainingWriter(64 * 1024)
+	cmd.Stdout, cmd.Stderr = output, output
+	cmd.WaitDelay = 500 * time.Millisecond
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("start %s input command: %w", name, err)
+	}
+	watchdog := time.AfterFunc(2*time.Second, func() { _ = cmd.Process.Kill() })
+	runErr := cmd.Wait()
+	watchdog.Stop()
+	out := output.Bytes()
 	if runErr == nil {
 		return nil
 	}

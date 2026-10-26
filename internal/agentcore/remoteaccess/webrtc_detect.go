@@ -327,8 +327,8 @@ func BuildGStreamerVideoPipeline(cfg GstPipelineConfig) string {
 
 	return fmt.Sprintf(
 		"ximagesrc display-name=%s use-damage=false show-pointer=true ! "+
-			"video/x-raw,framerate=%d/1 ! videoconvert ! videoscale ! "+
-			"video/x-raw,width=%d,height=%d ! %s ! %s pt=96 ! "+
+			"video/x-raw,framerate=%d/1 ! videoconvert ! videoscale add-borders=false ! "+
+			"video/x-raw,width=%d,height=%d,pixel-aspect-ratio=1/1 ! %s ! %s pt=96 ! "+
 			"udpsink host=127.0.0.1 port=%d sync=false async=false",
 		display, fps, width, height, encoder, rtpPayloader, cfg.rtpPort,
 	)

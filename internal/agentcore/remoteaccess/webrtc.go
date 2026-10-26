@@ -35,6 +35,7 @@ type WebRTCSession struct {
 	desktopBackend string
 	sessionInfo    DesktopSessionInfo
 	inputBackend   string
+	inputGeometry  webRTCCaptureGeometry
 }
 
 const MaxWebRTCSessions = 10
@@ -86,7 +87,9 @@ func (s *WebRTCSession) close(reason string) {
 		}
 		RemoveProcessLog(videoLogPath)
 		RemoveProcessLog(audioLogPath)
-		close(s.done)
+		if s.done != nil {
+			close(s.done)
+		}
 	})
 }
 

@@ -69,8 +69,7 @@ func StartVNCServer(display, quality, vncPassword string) (*exec.Cmd, *exec.Cmd,
 func StartLinuxVNCServer(display string, port int, quality, vncPassword string) (*exec.Cmd, *exec.Cmd, *exec.Cmd, string, error) {
 	requestedDisplay := strings.TrimSpace(display)
 	if requestedDisplay != "" && NormalizeX11DisplayIdentifier(requestedDisplay) == "" {
-		log.Printf("desktop: ignoring non-X11 display selection %q; defaulting to primary X display", requestedDisplay)
-		display = ""
+		return startLinuxVNCMonitor(requestedDisplay, port, quality, vncPassword)
 	}
 	if strings.TrimSpace(display) == "" {
 		session := DetectDesktopSessionFn()
@@ -173,7 +172,11 @@ func BuildX11ClientEnv(display, xauthPath string) []string {
 }
 
 func LaunchX11VNCReady(display string, port int, quality, vncPassword, xauthPath string, timeout time.Duration) (*exec.Cmd, string, string, error) {
-	cmd, logPath, authPath, err := StartX11VNC(display, port, quality, vncPassword, xauthPath)
+	return launchX11VNCReady(display, port, quality, vncPassword, xauthPath, timeout, "")
+}
+
+func launchX11VNCReady(display string, port int, quality, vncPassword, xauthPath string, timeout time.Duration, clip string) (*exec.Cmd, string, string, error) {
+	cmd, logPath, authPath, err := startX11VNC(display, port, quality, vncPassword, xauthPath, clip)
 	if err != nil {
 		RemoveProcessLog(logPath)
 		RemoveProcessLog(authPath)
@@ -246,6 +249,10 @@ func IsDisplayStartupError(err error, logTail string) bool {
 
 // startX11VNC launches x11vnc for Linux/FreeBSD.
 func StartX11VNC(display string, port int, quality, vncPassword, xauthPath string) (*exec.Cmd, string, string, error) {
+	return startX11VNC(display, port, quality, vncPassword, xauthPath, "")
+}
+
+func startX11VNC(display string, port int, quality, vncPassword, xauthPath, clip string) (*exec.Cmd, string, string, error) {
 	x11vncPath, err := exec.LookPath("x11vnc")
 	if err != nil {
 		return nil, "", "", fmt.Errorf("x11vnc not found: install with 'apt install x11vnc' or 'pkg install x11vnc'")
@@ -255,7 +262,7 @@ func StartX11VNC(display string, port int, quality, vncPassword, xauthPath strin
 	if err != nil {
 		return nil, "", "", err
 	}
-	args := BuildX11VNCArgs(display, port, quality, authPath, xauthPath)
+	args := buildX11VNCArgsWithClip(display, port, quality, authPath, xauthPath, clip)
 
 	cmd, err := securityruntime.NewCommand(x11vncPath, args...)
 	if err != nil {

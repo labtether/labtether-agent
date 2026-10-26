@@ -93,7 +93,11 @@ func receiveLoop(ctx context.Context, transport *wsTransport, cfg RuntimeConfig,
 
 	// All ordinary handlers share the same concurrency and panic boundary.
 	dispatch := func(name string, handle func()) {
-		sem <- struct{}{}
+		select {
+		case sem <- struct{}{}:
+		case <-ctx.Done():
+			return
+		}
 		handlerWG.Add(1)
 		go func() {
 			defer handlerWG.Done()
@@ -114,6 +118,22 @@ func receiveLoop(ctx context.Context, transport *wsTransport, cfg RuntimeConfig,
 		defer handlerWG.Done()
 		runOrderedFileWriteWorker(ctx, transport, fileMgr, fileWriteMessages)
 	}()
+
+	terminalInput := make(chan protocol.Message, 1)
+	desktopInput := make(chan protocol.Message, 1)
+	for _, stream := range []struct {
+		messages <-chan protocol.Message
+		handle   func(protocol.Message)
+	}{
+		{terminalInput, termMgr.HandleTerminalData},
+		{desktopInput, deskMgr.HandleDesktopData},
+	} {
+		handlerWG.Add(1)
+		go func() {
+			defer handlerWG.Done()
+			runOrderedStreamInput(ctx, stream.messages, stream.handle)
+		}()
+	}
 
 	for {
 		select {
@@ -234,9 +254,9 @@ func receiveLoop(ctx context.Context, transport *wsTransport, cfg RuntimeConfig,
 				termMgr.HandleTerminalStart(transport, msg)
 			})
 		case protocol.MsgTerminalData:
-			dispatch("terminal-data", func() {
-				termMgr.HandleTerminalData(msg)
-			})
+			if !enqueueStreamInput(ctx, terminalInput, msg) {
+				return
+			}
 		case protocol.MsgTerminalResize:
 			dispatch("terminal-resize", func() {
 				termMgr.HandleTerminalResize(msg)
@@ -262,9 +282,9 @@ func receiveLoop(ctx context.Context, transport *wsTransport, cfg RuntimeConfig,
 				deskMgr.HandleDesktopStart(transport, msg)
 			})
 		case protocol.MsgDesktopData:
-			dispatch("desktop-data", func() {
-				deskMgr.HandleDesktopData(msg)
-			})
+			if !enqueueStreamInput(ctx, desktopInput, msg) {
+				return
+			}
 		case protocol.MsgDesktopClose:
 			dispatch("desktop-close", func() {
 				deskMgr.HandleDesktopClose(msg)

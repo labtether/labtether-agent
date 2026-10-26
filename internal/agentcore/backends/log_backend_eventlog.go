@@ -326,7 +326,7 @@ func parseWevtutilJSON(raw []byte) ([]protocol.LogStreamData, error) {
 	validEvents := 0
 
 	scanner := bufio.NewScanner(bytes.NewReader(raw))
-	scanner.Buffer(make([]byte, 256*1024), 256*1024)
+	scanner.Buffer(nil, 256*1024) // Grow for long lines; keep idle streams small.
 	for scanner.Scan() {
 		line := bytes.TrimSpace(scanner.Bytes())
 		if len(line) == 0 {

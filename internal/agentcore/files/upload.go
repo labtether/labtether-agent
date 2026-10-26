@@ -134,7 +134,8 @@ func (fm *Manager) WriteChunk(req protocol.FileWriteData) (int64, error) {
 
 	requestRoot, relPath, filePath, err := fm.OpenRootPath(req.Path)
 	if err != nil {
-		return 0, err
+		written := fm.abortPendingWrite(req.RequestID)
+		return written, err
 	}
 
 	fm.mu.Lock()
