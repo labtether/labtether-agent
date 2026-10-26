@@ -11,17 +11,29 @@ import (
 	"time"
 )
 
+const testX11VNCPasswordFile = "/fixture/labtether-x11vnc-auth/passwd"
+
+func mustBuildX11VNCArgs(t *testing.T, display string, port int, quality, xauthPath string) []string {
+	t.Helper()
+	args, err := BuildX11VNCArgs(display, port, quality, testX11VNCPasswordFile, xauthPath)
+	if err != nil {
+		t.Fatalf("BuildX11VNCArgs: %v", err)
+	}
+	return args
+}
+
 func TestBuildX11VNCArgsDefaults(t *testing.T) {
-	args := BuildX11VNCArgs("", 5901, "", "", "")
+	args := mustBuildX11VNCArgs(t, "", 5901, "", "")
 
 	requireArgPair(t, args, "-display", ":0")
 	requireArgPair(t, args, "-rfbport", "5901")
 	requireArgPair(t, args, "-auth", "guess")
 	requireArgPair(t, args, "-speeds", "dsl")
+	requireArgPair(t, args, "-passwdfile", "rm:"+testX11VNCPasswordFile)
 
 	requireNoStandaloneArg(t, args, "-quality")
 	requireNoStandaloneArg(t, args, "-compress")
-	requireNoStandaloneArg(t, args, "-rfbauth")
+	requireNoStandaloneArg(t, args, "-nopw")
 }
 
 func TestBuildX11VNCArgsQualityMapping(t *testing.T) {
@@ -38,7 +50,7 @@ func TestBuildX11VNCArgsQualityMapping(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			args := BuildX11VNCArgs(":2", 5909, tc.quality, "", "")
+			args := mustBuildX11VNCArgs(t, ":2", 5909, tc.quality, "")
 			requireArgPair(t, args, "-display", ":2")
 			requireArgPair(t, args, "-rfbport", "5909")
 			requireArgPair(t, args, "-speeds", tc.speeds)
@@ -46,28 +58,20 @@ func TestBuildX11VNCArgsQualityMapping(t *testing.T) {
 	}
 }
 
-func TestBuildX11VNCArgsUsesAuthFileWhenPresent(t *testing.T) {
-	authPath := "/tmp/labtether-x11vnc-auth.rfbauth"
-	args := BuildX11VNCArgs(":1", 5902, "medium", authPath, "")
-
-	requireArgPair(t, args, "-rfbauth", authPath)
-	requireNoStandaloneArg(t, args, "-nopw")
-}
-
 func TestBuildX11VNCArgsUsesXauthPathWhenPresent(t *testing.T) {
 	xauthPath := "/tmp/labtether-xauth-99-abc.xauth"
-	args := BuildX11VNCArgs(":99", 5903, "", "", xauthPath)
+	args := mustBuildX11VNCArgs(t, ":99", 5903, "", xauthPath)
 
 	requireArgPair(t, args, "-auth", xauthPath)
 }
 
 func TestBuildX11VNCArgsFallsBackToGuessWithoutXauth(t *testing.T) {
-	args := BuildX11VNCArgs(":0", 5901, "", "", "")
+	args := mustBuildX11VNCArgs(t, ":0", 5901, "", "")
 	requireArgPair(t, args, "-auth", "guess")
 }
 
 func TestBuildX11VNCArgsOmitsAuthWhenNone(t *testing.T) {
-	args := BuildX11VNCArgs(":99", 5901, "", "", "none")
+	args := mustBuildX11VNCArgs(t, ":99", 5901, "", "none")
 	requireNoStandaloneArg(t, args, "-auth")
 }
 

@@ -225,7 +225,7 @@ func (dm *DesktopManager) closeSessionResources(sess *DesktopSession) {
 			TerminateProcess(sess.xvfbCmd)
 		}
 		TerminateProcess(sess.bootstrapCmd)
-		RemoveProcessLog(sess.vncAuthFile)
+		RemoveVNCAuthDir(sess.vncAuthFile)
 		if sess.done != nil {
 			close(sess.done)
 		}

@@ -89,10 +89,13 @@ func selectVNCMonitorClip(name string, monitors []protocol.DisplayInfo, rootWidt
 	return fmt.Sprintf("%dx%d+%d+%d", m.Width, m.Height, m.OffsetX, m.OffsetY), nil
 }
 
-func buildX11VNCArgsWithClip(display string, port int, quality, authPath, xauthPath, clip string) []string {
-	args := BuildX11VNCArgs(display, port, quality, authPath, xauthPath)
+func buildX11VNCArgsWithClip(display string, port int, quality, passwordFile, xauthPath, clip string) ([]string, error) {
+	args, err := BuildX11VNCArgs(display, port, quality, passwordFile, xauthPath)
+	if err != nil {
+		return nil, err
+	}
 	if strings.TrimSpace(clip) != "" {
 		args = append(args, "-clip", clip)
 	}
-	return args
+	return args, nil
 }

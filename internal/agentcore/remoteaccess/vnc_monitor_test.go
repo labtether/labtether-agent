@@ -51,7 +51,10 @@ func TestVNCMonitorSelectionStartsExactCropOnActiveScreen(t *testing.T) {
 		if display != ":93.1" || clip != "1920x1080+3840+0" || xauth != "/fixture/xauth" {
 			t.Fatalf("wrong selected capture: %q %q %q", display, clip, xauth)
 		}
-		args := buildX11VNCArgsWithClip(display, port, quality, "/fixture/rfbauth", xauth, clip)
+		args, err := buildX11VNCArgsWithClip(display, port, quality, "/fixture/passwd", xauth, clip)
+		if err != nil {
+			t.Fatalf("build x11vnc args: %v", err)
+		}
 		if !reflect.DeepEqual(args[len(args)-2:], []string{"-clip", "1920x1080+3840+0"}) || args[1] != display {
 			t.Fatalf("missing crop/display in x11vnc command: %v", args)
 		}
