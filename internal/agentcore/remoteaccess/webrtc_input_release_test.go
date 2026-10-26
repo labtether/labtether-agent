@@ -16,7 +16,7 @@ func TestWebRTCInputCleanupBatchesHeldInputs(t *testing.T) {
 		if last == "webrtc-stall-helper" {
 			time.Sleep(2 * time.Second)
 		}
-		os.Exit(0)
+		exitTestHelper(0)
 	}
 	executable, err := os.Executable()
 	if err != nil {

@@ -19,8 +19,22 @@ type gatedFileReadTransport struct {
 	firstSendStarted chan struct{}
 	releaseFirstSend chan struct{}
 
-	mu    sync.Mutex
-	calls int
+	mu     sync.Mutex
+	calls  int
+	closes int
+}
+
+// Close records the connection failure that a full handler pool reports.
+func (t *gatedFileReadTransport) Close() {
+	t.mu.Lock()
+	t.closes++
+	t.mu.Unlock()
+}
+
+func (t *gatedFileReadTransport) closeCalls() int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.closes
 }
 
 func (t *gatedFileReadTransport) Send(protocol.Message) error {
@@ -83,21 +97,43 @@ func TestFileReadSendFailureReleasesHandlerSemaphore(t *testing.T) {
 		t.Fatalf("semaphore occupancy = %d, want 1 while first send is blocked", got)
 	}
 
-	secondStarted := make(chan bool, 1)
+	// A full pool must not block the socket reader. The overflow read fails
+	// the connection instead of waiting behind the stalled send.
+	overflow := make(chan bool, 1)
 	go func() {
-		secondStarted <- startFileReadHandler(ctx, transport, fileMgr, encode("second", "small.txt"), sem, &handlerWG)
+		overflow <- startFileReadHandler(ctx, transport, fileMgr, encode("overflow", "small.txt"), sem, &handlerWG)
 	}()
-	close(transport.releaseFirstSend)
-
 	select {
-	case started := <-secondStarted:
-		if !started {
-			t.Fatal("second handler was not started")
+	case handled := <-overflow:
+		if !handled || transport.closeCalls() != 1 {
+			t.Fatalf("overflow handled=%v closes=%d, want connection closed", handled, transport.closeCalls())
 		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("second handler remained blocked after first send failed")
+		t.Fatal("full file-read pool blocked the socket reader")
 	}
 
+	close(transport.releaseFirstSend)
+	waitForFileReadHandlers(t, &handlerWG)
+	if got := len(sem); got != 0 {
+		t.Fatalf("semaphore occupancy = %d after failed send, want 0", got)
+	}
+
+	// The failed send released its slot, so the next read is served.
+	before := transport.sendCalls()
+	if !startFileReadHandler(ctx, transport, fileMgr, encode("second", "small.txt"), sem, &handlerWG) {
+		t.Fatal("follow-up handler was not started")
+	}
+	waitForFileReadHandlers(t, &handlerWG)
+	if got := len(sem); got != 0 {
+		t.Fatalf("semaphore occupancy = %d after handlers drained, want 0", got)
+	}
+	if got := transport.sendCalls(); got <= before {
+		t.Fatalf("transport sends = %d, want follow-up handler to send", got)
+	}
+}
+
+func waitForFileReadHandlers(t *testing.T, handlerWG *sync.WaitGroup) {
+	t.Helper()
 	drained := make(chan struct{})
 	go func() {
 		handlerWG.Wait()
@@ -107,11 +143,5 @@ func TestFileReadSendFailureReleasesHandlerSemaphore(t *testing.T) {
 	case <-drained:
 	case <-time.After(2 * time.Second):
 		t.Fatal("file read handlers did not drain")
-	}
-	if got := len(sem); got != 0 {
-		t.Fatalf("semaphore occupancy = %d after handlers drained, want 0", got)
-	}
-	if got := transport.sendCalls(); got < 2 {
-		t.Fatalf("transport sends = %d, want follow-up handler to send", got)
 	}
 }

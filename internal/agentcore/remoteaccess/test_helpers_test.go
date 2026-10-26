@@ -3,6 +3,7 @@ package remoteaccess
 import (
 	"encoding/json"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -92,3 +93,9 @@ func (m *mockSettingsProvider) ReportedAgentSettings() map[string]string {
 func newDisabledWebRTCSettings() SettingsProvider {
 	return &mockSettingsProvider{settings: map[string]string{"webrtc_enabled": "false"}}
 }
+
+// exitTestHelper ends a re-executed test-binary helper. Under -race, a zero
+// os.Exit runs the race runtime's exit hook, which sleeps for one second
+// (GORACE atexit_sleep_ms), so helpers timed against short command budgets
+// would miss them. Stdout is unbuffered, so no helper output is lost.
+func exitTestHelper(code int) { syscall.Exit(code) }

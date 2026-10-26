@@ -61,7 +61,7 @@ func TestWebRTCX11CommandPath(t *testing.T) {
 		case "fail":
 			os.Exit(9)
 		}
-		os.Exit(0)
+		exitTestHelper(0)
 	}
 	originalCommand, originalLookPath := NewWebRTCSecurityCommand, WebRTCLookPath
 	originalInternal := NewWebRTCInternalX11Command

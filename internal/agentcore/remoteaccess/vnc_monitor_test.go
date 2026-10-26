@@ -131,5 +131,5 @@ func TestVNCMonitorMetadataHelper(t *testing.T) {
 	default:
 		os.Exit(2)
 	}
-	os.Exit(0)
+	exitTestHelper(0)
 }
