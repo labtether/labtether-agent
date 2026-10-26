@@ -12,6 +12,8 @@ const (
 	maxLocalCAFileBytes     = 1024 * 1024
 	maxDeviceKeyFileBytes   = 4 * 1024
 	maxAppliedConfigBytes   = 64 * 1024
+
+	managedTempPattern = ".labtether-tmp-*"
 )
 
 // readBoundedRegularFile opens one stable regular-file object, rejecting final
@@ -70,7 +72,7 @@ func writeManagedFileAtomic(path string, data []byte, mode os.FileMode, secret b
 		return fmt.Errorf("refusing unsafe managed directory %s", dir)
 	}
 
-	tmp, err := os.CreateTemp(dir, ".labtether-tmp-*")
+	tmp, err := createManagedTemp(dir, secret)
 	if err != nil {
 		return err
 	}
