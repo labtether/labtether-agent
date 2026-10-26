@@ -23,8 +23,8 @@ type commandOutputOwnerTransport struct {
 func (s commandOutputOwnerTransport) Context() context.Context { return s.ctx }
 
 // This executes the real request handler and an actual child/descendant pair.
-// Releasing the descendant is an explicit fixture protocol; no PID-tree kill
-// or enumeration of unrelated processes is used, including on failure.
+// Releasing the descendant is an explicit fixture protocol; cancellation may
+// stop only the command's own process group, never unrelated processes.
 func TestHandleCommandRequestBoundsInheritedOutputDrain(t *testing.T) {
 	for _, mode := range []string{"exited-parent", "canceled-owner"} {
 		t.Run(mode, func(t *testing.T) {
@@ -52,7 +52,13 @@ func TestHandleCommandRequestBoundsInheritedOutputDrain(t *testing.T) {
 					t.Error(err)
 				}
 				if _, err := os.Stat(filepath.Join(dir, "ready")); err == nil {
-					if !waitRemoteCommandFixtureFile(filepath.Join(dir, "closed"), 3*time.Second) {
+					if mode == "canceled-owner" && remoteCommandKillsProcessGroup {
+						// Cancellation stopped the command's process group, so the
+						// descendant must not survive to observe the release marker.
+						if waitRemoteCommandFixtureFile(filepath.Join(dir, "closed"), 500*time.Millisecond) {
+							t.Error("canceled command left its descendant running")
+						}
+					} else if !waitRemoteCommandFixtureFile(filepath.Join(dir, "closed"), 3*time.Second) {
 						t.Error("owned fixture descendant did not release its output")
 					}
 				}
