@@ -6,7 +6,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+
+	"golang.org/x/crypto/ssh"
 )
 
 // hubSSHKeyRecordName is the file beside the agent token that records the
@@ -73,28 +76,76 @@ func StateDirectory() string {
 	return filepath.Dir(TokenFilePath())
 }
 
-// RemoveRecordedHubSSHKey removes the authorized_keys line this agent added
-// for the Hub and deletes the record. It returns the file it changed, or ""
-// when no line was recorded.
-func RemoveRecordedHubSSHKey(tokenFilePath string) (string, error) {
+// hubSSHKeyComment is the comment the Hub puts on its key line.
+const hubSSHKeyComment = "labtether-hub"
+
+// isHubSSHKeyLine matches a Hub key line by its comment: one valid key, no
+// options in front, comment exactly labtether-hub. User keys, uncommented
+// lines and lines with options never match.
+func isHubSSHKeyLine(line string) bool {
+	if !strings.HasSuffix(line, " "+hubSSHKeyComment) {
+		return false
+	}
+	_, comment, options, rest, err := ssh.ParseAuthorizedKey([]byte(line))
+	return err == nil && len(options) == 0 && comment == hubSSHKeyComment && strings.TrimSpace(string(rest)) == ""
+}
+
+// RemoveRecordedHubSSHKey removes the Hub key lines from authorized_keys: the
+// exact line this agent recorded adding, and any line commented
+// labtether-hub (for example a key the Hub has since rotated). It searches
+// the recorded file, or the agent account's own file(s) when there is no
+// record, deletes the record, and returns the files it changed.
+func RemoveRecordedHubSSHKey(tokenFilePath string) ([]string, error) {
+	hubSSHKeyMu.Lock()
+	defer hubSSHKeyMu.Unlock()
+
 	recordPath := hubSSHKeyRecordPath(tokenFilePath)
-	if recordPath == "" {
-		return "", nil
+	recordedLine := ""
+	var paths []string
+	if recordPath != "" {
+		if _, err := os.Lstat(recordPath); err == nil {
+			record, ok := loadHubSSHKeyRecord(recordPath)
+			if !ok {
+				return nil, fmt.Errorf("the Hub SSH key record at %s is not valid; check the authorized_keys files by hand", recordPath)
+			}
+			recordedLine, paths = record.KeyLine, []string{record.AuthorizedKeysPath}
+		}
 	}
-	if _, err := os.Lstat(recordPath); errors.Is(err, os.ErrNotExist) {
-		return "", nil
+	if len(paths) == 0 {
+		paths = defaultHubSSHKeyPaths()
 	}
-	record, ok := loadHubSSHKeyRecord(recordPath)
-	if !ok {
-		return "", fmt.Errorf("the Hub SSH key record at %s is not valid; check the authorized_keys files by hand", recordPath)
+
+	var changed []string
+	for _, path := range paths {
+		removed, err := removeAuthorizedKeyLines(path, func(line string) bool {
+			return (recordedLine != "" && line == recordedLine) || isHubSSHKeyLine(line)
+		})
+		if err != nil {
+			return changed, err
+		}
+		if removed {
+			changed = append(changed, path)
+		}
 	}
-	if err := removePublicKey(record.AuthorizedKeysPath, record.KeyLine); err != nil {
-		return "", err
+	if recordPath != "" {
+		if err := os.Remove(recordPath); err != nil && !errors.Is(err, os.ErrNotExist) { // #nosec G703 -- Record path is the fixed file beside the agent token.
+			return changed, err
+		}
 	}
-	if err := os.Remove(recordPath); err != nil && !errors.Is(err, os.ErrNotExist) { // #nosec G703 -- Record path is the fixed file beside the agent token.
-		return record.AuthorizedKeysPath, err
+	return changed, nil
+}
+
+// defaultHubSSHKeyPaths lists where this account's agent installs the Hub key,
+// plus the Administrators file on Windows, where the SYSTEM service installs.
+func defaultHubSSHKeyPaths() []string {
+	var paths []string
+	if path, err := resolveAuthorizedKeysPath(); err == nil {
+		paths = append(paths, path)
 	}
-	return record.AuthorizedKeysPath, nil
+	if runtime.GOOS == "windows" && (len(paths) == 0 || !strings.EqualFold(paths[0], windowsAdministratorsAuthorizedKeys)) {
+		paths = append(paths, windowsAdministratorsAuthorizedKeys)
+	}
+	return paths
 }
 
 // runSSHKeyCommand handles "labtether-agent ssh-key remove", which uninstall
@@ -102,18 +153,19 @@ func RemoveRecordedHubSSHKey(tokenFilePath string) (string, error) {
 func runSSHKeyCommand(cfg RuntimeConfig, args []string) int {
 	if len(args) != 1 || strings.TrimSpace(strings.ToLower(args[0])) != "remove" {
 		fmt.Println("usage: labtether-agent ssh-key remove")
-		fmt.Println("Removes the Hub SSH key line this agent added to authorized_keys.")
+		fmt.Println("Removes the Hub SSH key lines (the one this agent added and any commented labtether-hub) from authorized_keys.")
 		return 1
 	}
 	changed, err := RemoveRecordedHubSSHKey(cfg.TokenFilePath)
+	for _, path := range changed {
+		fmt.Printf("removed the Hub SSH key from %s\n", path)
+	}
 	if err != nil {
 		fmt.Printf("could not remove the Hub SSH key: %v\n", err)
 		return 1
 	}
-	if changed == "" {
-		fmt.Println("no Hub SSH key was added by this agent")
-		return 0
+	if len(changed) == 0 {
+		fmt.Println("no Hub SSH key found")
 	}
-	fmt.Printf("removed the Hub SSH key from %s\n", changed)
 	return 0
 }

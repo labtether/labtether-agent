@@ -100,7 +100,7 @@ Run `labtether-agent.exe install` from an elevated prompt to register the Window
 - **Docker monitoring** -- Container status, logs, and actions for Docker hosts.
 - **Process management** -- List and manage running processes from the dashboard.
 - **Host power controls** -- Graceful reboot and shutdown through a dedicated typed protocol, with no raw-shell fallback. The agent service must have the operating-system privileges required to change host power; an unprivileged or container-isolated agent reports failure instead of false success.
-- **Hub SSH key** -- On connect, the Hub can add its SSH public key to the agent account's `authorized_keys` (on Windows as SYSTEM, `administrators_authorized_keys`). Before removing an agent, run `labtether-agent ssh-key remove` to delete the line the agent added. The Windows `uninstall` command does this itself.
+- **Hub SSH key** -- On connect, the Hub can add its SSH public key to the agent account's `authorized_keys` (on Windows as SYSTEM, `administrators_authorized_keys`). Before removing an agent, run `labtether-agent ssh-key remove`. It deletes the line the agent added and any other line commented `labtether-hub` with no options in front, such as a key the Hub has since rotated; your own keys stay. The Windows `uninstall` command does this itself.
 
 ---
 

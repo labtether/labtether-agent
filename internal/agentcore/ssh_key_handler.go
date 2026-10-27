@@ -9,10 +9,21 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 
 	"github.com/labtether/protocol"
 	"golang.org/x/crypto/ssh"
 )
+
+// hubSSHKeyMu serializes every read-modify-write of authorized_keys and of the
+// key record. Hub messages are handled concurrently, and a key rotation sends
+// an install and a remove back to back; without it one rewrite can drop the
+// other's change.
+var hubSSHKeyMu sync.Mutex
+
+// windowsAdministratorsAuthorizedKeys is the file OpenSSH for Windows reads
+// for every member of Administrators; the SYSTEM service installs there.
+const windowsAdministratorsAuthorizedKeys = `C:\ProgramData\ssh\administrators_authorized_keys`
 
 // validateAuthorizedKey asserts that pubKey is a single, valid authorized_keys
 // entry with no embedded newlines and no trailing content after the key proper.
@@ -64,15 +75,9 @@ func handleSSHKeyInstallRecorded(transport agentMessageSender, msg protocol.Mess
 		return
 	}
 
-	added, err := installPublicKey(authKeysPath, pubKey)
-	if err != nil {
+	if err := installHubSSHKey(authKeysPath, pubKey, recordPath); err != nil {
 		log.Printf("ssh-key: failed to install public key: %v", err)
 		return
-	}
-	if added && recordPath != "" {
-		if err := saveHubSSHKeyRecord(recordPath, hubSSHKeyRecord{AuthorizedKeysPath: authKeysPath, KeyLine: pubKey}); err != nil {
-			log.Printf("ssh-key: warning: uninstall will not find the added key line: %v", err)
-		}
 	}
 
 	// Send confirmation back to hub.
@@ -125,12 +130,9 @@ func handleSSHKeyRemoveRecorded(transport agentMessageSender, msg protocol.Messa
 		return
 	}
 
-	if err := removePublicKey(authKeysPath, pubKey); err != nil {
+	if err := removeHubSSHKey(authKeysPath, pubKey, recordPath); err != nil {
 		log.Printf("ssh-key: failed to remove public key: %v", err)
 		return
-	}
-	if record, ok := loadHubSSHKeyRecord(recordPath); ok && record.KeyLine == pubKey && record.AuthorizedKeysPath == authKeysPath {
-		_ = os.Remove(recordPath) // #nosec G703 -- Record path is the fixed file beside the agent token.
 	}
 
 	resp := protocol.SSHKeyInstalledData{} // reuse for confirmation
@@ -152,22 +154,61 @@ func handleSSHKeyRemoveRecorded(transport agentMessageSender, msg protocol.Messa
 	log.Printf("ssh-key: removed hub public key")
 }
 
+// installHubSSHKey adds the Hub key line and, when this agent added it,
+// records the exact line at recordPath so uninstall can remove that line.
+func installHubSSHKey(authKeysPath, pubKey, recordPath string) error {
+	hubSSHKeyMu.Lock()
+	defer hubSSHKeyMu.Unlock()
+	added, err := installPublicKey(authKeysPath, pubKey)
+	if err != nil {
+		return err
+	}
+	if added && recordPath != "" {
+		if err := saveHubSSHKeyRecord(recordPath, hubSSHKeyRecord{AuthorizedKeysPath: authKeysPath, KeyLine: pubKey}); err != nil {
+			log.Printf("ssh-key: warning: uninstall will not find the added key line: %v", err)
+		}
+	}
+	return nil
+}
+
+// removeHubSSHKey removes the exact Hub key line and drops a matching record.
+func removeHubSSHKey(authKeysPath, pubKey, recordPath string) error {
+	hubSSHKeyMu.Lock()
+	defer hubSSHKeyMu.Unlock()
+	if err := removePublicKey(authKeysPath, pubKey); err != nil {
+		return err
+	}
+	if record, ok := loadHubSSHKeyRecord(recordPath); ok && record.KeyLine == pubKey && record.AuthorizedKeysPath == authKeysPath {
+		_ = os.Remove(recordPath) // #nosec G703 -- Record path is the fixed file beside the agent token.
+	}
+	return nil
+}
+
 // removePublicKey removes a matching public key line from authorized_keys.
+// Callers hold hubSSHKeyMu.
 func removePublicKey(authKeysPath, pubKey string) error {
+	keyLine := strings.TrimSpace(pubKey)
+	_, err := removeAuthorizedKeyLines(authKeysPath, func(line string) bool { return line == keyLine })
+	return err
+}
+
+// removeAuthorizedKeyLines rewrites authorized_keys without the lines (compared
+// trimmed) that match, and reports whether any were removed. Callers hold
+// hubSSHKeyMu.
+func removeAuthorizedKeyLines(authKeysPath string, match func(line string) bool) (bool, error) {
 	existing, err := os.ReadFile(authKeysPath) // #nosec G304 -- authorized_keys path is derived from the managed SSH home directory.
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil // nothing to remove
+			return false, nil // nothing to remove
 		}
-		return fmt.Errorf("failed to read authorized_keys: %w", err)
+		return false, fmt.Errorf("failed to read authorized_keys: %w", err)
 	}
 
-	keyLine := strings.TrimSpace(pubKey)
 	lines := strings.Split(string(existing), "\n")
 	filtered := make([]string, 0, len(lines))
 	removed := false
 	for _, line := range lines {
-		if strings.TrimSpace(line) == keyLine {
+		if trimmed := strings.TrimSpace(line); trimmed != "" && match(trimmed) {
 			removed = true
 			continue
 		}
@@ -175,14 +216,14 @@ func removePublicKey(authKeysPath, pubKey string) error {
 	}
 
 	if !removed {
-		return nil // key was not present
+		return false, nil // key was not present
 	}
 
 	content := strings.Join(filtered, "\n")
 	if err := os.WriteFile(authKeysPath, []byte(content), 0600); err != nil { // #nosec G703 -- authorized_keys path is derived from the managed SSH home directory.
-		return fmt.Errorf("failed to write authorized_keys: %w", err)
+		return false, fmt.Errorf("failed to write authorized_keys: %w", err)
 	}
-	return nil
+	return true, nil
 }
 
 // resolveAuthorizedKeysPath determines the appropriate authorized_keys file path.
@@ -191,7 +232,7 @@ func resolveAuthorizedKeysPath() (string, error) {
 		// Check if running as SYSTEM (common for Windows services).
 		currentUser, err := user.Current()
 		if err == nil && strings.EqualFold(currentUser.Username, "NT AUTHORITY\\SYSTEM") {
-			return `C:\ProgramData\ssh\administrators_authorized_keys`, nil
+			return windowsAdministratorsAuthorizedKeys, nil
 		}
 		home, err := os.UserHomeDir()
 		if err != nil {
@@ -209,7 +250,7 @@ func resolveAuthorizedKeysPath() (string, error) {
 }
 
 // installPublicKey idempotently appends a public key to authorized_keys and
-// reports whether it added the line.
+// reports whether it added the line. Callers hold hubSSHKeyMu.
 func installPublicKey(authKeysPath, pubKey string) (bool, error) {
 	// Ensure .ssh directory exists with correct permissions.
 	sshDir := filepath.Dir(authKeysPath)
