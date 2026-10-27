@@ -87,6 +87,8 @@ For systemd service setup and full configuration, see the [agent setup guide](ht
 
 Pre-built Windows binaries (amd64, arm64) are also available from [Releases](https://github.com/labtether/labtether-agent/releases) as `labtether-agent-windows-<arch>.exe`. Check them before installation: compare `Get-FileHash -Algorithm SHA256` with the `.sha256` file, and run the signature check above on any machine with OpenSSL 3, using `OS=windows` and `ASSET=labtether-agent-windows-<arch>.exe`. For the native Windows tray app with enrollment UI and credential management, see the [Windows Agent](https://github.com/labtether/labtether-win).
 
+Run `labtether-agent.exe install` from an elevated prompt to register the Windows service. It copies the agent to `C:\Program Files\LabTether\labtether-agent.exe`, registers the service there, and locks `C:\ProgramData\LabTether` to SYSTEM and Administrators. It stops if that folder holds files owned by another account.
+
 ---
 
 ## What It Does
@@ -98,6 +100,7 @@ Pre-built Windows binaries (amd64, arm64) are also available from [Releases](htt
 - **Docker monitoring** -- Container status, logs, and actions for Docker hosts.
 - **Process management** -- List and manage running processes from the dashboard.
 - **Host power controls** -- Graceful reboot and shutdown through a dedicated typed protocol, with no raw-shell fallback. The agent service must have the operating-system privileges required to change host power; an unprivileged or container-isolated agent reports failure instead of false success.
+- **Hub SSH key** -- On connect, the Hub can add its SSH public key to the agent account's `authorized_keys` (on Windows as SYSTEM, `administrators_authorized_keys`). Before removing an agent, run `labtether-agent ssh-key remove` to delete the line the agent added. The Windows `uninstall` command does this itself.
 
 ---
 

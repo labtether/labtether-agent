@@ -40,6 +40,12 @@ func validateAuthorizedKey(pubKey string) (string, error) {
 // handleSSHKeyInstall installs the hub's SSH public key into the current user's
 // authorized_keys file, enabling zero-config SSH access from the hub.
 func handleSSHKeyInstall(transport agentMessageSender, msg protocol.Message) {
+	handleSSHKeyInstallRecorded(transport, msg, "")
+}
+
+// handleSSHKeyInstallRecorded installs the Hub key and, when this agent added
+// the line, records it at recordPath so uninstall can remove exactly that line.
+func handleSSHKeyInstallRecorded(transport agentMessageSender, msg protocol.Message, recordPath string) {
 	var req protocol.SSHKeyInstallData
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		log.Printf("ssh-key: invalid install request: %v", err)
@@ -58,9 +64,15 @@ func handleSSHKeyInstall(transport agentMessageSender, msg protocol.Message) {
 		return
 	}
 
-	if err := installPublicKey(authKeysPath, pubKey); err != nil {
+	added, err := installPublicKey(authKeysPath, pubKey)
+	if err != nil {
 		log.Printf("ssh-key: failed to install public key: %v", err)
 		return
+	}
+	if added && recordPath != "" {
+		if err := saveHubSSHKeyRecord(recordPath, hubSSHKeyRecord{AuthorizedKeysPath: authKeysPath, KeyLine: pubKey}); err != nil {
+			log.Printf("ssh-key: warning: uninstall will not find the added key line: %v", err)
+		}
 	}
 
 	// Send confirmation back to hub.
@@ -90,6 +102,11 @@ func handleSSHKeyInstall(transport agentMessageSender, msg protocol.Message) {
 // handleSSHKeyRemove removes the hub's SSH public key from the current user's
 // authorized_keys file, used during asset decommissioning.
 func handleSSHKeyRemove(transport agentMessageSender, msg protocol.Message) {
+	handleSSHKeyRemoveRecorded(transport, msg, "")
+}
+
+// handleSSHKeyRemoveRecorded removes the Hub key and drops a matching record.
+func handleSSHKeyRemoveRecorded(transport agentMessageSender, msg protocol.Message, recordPath string) {
 	var req protocol.SSHKeyRemoveData
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		log.Printf("ssh-key: invalid remove request: %v", err)
@@ -111,6 +128,9 @@ func handleSSHKeyRemove(transport agentMessageSender, msg protocol.Message) {
 	if err := removePublicKey(authKeysPath, pubKey); err != nil {
 		log.Printf("ssh-key: failed to remove public key: %v", err)
 		return
+	}
+	if record, ok := loadHubSSHKeyRecord(recordPath); ok && record.KeyLine == pubKey && record.AuthorizedKeysPath == authKeysPath {
+		_ = os.Remove(recordPath) // #nosec G703 -- Record path is the fixed file beside the agent token.
 	}
 
 	resp := protocol.SSHKeyInstalledData{} // reuse for confirmation
@@ -188,18 +208,19 @@ func resolveAuthorizedKeysPath() (string, error) {
 	return filepath.Join(home, ".ssh", "authorized_keys"), nil
 }
 
-// installPublicKey idempotently appends a public key to authorized_keys.
-func installPublicKey(authKeysPath, pubKey string) error {
+// installPublicKey idempotently appends a public key to authorized_keys and
+// reports whether it added the line.
+func installPublicKey(authKeysPath, pubKey string) (bool, error) {
 	// Ensure .ssh directory exists with correct permissions.
 	sshDir := filepath.Dir(authKeysPath)
 	if err := os.MkdirAll(sshDir, 0700); err != nil {
-		return fmt.Errorf("failed to create .ssh directory: %w", err)
+		return false, fmt.Errorf("failed to create .ssh directory: %w", err)
 	}
 
 	// Read existing authorized_keys.
 	existing, err := os.ReadFile(authKeysPath) // #nosec G304 -- authorized_keys path is derived from the managed SSH home directory.
 	if err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("failed to read authorized_keys: %w", err)
+		return false, fmt.Errorf("failed to read authorized_keys: %w", err)
 	}
 
 	// Check if the key is already present.
@@ -208,7 +229,7 @@ func installPublicKey(authKeysPath, pubKey string) error {
 		for _, line := range strings.Split(string(existing), "\n") {
 			if strings.TrimSpace(line) == keyLine {
 				log.Printf("ssh-key: public key already present")
-				return nil
+				return false, nil
 			}
 		}
 	}
@@ -221,8 +242,8 @@ func installPublicKey(authKeysPath, pubKey string) error {
 	content += keyLine + "\n"
 
 	if err := os.WriteFile(authKeysPath, []byte(content), 0600); err != nil { // #nosec G703 -- authorized_keys path is derived from the managed SSH home directory.
-		return fmt.Errorf("failed to write authorized_keys: %w", err)
+		return false, fmt.Errorf("failed to write authorized_keys: %w", err)
 	}
 
-	return nil
+	return true, nil
 }

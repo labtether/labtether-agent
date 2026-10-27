@@ -12,6 +12,16 @@ containers, or come from a truncated inventory carry a `selection_error`. The
 agent refuses `up`, `down`, `restart` and `pull` when a fresh lookup of the
 project's labels does not give one consistent selection.
 
+## Deployed stack folders
+
+A stack deployed from the Hub is written to its own folder under
+`/var/lib/labtether/stacks/<name>` (`/var/db/labtether/stacks` on FreeBSD)
+when the agent runs as root, or under the agent account's configuration
+folder otherwise. Relative bind mounts such as `./data` land there. The folder
+survives agent restarts, and the agent refuses one that another local account
+owns or can write. Stacks deployed by older agents under the temporary folder
+keep using the folder Docker reports for them, where that folder still exists.
+
 ## HTTPS
 
 HTTPS requires Docker Compose **CLI v2**. Before lookup or deploy writes, the
