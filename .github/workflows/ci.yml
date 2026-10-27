@@ -45,7 +45,7 @@ jobs:
           fetch-depth: 0
 
       - name: Test QA contract selector
-        run: python3 -m unittest scripts/ci/test_select_qa_contracts.py
+        run: python3 -B -m unittest scripts/ci/test_select_qa_contracts.py scripts/ci/test_ci_result.py
 
       - name: Select contracts
         id: select
@@ -180,3 +180,18 @@ jobs:
             -eu -c 'test "$(id -u)" = 1001'
           docker run --rm --entrypoint /bin/sh labtether-agent:qa-contract \
             -eu -c 'test "$LABTETHER_TOKEN_FILE" = /var/lib/labtether/agent-token && touch /var/lib/labtether/write-probe'
+
+  ci-result:
+    name: CI result
+    needs: [line-limit, qa-select, go-checks, cross-build, installed-container]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Require every selected check to pass
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: python3 -B scripts/ci/check-ci-result.py
