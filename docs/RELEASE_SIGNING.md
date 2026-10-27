@@ -101,16 +101,21 @@ signer through stdin and let only the signed release outputs enter the stage.
 
 ## Hub Wiring
 
-The hub's `scripts/release/generate-agent-manifest.sh` now looks for a
-`labtether-agent-<suffix>-<version>.sig` asset in the agent release and
-includes the contents as a `signature` field under each
-`agents.labtether-agent.binaries.<platform>` entry in `agent-manifest.json`.
+The Hub's `scripts/release/generate-agent-manifest.sh` requires the exact release
+tag's Linux and Windows binaries, checksums, detached Ed25519 signatures and
+metadata. It checks each binary's bytes and metadata against the pinned public
+key before adding it to `agent-manifest.json` and the Hub image. Missing or
+invalid assets stop manifest generation and coordinated Hub tagging.
 
-`GET /api/v1/agent/releases/latest` surfaces the signature to agents. No
-hub-side verification is performed (and none is needed — the agent is the
-ultimate verifier). If an agent release ships without a signature, the
-manifest simply omits the field and agents configured with a trusted public
-key will refuse the update.
+Each `agents.labtether-agent.binaries.<platform>` entry includes the verified
+signature. `GET /api/v1/agent/releases/latest` returns it to agents, which
+check it again before self-update.
+
+The standalone Windows amd64 and arm64 executables use this Ed25519 release
+trust. This flow does not add Authenticode signatures or establish a Windows
+publisher identity. The separate native Windows app's optional local eSigner
+CKA flow signs its wrapper, bundled Go child and MSI. It does not sign these
+standalone downloads or replace their Ed25519 checks.
 
 ## Key Rotation
 
