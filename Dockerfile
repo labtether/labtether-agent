@@ -9,10 +9,14 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
-RUN CGO_ENABLED=0 \
+# Link the public release signing key so the container agent verifies updates
+# without LABTETHER_AUTO_UPDATE_TRUSTED_PUBLIC_KEY.
+RUN UPDATE_KEY="$(tr -d '[:space:]' < scripts/release/agent-release-public-key.b64)" && \
+    test -n "${UPDATE_KEY}" && \
+    CGO_ENABLED=0 \
     GOOS=${TARGETOS:-$(go env GOOS)} \
     GOARCH=${TARGETARCH:-$(go env GOARCH)} \
-    go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o /out/service ./cmd/labtether-agent
+    go build -trimpath -ldflags="-s -w -X main.version=${VERSION} -X main.updatePublicKey=${UPDATE_KEY}" -o /out/service ./cmd/labtether-agent
 
 # Agent needs a shell for PTY terminal sessions.
 # Using Alpine instead of distroless so /bin/sh and /bin/bash are available.

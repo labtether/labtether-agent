@@ -29,6 +29,9 @@ type Runtime struct {
 
 	// HeartbeatCounter is incremented on every heartbeat tick; monitored by the watchdog.
 	HeartbeatCounter atomic.Int64
+	// heartbeatTickInterval is the interval the heartbeat ticker currently
+	// uses, in nanoseconds. The watchdog scales its stuck threshold from it.
+	heartbeatTickInterval atomic.Int64
 
 	// Dynamic config overrides (0 = use default from cfg).
 	collectIntervalOverride   atomic.Int64
@@ -74,17 +77,23 @@ func newRuntimeWithIdentity(cfg RuntimeConfig, provider TelemetryProvider, publi
 	}
 }
 
+// Run starts telemetry collection and heartbeats, then serves the optional
+// local API until ctx ends. A local API problem is logged and never stops the
+// agent: the Hub connection, terminal and updates keep working without it.
 func (r *Runtime) Run(ctx context.Context) error {
 	bindAddress := resolveAgentLocalBindAddress()
-	localAuth, err := resolveAgentLocalAuth(r.cfg, bindAddress)
-	if err != nil {
-		return err
-	}
 	r.localBindAddress = bindAddress
-	r.localAuthEnabled = strings.TrimSpace(localAuth.token) != ""
+	localAuth, authErr := resolveAgentLocalAuth(r.cfg, bindAddress)
+	r.localAuthEnabled = authErr == nil && strings.TrimSpace(localAuth.token) != ""
 
 	go r.collectLoop(ctx)
 	go r.heartbeatLoop(ctx)
+
+	if authErr != nil {
+		log.Printf("%s: local API is off: %v", r.cfg.Name, authErr)
+		<-ctx.Done()
+		return nil
+	}
 
 	serviceConfig := servicehttp.Config{
 		Name:        r.cfg.Name,
@@ -105,7 +114,39 @@ func (r *Runtime) Run(ctx context.Context) error {
 			},
 		},
 	}
-	return servicehttp.Run(ctx, serviceConfig)
+	serveLocalAPI(ctx, serviceConfig)
+	return nil
+}
+
+const (
+	localAPIRetryInitialDelay = 30 * time.Second
+	localAPIRetryMaxDelay     = 5 * time.Minute
+)
+
+// serveLocalAPI keeps retrying the local API listener until ctx ends. Another
+// program (or any local user) holding the port must not take the agent down,
+// so a failed bind is logged and retried with a growing delay.
+func serveLocalAPI(ctx context.Context, cfg servicehttp.Config) {
+	delay := localAPIRetryInitialDelay
+	for {
+		err := servicehttp.Run(ctx, cfg)
+		if ctx.Err() != nil {
+			return
+		}
+		if err == nil {
+			err = fmt.Errorf("listener stopped")
+		}
+		log.Printf("%s: local API unavailable on %s: %v; retrying in %s. The Hub connection is not affected.",
+			cfg.Name, net.JoinHostPort(cfg.BindAddress, cfg.Port), err, delay)
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+		delay = min(delay*2, localAPIRetryMaxDelay)
+	}
 }
 
 const (
@@ -206,8 +247,9 @@ func (r *Runtime) heartbeatLoop(ctx context.Context) {
 			log.Printf("agent: panic in heartbeatLoop: %v\n%s", err, debug.Stack())
 		}
 	}()
-	r.publishOnce(ctx)
 	currentInterval := r.cfg.HeartbeatInterval
+	r.heartbeatTickInterval.Store(int64(currentInterval))
+	r.publishOnce(ctx)
 	ticker := time.NewTicker(currentInterval)
 	defer ticker.Stop()
 
@@ -225,11 +267,21 @@ func (r *Runtime) heartbeatLoop(ctx context.Context) {
 				if newInterval != currentInterval {
 					currentInterval = newInterval
 					ticker.Reset(currentInterval)
+					r.heartbeatTickInterval.Store(int64(currentInterval))
 					log.Printf("%s: heartbeat interval updated to %v", r.cfg.Name, currentInterval)
 				}
 			}
 		}
 	}
+}
+
+// watchdogHeartbeatInterval reports the heartbeat ticker's current interval,
+// falling back to the configured value before the loop has started.
+func (r *Runtime) watchdogHeartbeatInterval() time.Duration {
+	if ticking := r.heartbeatTickInterval.Load(); ticking > 0 {
+		return time.Duration(ticking)
+	}
+	return time.Duration(r.effectiveHeartbeatIntervalSec()) * time.Second
 }
 
 func (r *Runtime) collectOnce(now time.Time) {
@@ -262,6 +314,9 @@ func (r *Runtime) publishOnce(ctx context.Context) {
 	}
 	if err := r.publisher.Publish(ctx, heartbeatSample); err != nil {
 		r.logPublishWarning(err)
+	} else {
+		// A heartbeat reached the Hub: a freshly installed update is healthy.
+		confirmSelfUpdateHealthy()
 	}
 
 	// Live samples join the replay queue first so they cannot overtake its

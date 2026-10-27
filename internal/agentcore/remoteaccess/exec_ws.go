@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os/exec"
@@ -44,6 +45,19 @@ var SelfUpdateExitFn func(code int)
 
 // SelfUpdateExitCode is the exit code used after self-update.
 const SelfUpdateExitCode = 10
+
+// SelfUpdateStatusUnsupported is the update.result status for a self-update
+// this agent cannot perform at all. Hubs treat any status other than
+// "succeeded" as not done, so it is never recorded as a success.
+const SelfUpdateStatusUnsupported = "unsupported"
+
+// UnsupportedSelfUpdateError reports that self-update cannot run here, for
+// example in the child of a native app that must be updated as one bundle.
+type UnsupportedSelfUpdateError struct {
+	Reason string
+}
+
+func (e UnsupportedSelfUpdateError) Error() string { return e.Reason }
 
 // HandleCommandRequest executes a command locally and sends the result back.
 func HandleCommandRequest(transport MessageSender, msg protocol.Message, cfg ExecConfig) {
@@ -165,6 +179,11 @@ func HandleUpdateRequest(transport MessageSender, msg protocol.Message, cfg Exec
 			return
 		}
 		updated, summary, err := SelfUpdateFn(cfg, req.Force)
+		var unsupported UnsupportedSelfUpdateError
+		if errors.As(err, &unsupported) {
+			sendResult(SelfUpdateStatusUnsupported, "", unsupported.Error())
+			return
+		}
 		if err != nil {
 			sendResult("failed", "", err.Error())
 			return
