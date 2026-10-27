@@ -69,14 +69,14 @@ func loadPersistedConfig(r *Runtime) {
 		log.Printf("config: failed to parse applied config: %v", err)
 		return
 	}
-	if cfg.CollectIntervalSec >= 2 && cfg.CollectIntervalSec <= 300 {
+	if cfg.CollectIntervalSec >= 2 && cfg.CollectIntervalSec <= 300 && !r.cfg.settingPinned(SettingKeyCollectIntervalSec) {
 		r.collectIntervalOverride.Store(int64(cfg.CollectIntervalSec))
 		r.mu.Lock()
 		r.cfg.CollectInterval = time.Duration(cfg.CollectIntervalSec) * time.Second
 		r.mu.Unlock()
 		log.Printf("config: restored collect interval override: %ds", cfg.CollectIntervalSec)
 	}
-	if cfg.HeartbeatIntervalSec >= 5 && cfg.HeartbeatIntervalSec <= 600 {
+	if cfg.HeartbeatIntervalSec >= 5 && cfg.HeartbeatIntervalSec <= 600 && !r.cfg.settingPinned(SettingKeyHeartbeatIntervalSec) {
 		r.heartbeatIntervalOverride.Store(int64(cfg.HeartbeatIntervalSec))
 		r.mu.Lock()
 		r.cfg.HeartbeatInterval = time.Duration(cfg.HeartbeatIntervalSec) * time.Second

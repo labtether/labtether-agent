@@ -267,10 +267,11 @@ func (t *wsTransport) connectWithResponse(ctx context.Context) (*http.Response, 
 		if applied {
 			connectionIdentity = adopted
 			if err := saveEnrollmentState(t.tokenFilePath, enrollmentState{
-				AssetID:   adopted.AssetID,
-				GroupID:   canonicalGroupIDPointer(adopted.GroupID, adopted.GroupKnown),
-				HubWSURL:  adopted.WSBaseURL,
-				HubAPIURL: adopted.APIBaseURL,
+				AssetID:      adopted.AssetID,
+				GroupID:      canonicalGroupIDPointer(adopted.GroupID, adopted.GroupKnown),
+				HubWSURL:     adopted.WSBaseURL,
+				HubAPIURL:    adopted.APIBaseURL,
+				TokenOrigins: savedTokenOrigins(t.tokenFilePath),
 			}); err != nil {
 				log.Printf("agentws: warning: failed to persist canonical asset ID: %v", err)
 			}

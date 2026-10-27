@@ -2,6 +2,8 @@ package agentcore
 
 import (
 	"fmt"
+	"log"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -101,6 +103,7 @@ func (r *Runtime) applyAgentSettings(values map[string]string) (map[string]strin
 
 	restartRequired := false
 	needsPersistedConfigWrite := false
+	var kept []string
 
 	r.mu.Lock()
 	for key, rawValue := range values {
@@ -112,6 +115,12 @@ func (r *Runtime) applyAgentSettings(values map[string]string) (map[string]strin
 		if definition.LocalOnly {
 			r.mu.Unlock()
 			return nil, false, fmt.Errorf("setting %s is local-only", key)
+		}
+		if r.cfg.settingPinned(definition.Key) {
+			// Chosen at install time; the agent keeps its own value and
+			// reports it in agent.settings.state.
+			kept = append(kept, definition.Key)
+			continue
 		}
 		normalized, err := NormalizeAgentSettingValue(key, rawValue)
 		if err != nil {
@@ -285,6 +294,10 @@ func (r *Runtime) applyAgentSettings(values map[string]string) (map[string]strin
 	cfgCopy := r.cfg
 	r.mu.Unlock()
 
+	if len(kept) > 0 {
+		sort.Strings(kept)
+		log.Printf("agent settings: kept install-time values for %s; the Hub's values for these were not applied", strings.Join(kept, ", "))
+	}
 	if len(applied) == 0 {
 		return applied, restartRequired, nil
 	}

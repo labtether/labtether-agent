@@ -334,17 +334,14 @@ func reEnrollAgainstActiveHub(ctx context.Context, cfg RuntimeConfig, transport 
 		return "", fmt.Errorf("re-enrollment returned empty asset id")
 	}
 
-	// Adopt the complete token-bound identity before reconnecting. This single
-	// update also moves HTTP fallback to the active/reported API origin.
-	responseWSURL := normalizeWSBaseURL(resp.HubWSURL)
-	if responseWSURL == "" {
-		responseWSURL = activeWSURL
-	}
+	// Adopt the complete token-bound identity before reconnecting. Keep the
+	// address that just reached the Hub rather than one the Hub names, which
+	// this host may not reach. HTTP fallback moves to the same origin.
 	adoptedIdentity, err := transport.identitySource().AdoptCredential(
 		resp.AgentToken,
 		resp.AssetID,
-		responseWSURL,
-		normalizeAPIBaseURL(resp.HubAPIURL),
+		activeWSURL,
+		apiBaseURLFromWS(activeWSURL),
 		resp.GroupID,
 	)
 	if err != nil {
@@ -365,10 +362,11 @@ func reEnrollAgainstActiveHub(ctx context.Context, cfg RuntimeConfig, transport 
 			}
 		} else {
 			if err := saveEnrollmentState(cfg.TokenFilePath, enrollmentState{
-				AssetID:   adoptedIdentity.AssetID,
-				GroupID:   canonicalGroupIDPointer(adoptedIdentity.GroupID, adoptedIdentity.GroupKnown),
-				HubWSURL:  adoptedIdentity.WSBaseURL,
-				HubAPIURL: adoptedIdentity.APIBaseURL,
+				AssetID:      adoptedIdentity.AssetID,
+				GroupID:      canonicalGroupIDPointer(adoptedIdentity.GroupID, adoptedIdentity.GroupKnown),
+				HubWSURL:     adoptedIdentity.WSBaseURL,
+				HubAPIURL:    adoptedIdentity.APIBaseURL,
+				TokenOrigins: mergeHubOrigins(nil, resp.HubWSURL, resp.HubAPIURL),
 			}); err != nil {
 				log.Printf("agentws: warning: failed to persist re-enrollment state: %v", err)
 			}

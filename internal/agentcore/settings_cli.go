@@ -263,6 +263,9 @@ func runSettingsCommand(cfg RuntimeConfig, args []string) int {
 			return 1
 		}
 		fmt.Printf("saved %s=%s\n", key, normalized)
+		if names := installSettingEnvVars[key]; len(names) > 0 {
+			fmt.Printf("if %s is set in the service environment (for example agent.env), that value is used instead.\n", strings.Join(names, " or "))
+		}
 		fmt.Println("restart labtether-agent service for restart-required settings.")
 		return 0
 	case "wizard":

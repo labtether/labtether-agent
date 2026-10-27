@@ -28,6 +28,14 @@ func handleConfigUpdate(transport agentMessageSender, msg protocol.Message, runt
 		sendLegacyConfigApplied(transport, runtime)
 		return
 	}
+	if data.CollectIntervalSec != nil && runtime.cfg.settingPinned(SettingKeyCollectIntervalSec) {
+		log.Printf("agentws: keeping the install-time collect interval")
+		data.CollectIntervalSec = nil
+	}
+	if data.HeartbeatIntervalSec != nil && runtime.cfg.settingPinned(SettingKeyHeartbeatIntervalSec) {
+		log.Printf("agentws: keeping the install-time heartbeat interval")
+		data.HeartbeatIntervalSec = nil
+	}
 
 	changed := false
 	if data.CollectIntervalSec != nil {
