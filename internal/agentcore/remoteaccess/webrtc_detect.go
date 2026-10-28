@@ -131,8 +131,7 @@ func DetectWebRTCCapabilitiesWithConfig(cfg WebRTCConfig) protocol.WebRTCCapabil
 	}
 
 	for _, enc := range VideoEncoderPriority() {
-		cmd, cmdErr := NewWebRTCSecurityCommand(inspectPath, enc.gstElement)
-		if cmdErr == nil && cmd.Run() == nil {
+		if gstElementAvailable(inspectPath, enc.gstElement) {
 			caps.VideoEncoders = append(caps.VideoEncoders, enc.name)
 		}
 	}
@@ -142,10 +141,11 @@ func DetectWebRTCCapabilitiesWithConfig(cfg WebRTCConfig) protocol.WebRTCCapabil
 		return caps
 	}
 
-	if cmd, cmdErr := NewWebRTCSecurityCommand(inspectPath, "pipewiresrc"); cmdErr == nil && cmd.Run() == nil {
+	pipeWireAvailable := gstElementAvailable(inspectPath, "pipewiresrc")
+	if pipeWireAvailable {
 		caps.AudioSources = append(caps.AudioSources, "pipewire")
 	}
-	if cmd, cmdErr := NewWebRTCSecurityCommand(inspectPath, "pulsesrc"); cmdErr == nil && cmd.Run() == nil {
+	if gstElementAvailable(inspectPath, "pulsesrc") {
 		caps.AudioSources = append(caps.AudioSources, "pulseaudio")
 	}
 
@@ -157,7 +157,7 @@ func DetectWebRTCCapabilitiesWithConfig(cfg WebRTCConfig) protocol.WebRTCCapabil
 			caps.UnavailableReason = webrtcReasonWaylandDisabled
 			return caps
 		}
-		if cmd, cmdErr := NewWebRTCSecurityCommand(inspectPath, "pipewiresrc"); cmdErr != nil || cmd.Run() != nil {
+		if !pipeWireAvailable {
 			caps.UnavailableReason = webrtcReasonWaylandPipeWireMissing
 			return caps
 		}

@@ -86,6 +86,19 @@ Build the raw binaries with `GOTOOLCHAIN=go1.27.3` and pass
 `--go-version go1.27.3` to `release-contract prepare`. The prepare gate checks
 each binary's embedded Go version and rejects older or unpinned builders.
 
+Link the public key into each binary, the same way as the version:
+
+```sh
+update_key="$(tr -d '[:space:]' < scripts/release/agent-release-public-key.b64)"
+go build -trimpath -ldflags="-s -w -X main.version=${VERSION} -X main.updatePublicKey=${update_key}" ./cmd/labtether-agent
+```
+
+An agent then verifies updates with this key even when
+`LABTETHER_AUTO_UPDATE_TRUSTED_PUBLIC_KEY` is unset. A key in that variable
+replaces the built-in key. Neither can be bypassed with
+`LABTETHER_AUTO_UPDATE_ACCEPT_UNSIGNED`, which applies only to builds without a
+linked key.
+
 The public contract is exactly 20 release assets:
 
 - four raw binaries: Linux amd64, Linux arm64, Windows amd64, Windows arm64
@@ -125,9 +138,9 @@ To rotate:
 2. Update the local maintainer secret store.
 3. Publish both the old and new public keys during the transition window.
 4. Tag a new release. Only this release is signed by the new key.
-5. Once all deployments have updated their
-   `LABTETHER_AUTO_UPDATE_TRUSTED_PUBLIC_KEY` to the new key, drop the old
-   one from published docs.
+5. Once all deployments run a release with the new built-in key, or have
+   updated their `LABTETHER_AUTO_UPDATE_TRUSTED_PUBLIC_KEY` to the new key,
+   drop the old one from published docs.
 
 The agent currently accepts exactly one trusted public key. If you need a
 rotation period where two keys are simultaneously trusted, emit two

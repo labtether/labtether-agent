@@ -126,6 +126,11 @@ func checkAndApplySelfUpdateWithOptions(cfg RuntimeConfig, opts selfUpdateOption
 	if !opts.Force && release.SHA256 != "" && strings.EqualFold(localSHA, release.SHA256) {
 		return false, "agent is already up to date", nil
 	}
+	if !opts.Force {
+		if err := rejectedSelfUpdateVersion(executablePath, release.Version); err != nil {
+			return false, "", err
+		}
+	}
 
 	binaryBytes, err := downloadReleaseBinary(cfg, downloadURL, release.SizeBytes)
 	if err != nil {
@@ -136,12 +141,12 @@ func checkAndApplySelfUpdateWithOptions(cfg RuntimeConfig, opts selfUpdateOption
 		return false, "", fmt.Errorf("download checksum mismatch")
 	}
 
-	if err := replaceExecutable(executablePath, binaryBytes); err != nil {
-		return false, "", fmt.Errorf("replace executable: %w", err)
-	}
 	version := strings.TrimSpace(release.Version)
 	if version == "" {
 		version = downloadSHA[:12]
+	}
+	if err := installVerifiedExecutable(executablePath, binaryBytes, version); err != nil {
+		return false, "", fmt.Errorf("replace executable: %w", err)
 	}
 	if opts.Force {
 		return true, fmt.Sprintf("forced update applied to %s", version), nil

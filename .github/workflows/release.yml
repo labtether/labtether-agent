@@ -78,8 +78,10 @@ jobs:
         run: |
           set -Eeuo pipefail
           output="${RUNNER_TEMP}/labtether-agent-${SUFFIX}"
+          update_key="$(tr -d '[:space:]' < scripts/release/agent-release-public-key.b64)"
+          test -n "${update_key}"
           go build -mod=readonly -trimpath -buildvcs=true \
-            -ldflags="-s -w -X main.version=${VERSION}" \
+            -ldflags="-s -w -X main.version=${VERSION} -X main.updatePublicKey=${update_key}" \
             -o "${output}" \
             ./cmd/labtether-agent
           test -s "${output}"

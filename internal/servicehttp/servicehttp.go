@@ -161,8 +161,16 @@ func Run(ctx context.Context, cfg Config) error {
 		}()
 	}
 
+	// The shutdown watcher also ends when Run returns, so a caller that retries
+	// a failed listen does not leave one goroutine behind per attempt.
+	serveDone := make(chan struct{})
+	defer close(serveDone)
 	go func() {
-		<-ctx.Done()
+		select {
+		case <-ctx.Done():
+		case <-serveDone:
+			return
+		}
 		shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
 		if err := server.Shutdown(shutdownCtx); err != nil {

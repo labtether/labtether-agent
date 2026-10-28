@@ -1,6 +1,7 @@
 package remoteaccess
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"os"
@@ -8,12 +9,27 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/labtether/labtether-agent/internal/securityruntime"
 	"github.com/labtether/protocol"
 )
 
 var strictLocalX11DisplayPattern = regexp.MustCompile(`^:[0-9]+(?:\.[0-9]+)?$`)
+
+// desktopDiagnosticCommandTimeout bounds each local probe so a hung tool can
+// neither hold a message handler slot nor push the reply past the Hub's wait.
+const desktopDiagnosticCommandTimeout = 3 * time.Second
+
+// diagnosticCommandOutput runs one fixed local diagnostic tool with a timeout.
+func diagnosticCommandOutput(name string, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), desktopDiagnosticCommandTimeout)
+	defer cancel()
+	// #nosec G204,G702 -- Callers pass fixed diagnostic tool names; the only variable argument is a strictly validated local X11 display.
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.WaitDelay = 250 * time.Millisecond
+	return securityruntime.CaptureOutput(cmd, securityruntime.DefaultCommandOutputLimit)
+}
 
 // CollectDesktopDiagnostic gathers a snapshot of the desktop stack state on the agent.
 // Both deskMgr and webrtcMgr may be nil (e.g. on platforms without desktop support).
@@ -31,7 +47,7 @@ func CollectDesktopDiagnostic(deskMgr *DesktopManager, webrtcMgr *WebRTCManager)
 	d.ActiveDisplays = AppendDetectedActiveDisplays(d.ActiveDisplays)
 
 	// --- Xvfb state ---
-	if out, err := securityruntime.CaptureOutput(exec.Command("pgrep", "-a", "Xvfb"), securityruntime.DefaultCommandOutputLimit); err == nil {
+	if out, err := diagnosticCommandOutput("pgrep", "-a", "Xvfb"); err == nil {
 		lines := strings.Split(strings.TrimSpace(string(out)), "\n")
 		for _, line := range lines {
 			line = strings.TrimSpace(line)
@@ -57,7 +73,7 @@ func CollectDesktopDiagnostic(deskMgr *DesktopManager, webrtcMgr *WebRTCManager)
 	}
 
 	// --- x11vnc state ---
-	if out, err := securityruntime.CaptureOutput(exec.Command("pgrep", "-a", "x11vnc"), securityruntime.DefaultCommandOutputLimit); err == nil {
+	if out, err := diagnosticCommandOutput("pgrep", "-a", "x11vnc"); err == nil {
 		lines := strings.Split(strings.TrimSpace(string(out)), "\n")
 		for _, line := range lines {
 			line = strings.TrimSpace(line)
@@ -85,7 +101,7 @@ func CollectDesktopDiagnostic(deskMgr *DesktopManager, webrtcMgr *WebRTCManager)
 	}
 
 	// --- Bootstrap shell ---
-	if out, err := securityruntime.CaptureOutput(exec.Command("pgrep", "-f", "LabTether Desktop"), securityruntime.DefaultCommandOutputLimit); err == nil {
+	if out, err := diagnosticCommandOutput("pgrep", "-f", "LabTether Desktop"); err == nil {
 		if strings.TrimSpace(string(out)) != "" {
 			d.BootstrapRunning = true
 		}
@@ -105,9 +121,14 @@ func CollectDesktopDiagnostic(deskMgr *DesktopManager, webrtcMgr *WebRTCManager)
 	}
 
 	// --- WebRTC capabilities ---
-	caps := DetectWebRTCCapabilities()
+	// Reuse the manager's startup probe. Probing again runs gst-inspect once
+	// per element, and without a writable GStreamer cache each run rescans
+	// every plugin, which pushed diagnose past the Hub's wait.
+	var caps protocol.WebRTCCapabilitiesData
 	if webrtcMgr != nil {
 		caps = webrtcMgr.caps
+	} else {
+		caps = DetectWebRTCCapabilities()
 	}
 	d.VideoEncoders = caps.VideoEncoders
 	d.AudioSources = caps.AudioSources
@@ -139,11 +160,7 @@ func CollectDesktopDiagnostic(deskMgr *DesktopManager, webrtcMgr *WebRTCManager)
 		d.FramebufferError = "unsupported X11 display identifier"
 	}
 	if display != "" && strictLocalX11DisplayPattern.MatchString(display) {
-		// #nosec G204,G702 -- Invokes a fixed local diagnostic binary with a normalized, strictly local X11 display identifier.
-		out, err := securityruntime.CaptureOutput(
-			exec.Command("xdpyinfo", "-display", display),
-			securityruntime.DefaultCommandOutputLimit,
-		)
+		out, err := diagnosticCommandOutput("xdpyinfo", "-display", display)
 		if err != nil {
 			d.FramebufferError = err.Error()
 		} else if strings.Contains(string(out), "dimensions:") {

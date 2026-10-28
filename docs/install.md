@@ -124,8 +124,9 @@ jM9Mqx0db6S+w6FMKDnIX2jvVp7N554+6galqPvsq88=
 ```
 
 The same key is committed in this repository and in the Hub repository at
-`scripts/release/agent-release-public-key.b64`. The Hub's install command sets
-it on new agents. For an agent you installed by hand, set it yourself:
+`scripts/release/agent-release-public-key.b64`. Release binaries and the
+container image carry it built in, and the Hub's install command also sets it.
+Agents older than this release that you installed by hand need it set:
 
 ```bash
 export LABTETHER_AUTO_UPDATE_TRUSTED_PUBLIC_KEY="jM9Mqx0db6S+w6FMKDnIX2jvVp7N554+6galqPvsq88="

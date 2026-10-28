@@ -39,6 +39,12 @@ func init() {
 func Run(ctx context.Context, cfg RuntimeConfig, provider TelemetryProvider) error {
 	setConnectorDiscoveryDockerConfig(cfg.DockerEnabled, cfg.DockerSocket)
 
+	// A freshly self-updated binary must reach the Hub, or it puts the
+	// previous binary back. This runs before anything else can fail.
+	if checkPendingSelfUpdate() {
+		go watchSelfUpdateHealth(ctx)
+	}
+
 	identity, identityErr := ensureDeviceIdentity(cfg)
 	if identityErr != nil {
 		log.Printf("%s: device identity initialization failed: %v", cfg.Name, identityErr)
@@ -160,8 +166,9 @@ func Run(ctx context.Context, cfg RuntimeConfig, provider TelemetryProvider) err
 		runtime.deviceIdentity = identity
 
 		go RunWatchdog(ctx, WatchdogConfig{
-			HeartbeatCounter: &runtime.HeartbeatCounter,
-			ExitFunc:         os.Exit,
+			HeartbeatCounter:  &runtime.HeartbeatCounter,
+			HeartbeatInterval: runtime.watchdogHeartbeatInterval,
+			ExitFunc:          os.Exit,
 		})
 
 		// Docker and web service collectors are wired before the reconnect callback.
@@ -285,8 +292,9 @@ func Run(ctx context.Context, cfg RuntimeConfig, provider TelemetryProvider) err
 	runtime := newRuntimeWithIdentity(cfg, provider, publisher, runtimeIdentity)
 	runtime.deviceIdentity = identity
 	go RunWatchdog(ctx, WatchdogConfig{
-		HeartbeatCounter: &runtime.HeartbeatCounter,
-		ExitFunc:         os.Exit,
+		HeartbeatCounter:  &runtime.HeartbeatCounter,
+		HeartbeatInterval: runtime.watchdogHeartbeatInterval,
+		ExitFunc:          os.Exit,
 	})
 	return runtime.Run(ctx)
 }
