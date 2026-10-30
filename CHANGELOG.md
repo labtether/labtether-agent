@@ -37,6 +37,10 @@ binary release.
 - The container image keeps its state in `/var/lib/labtether` (mount a volume
   there) and accepts a read-only enrollment token file. A consumed token that
   cannot be deleted is remembered and never used again.
+- `/agent/status` reports `last_error_reason` while the agent cannot reach
+  the Hub: `name_lookup_failed`, `connection_refused`, `host_unreachable`,
+  `timed_out`, `certificate_untrusted` or `token_rejected`. `last_error`
+  keeps its `transient` and `auth_failed` values.
 
 ### Changed
 
