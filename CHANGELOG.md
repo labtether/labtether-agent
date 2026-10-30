@@ -70,6 +70,11 @@ Changes since v1.5.1, the last public binary release.
   itself under systemd or as a Windows service.
 - Self-update downloads no longer fail on slow links. A download stops only
   when no data arrives for 60 seconds, or after 30 minutes in total.
+- Command results send the command's real exit code (protocol `exit_code`),
+  so a command that exits 2 reports 2, and 0 is sent for a clean exit. The
+  output holds only what the command printed, without text such as
+  `exit status 2`. No exit code is sent after a timeout, a cancel, a signal
+  or a failed start.
 
 ## Before 1.7.0
 
