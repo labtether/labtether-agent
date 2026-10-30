@@ -9,6 +9,7 @@ import (
 	"github.com/labtether/labtether-agent/internal/agentcore/files"
 	"github.com/labtether/labtether-agent/internal/agentcore/remoteaccess"
 	"github.com/labtether/labtether-agent/internal/agentcore/system"
+	"github.com/labtether/labtether-agent/internal/securityruntime"
 	"github.com/labtether/protocol"
 	"log"
 	"sync"
@@ -27,6 +28,10 @@ func receiveLoop(ctx context.Context, transport *wsTransport, cfg RuntimeConfig,
 	processMgr *system.ProcessManager, serviceMgr *backends.ServiceManager, journalMgr *backends.JournalManager, diskMgr *system.DiskManager, networkMgr *networkManager, packageMgr *backends.PackageManager, cronMgr *backends.CronManager, usersMgr *system.UsersManager,
 	clipMgr *clipboardManager, audioMgr *audioSidebandManager,
 	dockerCollector *docker.DockerCollector, webServiceCollector *WebServiceCollector, execMgr *docker.DockerExecManager, dockerLogMgr *docker.DockerLogManager) {
+	// Allowlisted readers (cat, grep, ...) must never return this agent's own
+	// credentials or state to a Hub command.
+	securityruntime.SetProtectedReadPaths(agentSecretPaths(cfg)...)
+
 	// Display manager must close after both desktop and WebRTC managers (LIFO order).
 	if deskMgr.DisplayMgr != nil {
 		defer deskMgr.DisplayMgr.CloseAll()
@@ -239,11 +244,11 @@ func receiveLoop(ctx context.Context, transport *wsTransport, cfg RuntimeConfig,
 			})
 		case protocol.MsgSSHKeyInstall:
 			dispatch("ssh-key-install", func() {
-				handleSSHKeyInstall(sender, msg)
+				handleSSHKeyInstallRecorded(sender, msg, hubSSHKeyRecordPath(cfg.TokenFilePath))
 			})
 		case protocol.MsgSSHKeyRemove:
 			dispatch("ssh-key-remove", func() {
-				handleSSHKeyRemove(sender, msg)
+				handleSSHKeyRemoveRecorded(sender, msg, hubSSHKeyRecordPath(cfg.TokenFilePath))
 			})
 		case protocol.MsgDesktopListDisplays:
 			dispatch("desktop-list-displays", func() {

@@ -327,7 +327,7 @@ func ValidateShellCommand(command string) error {
 					return err
 				}
 			}
-			return nil
+			return validateReadOnlyCommand(args)
 		}
 	}
 

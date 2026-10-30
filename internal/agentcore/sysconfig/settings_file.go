@@ -79,11 +79,33 @@ func SaveAgentSettingsFile(path string, values map[string]string) error {
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return err
 	}
-	// Atomic write: temp file + rename to prevent torn writes from
-	// concurrent settings updates.
-	tmpPath := path + ".tmp"
-	if err := os.WriteFile(tmpPath, data, 0o600); err != nil {
+	// Atomic write: a new, uniquely named temp file + rename prevents torn
+	// writes. A fixed temp name could be pre-created by another local account
+	// and then renamed into place with that account still owning it.
+	tmp, err := os.CreateTemp(dir, ".agent-config-*.tmp")
+	if err != nil {
 		return err
 	}
-	return os.Rename(tmpPath, path)
+	tmpPath := tmp.Name()
+	committed := false
+	defer func() {
+		_ = tmp.Close()
+		if !committed {
+			_ = os.Remove(tmpPath) // #nosec G703 -- Temp file this function just created beside the settings file.
+		}
+	}()
+	if err := tmp.Chmod(0o600); err != nil {
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return err
+	}
+	committed = true
+	return nil
 }

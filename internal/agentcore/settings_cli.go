@@ -37,6 +37,8 @@ func HandleCLICommand(cfg RuntimeConfig, args []string) (handled bool, exitCode 
 		return true, runIdentityCommand(cfg, args[1:])
 	case "update":
 		return true, runUpdateCommand(cfg, args[1:])
+	case "ssh-key":
+		return true, runSSHKeyCommand(cfg, args[1:])
 	case "-v", "--version":
 		printAgentVersion(cfg)
 		return true, 0
@@ -74,6 +76,7 @@ func printTopLevelHelp(cfg RuntimeConfig) {
 	fmt.Println("  settings    Manage agent settings (show, set, wizard, test)")
 	fmt.Println("  identity    Show device identity and key fingerprint")
 	fmt.Println("  update      Self-update the agent binary")
+	fmt.Println("  ssh-key     Remove the Hub SSH key this agent added (ssh-key remove)")
 	fmt.Println("  help        Show this help message")
 	fmt.Println()
 	fmt.Println("Run 'labtether-agent help <command>' for detailed usage of a command.")
