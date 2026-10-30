@@ -220,8 +220,8 @@ func removeAuthorizedKeyLines(authKeysPath string, match func(line string) bool)
 	}
 
 	content := strings.Join(filtered, "\n")
-	if err := os.WriteFile(authKeysPath, []byte(content), 0600); err != nil { // #nosec G703 -- authorized_keys path is derived from the managed SSH home directory.
-		return false, fmt.Errorf("failed to write authorized_keys: %w", err)
+	if err := writeAuthorizedKeys(authKeysPath, []byte(content)); err != nil {
+		return false, err
 	}
 	return true, nil
 }
@@ -282,8 +282,8 @@ func installPublicKey(authKeysPath, pubKey string) (bool, error) {
 	}
 	content += keyLine + "\n"
 
-	if err := os.WriteFile(authKeysPath, []byte(content), 0600); err != nil { // #nosec G703 -- authorized_keys path is derived from the managed SSH home directory.
-		return false, fmt.Errorf("failed to write authorized_keys: %w", err)
+	if err := writeAuthorizedKeys(authKeysPath, []byte(content)); err != nil {
+		return false, err
 	}
 
 	return true, nil

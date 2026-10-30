@@ -86,6 +86,11 @@ binary release.
   rule starting with `=` must match the whole command, and rules for `cmd`,
   `powershell` and other interpreters always must, so `ipconfig /release`
   and `hostname newname` stay refused.
+- Installing or removing the Hub SSH key writes `authorized_keys` to a new
+  file and renames it into place, so a crash cannot leave it empty. The file
+  keeps its mode and owner on Linux and macOS, and its access list on
+  Windows, where `administrators_authorized_keys` must stay limited to
+  Administrators and SYSTEM. A symlinked `authorized_keys` stays a link.
 
 ## Before 1.7.1
 
