@@ -60,6 +60,10 @@ type Manager struct {
 	// extraRoots lists other allowed roots beside BaseDir: every fixed drive
 	// in full mode on Windows. Nil means BaseDir only.
 	extraRoots func() []string
+	rootMode   string
+	// scopeMu guards BaseDir, HomeDir, extraRoots and rootMode once the
+	// manager is in use, because SetRootMode can change them at any time.
+	scopeMu sync.RWMutex
 }
 
 // PendingWrite tracks an in-progress file upload.
@@ -85,6 +89,7 @@ func NewManager(fileRootMode string) *Manager {
 		BaseDir:    ResolveFileBaseDirWithHome(fileRootMode, homeDir),
 		HomeDir:    homeDir,
 		extraRoots: rootsForMode(fileRootMode),
+		rootMode:   strings.TrimSpace(strings.ToLower(fileRootMode)),
 	}
 	// Evaluate the startup roots before launching cleanup so callers that
 	// replace BaseDir for an isolated test/session cannot race the goroutine.

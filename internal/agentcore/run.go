@@ -183,6 +183,8 @@ func Run(ctx context.Context, cfg RuntimeConfig, provider TelemetryProvider) err
 		dispMgr := newDisplayManager()
 		deskMgr := newDesktopManager(dispMgr)
 		fileMgr := files.NewManager(cfg.FileRootMode)
+		runtime.applyFileRootMode = fileMgr.SetRootMode
+		runtime.restartAgent = serviceManagerRestart()
 		webrtcMgr := newWebRTCManager(webrtcCaps, runtime, fileMgr, dispMgr)
 		audioMgr := newAudioSidebandManager()
 

@@ -145,6 +145,9 @@ func handleAgentSettingsApply(transport agentMessageSender, msg protocol.Message
 	response.AppliedAt = time.Now().UTC().Format(time.RFC3339)
 	sendAgentSettingsApplied(transport, runtime, response)
 	sendAgentSettingsState(transport, runtime, req.Revision)
+	if restartRequired {
+		runtime.restartForSettings()
+	}
 }
 
 func sendAgentSettingsApplied(transport agentMessageSender, runtime *Runtime, response protocol.AgentSettingsAppliedData) {

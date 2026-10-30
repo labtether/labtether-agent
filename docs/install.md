@@ -81,6 +81,13 @@ Settings chosen in the environment at install time, such as
 `LABTETHER_FILES_ROOT_MODE`, stay in effect: Hub settings pushes skip them.
 To manage one of them from the Hub, remove it from the service environment.
 
+Most Hub settings apply while the agent runs, including the files root mode.
+Docker, service discovery and the WebRTC on/off and Wayland settings are read
+at start. Under systemd or as a Windows service the agent restarts itself to
+use them; a Windows service comes back after its 60-second recovery delay.
+Run any other way, the agent keeps its current values and reports that a
+restart is needed.
+
 For a private Hub CA or TLS proxy, set `LABTETHER_TLS_CA_FILE` to the trusted
 CA file. The agent keeps that explicit trust setting after enrollment.
 

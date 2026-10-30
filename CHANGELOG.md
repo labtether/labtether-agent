@@ -64,6 +64,10 @@ Changes since v1.5.1, the last public binary release.
   hosts no longer report all-zero CPU, memory and disk at start.
 - Desktop diagnose answers within the Hub's 15 s wait. The X display scan
   looked up the desktop session and logins once per display, up to 100 times.
+- Hub settings that need a restart no longer show as in use before it. The
+  files root mode now applies at once. For Docker, service discovery and
+  WebRTC start-up settings, the agent reports its running value and restarts
+  itself under systemd or as a Windows service.
 
 ## Before 1.7.0
 

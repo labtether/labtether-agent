@@ -2,6 +2,7 @@ package files
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -32,11 +33,35 @@ func rootsForMode(fileRootMode string) func() []string {
 	return fixedDriveRoots
 }
 
+// SetRootMode switches between home and full access while the agent runs.
+// Later requests use the new scope at once. Uploads still in progress are
+// stopped, so none of them finishes outside the new scope.
+func (fm *Manager) SetRootMode(fileRootMode string) {
+	mode := strings.TrimSpace(strings.ToLower(fileRootMode))
+	homeDir := ResolveAgentFileHomeDir()
+	fm.scopeMu.Lock()
+	if fm.rootMode == mode {
+		fm.scopeMu.Unlock()
+		return
+	}
+	fm.rootMode = mode
+	fm.BaseDir = ResolveFileBaseDirWithHome(mode, homeDir)
+	fm.HomeDir = homeDir
+	fm.extraRoots = rootsForMode(mode)
+	base := fm.BaseDir
+	fm.scopeMu.Unlock()
+	fm.CloseAll()
+	log.Printf("file: access scope is now %s (%s)", mode, base)
+}
+
 func (fm *Manager) scope() fileScope {
-	scope := fileScope{base: fm.BaseDir, home: fm.HomeDir}
-	scope.roots = []string{filepath.Clean(fm.BaseDir)}
-	if fm.extraRoots != nil {
-		for _, root := range fm.extraRoots() {
+	fm.scopeMu.RLock()
+	base, home, extraRoots := fm.BaseDir, fm.HomeDir, fm.extraRoots
+	fm.scopeMu.RUnlock()
+	scope := fileScope{base: base, home: home}
+	scope.roots = []string{filepath.Clean(base)}
+	if extraRoots != nil {
+		for _, root := range extraRoots() {
 			if root == "" || scope.isRoot(root) {
 				continue
 			}

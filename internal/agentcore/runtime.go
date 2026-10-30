@@ -42,6 +42,15 @@ type Runtime struct {
 	startedAt time.Time
 	alerts    []AlertSnapshot
 
+	// runningSettings holds the values the running components were built with
+	// for settings that need a restart. Reports show these until a restart.
+	runningSettings map[string]string
+	// applyFileRootMode switches the file manager's scope while it runs.
+	applyFileRootMode func(string)
+	// restartAgent restarts the agent through its service manager; nil when
+	// no service manager would start it again.
+	restartAgent func() error
+
 	// firstSample closes once the first collection has stored real values.
 	firstSample     chan struct{}
 	firstSampleOnce sync.Once
@@ -79,7 +88,8 @@ func newRuntimeWithIdentity(cfg RuntimeConfig, provider TelemetryProvider, publi
 			CollectedAt: now,
 			pending:     true,
 		},
-		firstSample: make(chan struct{}),
+		firstSample:     make(chan struct{}),
+		runningSettings: startupRestartSettings(cfg),
 	}
 }
 
