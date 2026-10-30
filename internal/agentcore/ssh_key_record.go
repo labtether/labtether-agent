@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 
 	"golang.org/x/crypto/ssh"
@@ -139,11 +138,11 @@ func RemoveRecordedHubSSHKey(tokenFilePath string) ([]string, error) {
 // plus the Administrators file on Windows, where the SYSTEM service installs.
 func defaultHubSSHKeyPaths() []string {
 	var paths []string
-	if path, err := resolveAuthorizedKeysPath(); err == nil {
-		paths = append(paths, path)
+	if target, err := resolveHubSSHKeyTarget(); err == nil {
+		paths = append(paths, target.path)
 	}
-	if runtime.GOOS == "windows" && (len(paths) == 0 || !strings.EqualFold(paths[0], windowsAdministratorsAuthorizedKeys)) {
-		paths = append(paths, windowsAdministratorsAuthorizedKeys)
+	if admin := windowsAdministratorsKeysFile(); admin != "" && (len(paths) == 0 || !strings.EqualFold(paths[0], admin)) {
+		paths = append(paths, admin)
 	}
 	return paths
 }

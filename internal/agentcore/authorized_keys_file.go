@@ -54,6 +54,8 @@ func writeAuthorizedKeys(path string, content []byte) error {
 		if err := keepAuthorizedKeysAccess(original, target, tmp); err != nil {
 			return fmt.Errorf("failed to keep authorized_keys owner and access: %w", err)
 		}
+	} else if err := newAuthorizedKeysAccess(target, tmp); err != nil {
+		return fmt.Errorf("failed to restrict new authorized_keys: %w", err)
 	}
 	if _, err := tmp.Write(content); err != nil {
 		return fmt.Errorf("failed to write authorized_keys: %w", err)

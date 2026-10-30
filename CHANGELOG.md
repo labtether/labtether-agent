@@ -100,6 +100,13 @@ binary release.
 - Uploads and copies straight into a Windows drive root, such as `C:\x`, no
   longer fail with "Access is denied". The agent creates only a parent folder
   that is missing.
+- The Windows service, running as LocalSystem, installs the Hub SSH key in
+  `%ProgramData%\ssh\administrators_authorized_keys` again. It is found by
+  its SID: the agent sees its name as the machine account (`WORKGROUP\HOST$`),
+  not `NT AUTHORITY\SYSTEM`, so the key went to the SYSTEM profile, which
+  sshd never reads. A new file gets the ACL OpenSSH requires (SYSTEM and
+  Administrators only); an existing one keeps its ACL. The reply to the Hub
+  has an empty SSH username, because LocalSystem is not an SSH login.
 
 ## Before 1.7.1
 

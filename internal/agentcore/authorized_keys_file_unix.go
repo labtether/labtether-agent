@@ -24,6 +24,10 @@ func keepAuthorizedKeysAccess(original os.FileInfo, _ string, tmp *os.File) erro
 	return tmp.Chown(int(want.Uid), int(want.Gid))
 }
 
+// newAuthorizedKeysAccess needs nothing on Unix: the temp file is already 0600
+// and owned by the agent's account.
+func newAuthorizedKeysAccess(string, *os.File) error { return nil }
+
 // syncAuthorizedKeysDir flushes the rename to disk. It is best effort: the
 // rename has already happened and the file content was synced before it.
 func syncAuthorizedKeysDir(dir string) {

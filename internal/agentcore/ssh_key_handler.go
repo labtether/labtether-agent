@@ -5,9 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"os/user"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 
@@ -20,10 +18,6 @@ import (
 // an install and a remove back to back; without it one rewrite can drop the
 // other's change.
 var hubSSHKeyMu sync.Mutex
-
-// windowsAdministratorsAuthorizedKeys is the file OpenSSH for Windows reads
-// for every member of Administrators; the SYSTEM service installs there.
-const windowsAdministratorsAuthorizedKeys = `C:\ProgramData\ssh\administrators_authorized_keys`
 
 // validateAuthorizedKey asserts that pubKey is a single, valid authorized_keys
 // entry with no embedded newlines and no trailing content after the key proper.
@@ -69,26 +63,22 @@ func handleSSHKeyInstallRecorded(transport agentMessageSender, msg protocol.Mess
 		return
 	}
 
-	authKeysPath, err := resolveAuthorizedKeysPath()
+	target, err := resolveHubSSHKeyTarget()
 	if err != nil {
 		log.Printf("ssh-key: failed to resolve authorized_keys path: %v", err)
 		return
 	}
 
-	if err := installHubSSHKey(authKeysPath, pubKey, recordPath); err != nil {
+	if err := installHubSSHKey(target.path, pubKey, recordPath); err != nil {
 		log.Printf("ssh-key: failed to install public key: %v", err)
 		return
 	}
 
-	// Send confirmation back to hub.
-	currentUser, _ := user.Current()
+	// Send confirmation back to hub. An empty username tells the Hub that this
+	// account is not an SSH login, so it asks the user for one.
 	hostname, _ := os.Hostname()
 	homeDir, _ := os.UserHomeDir()
-
-	username := ""
-	if currentUser != nil {
-		username = currentUser.Username
-	}
+	username := target.sshUser
 
 	resp := protocol.SSHKeyInstalledData{
 		Username: username,
@@ -101,7 +91,7 @@ func handleSSHKeyInstallRecorded(transport agentMessageSender, msg protocol.Mess
 		Data: data,
 	})
 
-	log.Printf("ssh-key: installed hub public key for user %s", username)
+	log.Printf("ssh-key: installed hub public key in %s for user %q", target.path, username)
 }
 
 // handleSSHKeyRemove removes the hub's SSH public key from the current user's
@@ -124,24 +114,20 @@ func handleSSHKeyRemoveRecorded(transport agentMessageSender, msg protocol.Messa
 		return
 	}
 
-	authKeysPath, err := resolveAuthorizedKeysPath()
+	target, err := resolveHubSSHKeyTarget()
 	if err != nil {
 		log.Printf("ssh-key: failed to resolve authorized_keys path: %v", err)
 		return
 	}
 
-	if err := removeHubSSHKey(authKeysPath, pubKey, recordPath); err != nil {
+	if err := removeHubSSHKey(target.path, pubKey, recordPath); err != nil {
 		log.Printf("ssh-key: failed to remove public key: %v", err)
 		return
 	}
 
-	resp := protocol.SSHKeyInstalledData{} // reuse for confirmation
-	currentUser, _ := user.Current()
+	resp := protocol.SSHKeyInstalledData{Username: target.sshUser} // reuse for confirmation
 	hostname, _ := os.Hostname()
 	homeDir, _ := os.UserHomeDir()
-	if currentUser != nil {
-		resp.Username = currentUser.Username
-	}
 	resp.Hostname = hostname
 	resp.HomeDir = homeDir
 
@@ -224,29 +210,6 @@ func removeAuthorizedKeyLines(authKeysPath string, match func(line string) bool)
 		return false, err
 	}
 	return true, nil
-}
-
-// resolveAuthorizedKeysPath determines the appropriate authorized_keys file path.
-func resolveAuthorizedKeysPath() (string, error) {
-	if runtime.GOOS == "windows" {
-		// Check if running as SYSTEM (common for Windows services).
-		currentUser, err := user.Current()
-		if err == nil && strings.EqualFold(currentUser.Username, "NT AUTHORITY\\SYSTEM") {
-			return windowsAdministratorsAuthorizedKeys, nil
-		}
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("cannot determine home directory: %w", err)
-		}
-		return filepath.Join(home, ".ssh", "authorized_keys"), nil
-	}
-
-	// Linux, macOS, FreeBSD
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("cannot determine home directory: %w", err)
-	}
-	return filepath.Join(home, ".ssh", "authorized_keys"), nil
 }
 
 // installPublicKey idempotently appends a public key to authorized_keys and
