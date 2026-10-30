@@ -58,6 +58,8 @@ Changes since v1.5.1, the last public binary release.
   network connectivity probes.
 - Restarted agents keep the Hub addresses, group and CA trust saved at
   enrollment.
+- Windows `full` files mode covers every fixed local drive, not only the
+  system drive. Copies work between drives; a move between drives is refused.
 
 ## Before 1.7.0
 

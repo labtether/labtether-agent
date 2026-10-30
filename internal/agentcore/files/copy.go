@@ -55,32 +55,35 @@ type copyBackend interface {
 	RemoveAll(path string) error
 }
 
+// rootedCopyBackend reads the source through src and writes the copy through
+// dst. Both are the same root unless the copy goes to another drive.
 type rootedCopyBackend struct {
-	root *os.Root
+	src *os.Root
+	dst *os.Root
 }
 
 func (b rootedCopyBackend) Lstat(path string) (os.FileInfo, error) {
-	return b.root.Lstat(path)
+	return b.src.Lstat(path)
 }
 
 func (b rootedCopyBackend) MkdirAll(path string, mode os.FileMode) error {
-	return b.root.MkdirAll(path, mode)
+	return b.dst.MkdirAll(path, mode)
 }
 
 func (b rootedCopyBackend) Mkdir(path string, mode os.FileMode) error {
-	return b.root.Mkdir(path, mode)
+	return b.dst.Mkdir(path, mode)
 }
 
 func (b rootedCopyBackend) Open(path string) (*os.File, error) {
-	return b.root.Open(path)
+	return b.src.Open(path)
 }
 
 func (b rootedCopyBackend) OpenFile(path string, flag int, mode os.FileMode) (*os.File, error) {
-	return b.root.OpenFile(path, flag, mode)
+	return b.dst.OpenFile(path, flag, mode)
 }
 
 func (b rootedCopyBackend) RemoveAll(path string) error {
-	return b.root.RemoveAll(path)
+	return b.dst.RemoveAll(path)
 }
 
 type copyState struct {
@@ -108,19 +111,21 @@ func (fm *Manager) HandleFileCopyContext(ctx context.Context, transport MessageS
 		return
 	}
 
-	root, srcRel, srcPath, err := fm.OpenRootPath(req.SrcPath)
+	source, err := fm.openScopedPath(req.SrcPath)
 	if err != nil {
 		fm.SendFileResult(transport, req.RequestID, false, err.Error())
 		return
 	}
-	defer root.Close()
+	defer source.root.Close()
+	root, srcRel, srcPath := source.root, source.rel, source.display
 
-	dstRoot, dstRel, dstPath, err := fm.OpenRootPath(req.DstPath)
+	destination, err := fm.openScopedPath(req.DstPath)
 	if err != nil {
 		fm.SendFileResult(transport, req.RequestID, false, err.Error())
 		return
 	}
-	defer dstRoot.Close()
+	defer destination.root.Close()
+	dstRoot, dstRel, dstPath := destination.root, destination.rel, destination.display
 
 	if srcPath == dstPath {
 		fm.SendFileResult(transport, req.RequestID, false, "source and destination are identical")
@@ -138,7 +143,13 @@ func (fm *Manager) HandleFileCopyContext(ctx context.Context, transport MessageS
 		return
 	}
 
-	if err := copyPathRecursiveRootContext(ctx, root, srcRel, dstRel, defaultCopyLimits); err != nil {
+	if sameRoot(source.base, destination.base) {
+		err = copyPathRecursiveRootContext(ctx, root, srcRel, dstRel, defaultCopyLimits)
+	} else {
+		// A copy to another drive cannot land inside its own source.
+		err = copyPathWithBackend(ctx, rootedCopyBackend{src: root, dst: dstRoot}, srcRel, dstRel, defaultCopyLimits)
+	}
+	if err != nil {
 		fm.SendFileResult(transport, req.RequestID, false, err.Error())
 		return
 	}
@@ -161,7 +172,7 @@ func copyPathRecursiveRootContext(ctx context.Context, root *os.Root, srcRel, ds
 	if PathWithinBaseDir(srcRel, dstRel) {
 		return errors.New("destination cannot be inside source directory")
 	}
-	return copyPathWithBackend(ctx, rootedCopyBackend{root: root}, srcRel, dstRel, limits)
+	return copyPathWithBackend(ctx, rootedCopyBackend{src: root, dst: root}, srcRel, dstRel, limits)
 }
 
 func copyPathWithBackend(ctx context.Context, backend copyBackend, srcPath, dstPath string, limits copyLimits) error {

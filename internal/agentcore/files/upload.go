@@ -21,7 +21,9 @@ import (
 // CleanupOrphanedTempFiles removes .lt-upload-* temp files older than 5 minutes
 // that were left behind by interrupted uploads.
 func (fm *Manager) CleanupOrphanedTempFiles() {
-	fm.cleanupOrphanedTempFiles(fm.BaseDir)
+	for _, root := range fm.scope().roots {
+		fm.cleanupOrphanedTempFiles(root)
+	}
 }
 
 func (fm *Manager) cleanupOrphanedTempFiles(baseDir string) {
@@ -150,11 +152,13 @@ func (fm *Manager) WriteChunkContext(ctx context.Context, req protocol.FileWrite
 	// abandoned requests cannot deny all future uploads until reconnect.
 	fm.cleanupExpiredPendingWrites(fm.pendingWriteTime())
 
-	requestRoot, relPath, filePath, err := fm.OpenRootPath(req.Path)
+	target, err := fm.openScopedPath(req.Path)
 	if err != nil {
 		written := fm.abortPendingWriteContext(ctx, epoch, req.RequestID)
 		return written, err
 	}
+
+	requestRoot, relPath, filePath := target.root, target.rel, target.display
 
 	fm.mu.Lock()
 	if err := fm.uploadOwnerErrorLocked(ctx, epoch); err != nil {
@@ -191,7 +195,7 @@ func (fm *Manager) WriteChunkContext(ctx context.Context, req protocol.FileWrite
 			Root:         requestRoot,
 			Path:         filePath,
 			RelPath:      relPath,
-			TmpPath:      filepath.Join(fm.BaseDir, tmpRelPath),
+			TmpPath:      filepath.Join(target.base, tmpRelPath),
 			TmpRelPath:   tmpRelPath,
 			lastActivity: fm.pendingWriteTime(),
 		}

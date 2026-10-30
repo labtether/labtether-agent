@@ -57,6 +57,9 @@ type Manager struct {
 	pendingWriteIdleTTL time.Duration
 	BaseDir             string // restricted base directory (empty = home dir)
 	HomeDir             string // resolved home directory for "~" expansion
+	// extraRoots lists other allowed roots beside BaseDir: every fixed drive
+	// in full mode on Windows. Nil means BaseDir only.
+	extraRoots func() []string
 }
 
 // PendingWrite tracks an in-progress file upload.
@@ -78,13 +81,19 @@ type PendingWrite struct {
 func NewManager(fileRootMode string) *Manager {
 	homeDir := ResolveAgentFileHomeDir()
 	fm := &Manager{
-		writers: make(map[string]*PendingWrite),
-		BaseDir: ResolveFileBaseDirWithHome(fileRootMode, homeDir),
-		HomeDir: homeDir,
+		writers:    make(map[string]*PendingWrite),
+		BaseDir:    ResolveFileBaseDirWithHome(fileRootMode, homeDir),
+		HomeDir:    homeDir,
+		extraRoots: rootsForMode(fileRootMode),
 	}
-	// Evaluate the immutable startup path before launching cleanup so callers
-	// that replace BaseDir for an isolated test/session cannot race the goroutine.
-	go fm.cleanupOrphanedTempFiles(fm.BaseDir)
+	// Evaluate the startup roots before launching cleanup so callers that
+	// replace BaseDir for an isolated test/session cannot race the goroutine.
+	roots := fm.scope().roots
+	go func() {
+		for _, root := range roots {
+			fm.cleanupOrphanedTempFiles(root)
+		}
+	}()
 	return fm
 }
 
@@ -272,19 +281,19 @@ func (fm *Manager) HandleFileDelete(transport MessageSender, msg protocol.Messag
 		return
 	}
 
-	root, relPath, filePath, err := fm.OpenRootPath(req.Path)
+	target, err := fm.openScopedPath(req.Path)
 	if err != nil {
 		fm.SendFileResult(transport, req.RequestID, false, err.Error())
 		return
 	}
-	defer root.Close()
+	defer target.root.Close()
 
-	// Safety: don't allow deleting the base directory itself.
-	if filepath.Clean(filePath) == filepath.Clean(fm.BaseDir) {
+	// Safety: don't allow deleting the base directory or a drive root.
+	if target.rel == "." {
 		fm.SendFileResult(transport, req.RequestID, false, "cannot delete base directory")
 		return
 	}
-	if err := root.RemoveAll(relPath); err != nil {
+	if err := target.root.RemoveAll(target.rel); err != nil {
 		fm.SendFileResult(transport, req.RequestID, false, err.Error())
 		return
 	}
@@ -300,22 +309,28 @@ func (fm *Manager) HandleFileRename(transport MessageSender, msg protocol.Messag
 		return
 	}
 
-	root, oldRel, oldPath, err := fm.OpenRootPath(req.OldPath)
+	source, err := fm.openScopedPath(req.OldPath)
 	if err != nil {
 		fm.SendFileResult(transport, req.RequestID, false, err.Error())
 		return
 	}
-	defer root.Close()
+	defer source.root.Close()
+	root, oldRel := source.root, source.rel
 
-	newRoot, newRel, _, err := fm.OpenRootPath(req.NewPath)
+	destination, err := fm.openScopedPath(req.NewPath)
 	if err != nil {
 		fm.SendFileResult(transport, req.RequestID, false, err.Error())
 		return
 	}
-	defer newRoot.Close()
+	defer destination.root.Close()
+	newRoot, newRel := destination.root, destination.rel
 
-	if filepath.Clean(oldPath) == filepath.Clean(fm.BaseDir) {
+	if oldRel == "." {
 		fm.SendFileResult(transport, req.RequestID, false, "cannot rename base directory")
+		return
+	}
+	if !sameRoot(source.base, destination.base) {
+		fm.SendFileResult(transport, req.RequestID, false, "cannot move between drives; copy the file and delete the original")
 		return
 	}
 
@@ -388,12 +403,13 @@ func (fm *Manager) HandleFileSearch(transport MessageSender, msg protocol.Messag
 		})
 	}
 
-	root, searchRel, _, err := fm.OpenRootPath(req.Path)
+	searchRoot, err := fm.openScopedPath(req.Path)
 	if err != nil {
 		sendResult(nil, false, err.Error())
 		return
 	}
-	defer root.Close()
+	defer searchRoot.root.Close()
+	root, searchRel := searchRoot.root, searchRoot.rel
 
 	// Apply MaxResults bounds: default 100, cap at 500.
 	maxResults := req.MaxResults
@@ -451,7 +467,7 @@ func (fm *Manager) HandleFileSearch(transport MessageSender, msg protocol.Messag
 			return nil
 		}
 
-		displayPath := filepath.Join(fm.BaseDir, filepath.FromSlash(relPath))
+		displayPath := filepath.Join(searchRoot.base, filepath.FromSlash(relPath))
 		matches = append(matches, protocol.FileEntry{
 			Name:    d.Name(),
 			Path:    displayPath,
