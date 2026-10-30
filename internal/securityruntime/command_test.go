@@ -1,6 +1,7 @@
 package securityruntime
 
 import (
+	"context"
 	"path/filepath"
 	"runtime"
 	"testing"
@@ -149,6 +150,35 @@ func TestValidateShellCommandAllowsNarrowWindowsEchoProbe(t *testing.T) {
 	} {
 		if err := ValidateShellCommand(command); err != nil {
 			t.Fatalf("expected narrow Windows echo probe %q to be allowed: %v", command, err)
+		}
+	}
+}
+
+// The Hub allows these read-only Windows commands, so the agent must run
+// them too, with the same strictness: forms that change settings and extra
+// interpreter arguments, which would run as code, stay refused.
+func TestNewValidatedShellCommandMatchesHubWindowsReadOnlyRules(t *testing.T) {
+	t.Setenv(envShellAllowlistMode, "")
+	t.Setenv(envShellAllowlistPrefixes, "")
+	t.Setenv(envExecAllowlistMode, "")
+	t.Setenv(envExecAllowedBinaries, "")
+
+	for _, command := range []string{
+		"whoami", "whoami /all", "hostname", "ipconfig", "ipconfig /all",
+		"systeminfo", "tasklist", "tasklist /svc", "cmd /c ver", "powershell -Command Get-Date",
+	} {
+		if _, err := NewValidatedShellCommandContext(context.Background(), command); err != nil {
+			t.Errorf("expected %q to be allowed: %v", command, err)
+		}
+	}
+	for _, command := range []string{
+		"ipconfig /release", "ipconfig /all /release", "hostname newname",
+		"cmd", "cmd /c", `cmd /c ver "& del x"`, "cmd /c dir",
+		"powershell", "powershell -Command", `powershell -Command Get-Date "; Remove-Item x"`,
+		"pwsh -Command Get-Date",
+	} {
+		if _, err := NewValidatedShellCommandContext(context.Background(), command); err == nil {
+			t.Errorf("expected %q to be refused", command)
 		}
 	}
 }

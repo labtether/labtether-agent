@@ -75,6 +75,12 @@ Changes since v1.5.1, the last public binary release.
   output holds only what the command printed, without text such as
   `exit status 2`. No exit code is sent after a timeout, a cancel, a signal
   or a failed start.
+- Windows devices run the read-only commands the Hub allows by default:
+  `whoami`, `hostname`, `ipconfig`, `ipconfig /all`, `systeminfo`,
+  `tasklist`, `cmd /c ver` and `powershell -Command Get-Date`. An allowlist
+  rule starting with `=` must match the whole command, and rules for `cmd`,
+  `powershell` and other interpreters always must, so `ipconfig /release`
+  and `hostname newname` stay refused.
 
 ## Before 1.7.0
 
