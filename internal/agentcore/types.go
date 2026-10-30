@@ -81,4 +81,8 @@ type RuntimeConfig struct {
 	ServicesDiscoveryLANScanMaxHosts          int           // LABTETHER_SERVICES_DISCOVERY_LAN_SCAN_MAX_HOSTS — hard cap for LAN hosts per cycle
 	AutoUpdateEnabled                         bool          // LABTETHER_AUTO_UPDATE — auto-check and apply agent binary updates on startup
 	AutoUpdateCheckURL                        string        // LABTETHER_AUTO_UPDATE_CHECK_URL — optional release metadata override URL
+
+	// envPinnedSettings holds the Hub-managed settings chosen in the
+	// environment at start. LoadConfig sets it; it is read-only afterwards.
+	envPinnedSettings map[string]bool
 }

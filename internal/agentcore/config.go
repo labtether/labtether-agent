@@ -200,7 +200,13 @@ func LoadConfig(defaultName, defaultPort, defaultSource string) RuntimeConfig {
 		cfg.LogLevel = normalized
 	}
 
+	// Install-time choices in the environment win over agent-config.json,
+	// which also holds values saved from earlier Hub pushes.
+	cfg.envPinnedSettings = envPinnedSettings()
 	if settings, err := LoadAgentSettingsFile(cfg.AgentSettingsPath); err == nil && len(settings) > 0 {
+		for key := range cfg.envPinnedSettings {
+			delete(settings, key)
+		}
 		if raw, ok := settings[SettingKeyTLSCAFile]; ok {
 			cfg.TLSCAFile = strings.TrimSpace(raw)
 		}

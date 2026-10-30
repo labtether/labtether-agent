@@ -65,10 +65,22 @@ sudo env \
   /usr/local/bin/labtether-agent
 ```
 
-On later starts, the agent restores the Hub addresses saved at enrollment. To
-move it to a new Hub address, set `LABTETHER_WS_URL` or
-`LABTETHER_API_BASE_URL`; the other address is derived from that same origin.
-If your WebSocket and API use different origins, set both variables together.
+On later starts, the agent restores the Hub addresses saved at enrollment.
+Setting `LABTETHER_WS_URL` or `LABTETHER_API_BASE_URL` overrides them; the
+other address is derived from that same origin. If your WebSocket and API use
+different origins, set both variables together.
+
+The saved agent token is only sent to the Hub addresses it was issued for:
+the address used to enroll and the addresses that Hub returned. To move the
+agent to an address outside that list, stage an enrollment token from the Hub
+at that address, as for a new install. Without one, the agent asks that Hub
+for approval and never sends it the old token.
+
+Settings chosen in the environment at install time, such as
+`LABTETHER_DOCKER_ENABLED`, `LABTETHER_DOCKER_SOCKET` or
+`LABTETHER_FILES_ROOT_MODE`, stay in effect: Hub settings pushes skip them.
+To manage one of them from the Hub, remove it from the service environment.
+
 For a private Hub CA or TLS proxy, set `LABTETHER_TLS_CA_FILE` to the trusted
 CA file. The agent keeps that explicit trust setting after enrollment.
 
