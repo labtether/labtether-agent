@@ -2,9 +2,10 @@
 
 All notable changes to `labtether-agent` are documented in this file.
 
-## [1.7.0] - unreleased
+## [1.7.1] - unreleased
 
-Changes since v1.5.1, the last public binary release.
+Changes since v1.5.1, the last public binary release. The v1.7.0 tag has no
+binary release.
 
 ### Security
 
@@ -43,7 +44,7 @@ Changes since v1.5.1, the last public binary release.
 - Release binaries are built and signed locally with the Ed25519 release key
   (`.sig` and `.metadata.json` assets) instead of in GitHub Actions; the README
   shows how to verify them. The container image keeps its GitHub attestation.
-- Needs a Hub that speaks protocol v1.7.0. Built with Go 1.27.3.
+- Needs a Hub that speaks protocol v1.7.1. Built with Go 1.27.3.
 - Releases ship Linux and Windows binaries for amd64 and arm64. macOS uses the
   native app; FreeBSD is not shipped.
 
@@ -82,9 +83,9 @@ Changes since v1.5.1, the last public binary release.
   `powershell` and other interpreters always must, so `ipconfig /release`
   and `hostname newname` stay refused.
 
-## Before 1.7.0
+## Before 1.7.1
 
-These changes shipped in v1.5.1 or earlier. In 1.7.0, release signing moved
+These changes shipped in v1.5.1 or earlier. In 1.7.1, release signing moved
 from GitHub Actions to the maintainers' local release process.
 
 ### Security
