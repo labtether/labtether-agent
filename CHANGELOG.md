@@ -62,6 +62,8 @@ Changes since v1.5.1, the last public binary release.
   system drive. Copies work between drives; a move between drives is refused.
 - The first heartbeat waits for the first real reading, so Windows and macOS
   hosts no longer report all-zero CPU, memory and disk at start.
+- Desktop diagnose answers within the Hub's 15 s wait. The X display scan
+  looked up the desktop session and logins once per display, up to 100 times.
 
 ## Before 1.7.0
 
