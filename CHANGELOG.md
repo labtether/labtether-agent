@@ -107,6 +107,11 @@ binary release.
   sshd never reads. A new file gets the ACL OpenSSH requires (SYSTEM and
   Administrators only); an existing one keeps its ACL. The reply to the Hub
   has an empty SSH username, because LocalSystem is not an SSH login.
+- For an account in Administrators, the Hub SSH key goes to
+  `administrators_authorized_keys`, the only file sshd reads for that group,
+  not to `%USERPROFILE%\.ssh\authorized_keys`. Without administrator rights
+  the agent logs "not installed: needs administrator rights" and does not
+  report success. Other accounts keep their own `authorized_keys`.
 
 ## Before 1.7.1
 

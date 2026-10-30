@@ -65,7 +65,7 @@ func handleSSHKeyInstallRecorded(transport agentMessageSender, msg protocol.Mess
 
 	target, err := resolveHubSSHKeyTarget()
 	if err != nil {
-		log.Printf("ssh-key: failed to resolve authorized_keys path: %v", err)
+		log.Printf("ssh-key: hub public key not installed: %v", err)
 		return
 	}
 
@@ -116,7 +116,7 @@ func handleSSHKeyRemoveRecorded(transport agentMessageSender, msg protocol.Messa
 
 	target, err := resolveHubSSHKeyTarget()
 	if err != nil {
-		log.Printf("ssh-key: failed to resolve authorized_keys path: %v", err)
+		log.Printf("ssh-key: hub public key not removed: %v", err)
 		return
 	}
 
