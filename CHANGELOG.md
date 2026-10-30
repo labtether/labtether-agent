@@ -68,6 +68,8 @@ Changes since v1.5.1, the last public binary release.
   files root mode now applies at once. For Docker, service discovery and
   WebRTC start-up settings, the agent reports its running value and restarts
   itself under systemd or as a Windows service.
+- Self-update downloads no longer fail on slow links. A download stops only
+  when no data arrives for 60 seconds, or after 30 minutes in total.
 
 ## Before 1.7.0
 

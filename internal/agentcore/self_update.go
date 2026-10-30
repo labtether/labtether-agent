@@ -38,8 +38,10 @@ const nativeWrapperSelfUpdateMessage = "self-update is managed by the native Lab
 const selfUpdateEndpointUnavailableMessage = "auto-update endpoint unavailable"
 
 var (
-	agentExitFn       = os.Exit
-	executablePathFn  = os.Executable
+	agentExitFn      = os.Exit
+	executablePathFn = os.Executable
+	// selfUpdateTimeout bounds the small release metadata request. The binary
+	// download uses a stall timeout instead; see self_update_download.go.
 	selfUpdateTimeout = 30 * time.Second
 )
 
@@ -263,36 +265,6 @@ func fetchReleaseMetadata(cfg RuntimeConfig, endpoint string) (agentReleaseMetad
 			return agentReleaseMetadata{}, fmt.Errorf("release metadata contains trailing JSON")
 		}
 		return agentReleaseMetadata{}, fmt.Errorf("release metadata contains trailing data: %w", err)
-	}
-	return payload, nil
-}
-
-func downloadReleaseBinary(cfg RuntimeConfig, absoluteURL string, expectedSize int64) ([]byte, error) {
-	client := newSelfUpdateHTTPClient(cfg)
-	req, err := securityruntime.NewOutboundRequestWithContext(context.Background(), http.MethodGet, absoluteURL, nil)
-	if err != nil {
-		return nil, err
-	}
-	if token := strings.TrimSpace(cfg.APIToken); token != "" && shouldAttachUpdateToken(cfg, absoluteURL) {
-		req.Header.Set("Authorization", "Bearer "+token)
-	}
-	resp, err := securityruntime.DoOutboundRequest(client, req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("download endpoint returned status %d", resp.StatusCode)
-	}
-	payload, err := io.ReadAll(io.LimitReader(resp.Body, maxSelfUpdateBinarySize+1))
-	if err != nil {
-		return nil, err
-	}
-	if len(payload) > maxSelfUpdateBinarySize {
-		return nil, fmt.Errorf("download exceeded maximum size of %d bytes", maxSelfUpdateBinarySize)
-	}
-	if expectedSize > 0 && int64(len(payload)) != expectedSize {
-		return nil, fmt.Errorf("download size mismatch: expected %d bytes, got %d bytes", expectedSize, len(payload))
 	}
 	return payload, nil
 }
