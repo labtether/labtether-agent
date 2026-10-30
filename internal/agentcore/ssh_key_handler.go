@@ -84,6 +84,7 @@ func handleSSHKeyInstallRecorded(transport agentMessageSender, msg protocol.Mess
 		Username: username,
 		Hostname: hostname,
 		HomeDir:  homeDir,
+		HostKeys: readSSHHostKeys(sshHostKeyDir()),
 	}
 	data, _ := json.Marshal(resp)
 	_ = transport.Send(protocol.Message{

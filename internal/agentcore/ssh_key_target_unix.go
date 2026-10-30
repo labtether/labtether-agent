@@ -23,3 +23,6 @@ func resolveHubSSHKeyTarget() (hubSSHKeyTarget, error) {
 
 // windowsAdministratorsKeysFile is empty outside Windows.
 func windowsAdministratorsKeysFile() string { return "" }
+
+// sshHostKeyDir holds the SSH server's host keys on Linux, macOS and FreeBSD.
+func sshHostKeyDir() string { return "/etc/ssh" }

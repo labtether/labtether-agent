@@ -112,6 +112,11 @@ binary release.
   not to `%USERPROFILE%\.ssh\authorized_keys`. Without administrator rights
   the agent logs "not installed: needs administrator rights" and does not
   report success. Other accounts keep their own `authorized_keys`.
+- The `ssh_key.installed` reply lists the SSH server's host public keys
+  (`host_keys`), read from `/etc/ssh/ssh_host_*_key.pub` on Linux and macOS
+  and `%ProgramData%\ssh\ssh_host_*_key.pub` on Windows, so the Hub can pin
+  them. At most 8 keys; only lines that parse as SSH public keys; private
+  key files are never opened.
 
 ## Before 1.7.1
 

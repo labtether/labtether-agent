@@ -50,6 +50,9 @@ func windowsAdministratorsKeysFile() string {
 	return windowsAdministratorsKeysPath(windowsProgramData())
 }
 
+// sshHostKeyDir holds the host keys of OpenSSH for Windows.
+func sshHostKeyDir() string { return windowsProgramData() + `\ssh` }
+
 func windowsProgramData() string {
 	if path, err := windows.KnownFolderPath(windows.FOLDERID_ProgramData, 0); err == nil && path != "" {
 		return path
