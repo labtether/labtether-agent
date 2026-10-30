@@ -60,6 +60,8 @@ Changes since v1.5.1, the last public binary release.
   enrollment.
 - Windows `full` files mode covers every fixed local drive, not only the
   system drive. Copies work between drives; a move between drives is refused.
+- The first heartbeat waits for the first real reading, so Windows and macOS
+  hosts no longer report all-zero CPU, memory and disk at start.
 
 ## Before 1.7.0
 

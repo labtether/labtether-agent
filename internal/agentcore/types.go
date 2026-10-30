@@ -15,6 +15,9 @@ type TelemetrySample struct {
 	TempCelsius       *float64  `json:"temp_celsius,omitempty"`
 	CollectedAt       time.Time `json:"collected_at"`
 	heartbeatMetadata map[string]string
+	// pending marks the placeholder held before the first collection. Its
+	// metrics are not real readings, so it is never sent as telemetry.
+	pending bool
 }
 
 // AgentInfo is the public health/info payload served by endpoint-helpers.
