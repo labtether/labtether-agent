@@ -354,6 +354,16 @@ func (fm *Manager) abortPendingWriteContext(ctx context.Context, epoch uint64, r
 	return written
 }
 
+// AbortWrite drops an unfinished upload and removes its temporary file. The
+// ordered upload writer calls it after the socket reader gave up on the
+// request because the writer fell too far behind.
+func (fm *Manager) AbortWrite(requestID string) {
+	fm.mu.Lock()
+	epoch := fm.writeEpoch
+	fm.mu.Unlock()
+	fm.abortPendingWriteContext(context.Background(), epoch, strings.TrimSpace(requestID))
+}
+
 func (fm *Manager) pendingWriteTime() time.Time {
 	if fm.pendingWriteNow != nil {
 		return fm.pendingWriteNow()

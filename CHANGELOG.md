@@ -91,6 +91,12 @@ binary release.
   keeps its mode and owner on Linux and macOS, and its access list on
   Windows, where `administrators_authorized_keys` must stay limited to
   Administrators and SYSTEM. A symlinked `authorized_keys` stays a link.
+- Uploads no longer drop the Hub connection when the disk is slower than the
+  network. With 64 chunks waiting, the agent pauses reading from the Hub for
+  up to 8 seconds so TCP slows the sender. If the file write makes no
+  progress in that time, only that upload fails; other messages wait during
+  the pause and the connection stays up. Uploads of 8 MiB and more failed on
+  Windows before this.
 
 ## Before 1.7.1
 

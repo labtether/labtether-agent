@@ -102,11 +102,11 @@ func receiveLoop(ctx context.Context, transport *wsTransport, cfg RuntimeConfig,
 	// upload state. A bounded worker preserves ordering and applies natural
 	// backpressure without serializing unrelated command handlers.
 	const maxQueuedFileWriteMessages = 64
-	fileWriteMessages := make(chan orderedFileWrite, maxQueuedFileWriteMessages)
+	fileWrites := newFileWriteQueue(maxQueuedFileWriteMessages, fileWriteQueueWait)
 	handlerWG.Add(1)
 	go func() {
 		defer handlerWG.Done()
-		runOrderedFileWriteWorker(ctx, fileMgr, fileWriteMessages)
+		fileWrites.run(ctx, fileMgr)
 	}()
 
 	for {
@@ -271,7 +271,7 @@ func receiveLoop(ctx context.Context, transport *wsTransport, cfg RuntimeConfig,
 				continue
 			}
 		case protocol.MsgFileWrite:
-			if !enqueueOrderedFileWrite(sender.Context(), sender, fileWriteMessages, msg) {
+			if !fileWrites.enqueue(sender.Context(), sender, msg) {
 				continue
 			}
 		case protocol.MsgFileMkdir:
