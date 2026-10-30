@@ -179,7 +179,7 @@ func (fm *Manager) WriteChunkContext(ctx context.Context, req protocol.FileWrite
 		// Create the parent and temporary file through os.Root so a concurrent
 		// symlink swap cannot redirect the upload outside BaseDir.
 		dirRel := filepath.Dir(relPath)
-		if mkErr := requestRoot.MkdirAll(dirRel, 0o750); mkErr != nil {
+		if mkErr := mkdirIfMissing(requestRoot, dirRel, 0o750); mkErr != nil {
 			fm.mu.Unlock()
 			_ = requestRoot.Close()
 			return 0, mkErr

@@ -67,7 +67,7 @@ func (b rootedCopyBackend) Lstat(path string) (os.FileInfo, error) {
 }
 
 func (b rootedCopyBackend) MkdirAll(path string, mode os.FileMode) error {
-	return b.dst.MkdirAll(path, mode)
+	return mkdirIfMissing(b.dst, path, mode)
 }
 
 func (b rootedCopyBackend) Mkdir(path string, mode os.FileMode) error {

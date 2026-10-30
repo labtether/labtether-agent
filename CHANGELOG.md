@@ -97,6 +97,9 @@ binary release.
   progress in that time, only that upload fails; other messages wait during
   the pause and the connection stays up. Uploads of 8 MiB and more failed on
   Windows before this.
+- Uploads and copies straight into a Windows drive root, such as `C:\x`, no
+  longer fail with "Access is denied". The agent creates only a parent folder
+  that is missing.
 
 ## Before 1.7.1
 
