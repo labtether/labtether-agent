@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-BINARY_WORKFLOW="${ROOT_DIR}/.github/workflows/release.yml"
-CONTAINER_WORKFLOW="${ROOT_DIR}/.github/workflows/container-release.yml"
+# Optional first argument: repository root to check (used by the policy cases).
+ROOT_DIR="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
+WORKFLOW_DIR="${ROOT_DIR}/.github/workflows"
+BINARY_WORKFLOW="${WORKFLOW_DIR}/release.yml"
+CONTAINER_WORKFLOW="${WORKFLOW_DIR}/container-release.yml"
+SIGNING_WORKFLOW="${WORKFLOW_DIR}/sign-release.yml"
 SIGNER="${ROOT_DIR}/scripts/release/sign-release.go"
 SIGNING_DOC="${ROOT_DIR}/docs/RELEASE_SIGNING.md"
 
@@ -12,7 +15,7 @@ fail() {
   exit 1
 }
 
-for workflow in "${BINARY_WORKFLOW}" "${CONTAINER_WORKFLOW}"; do
+for workflow in "${BINARY_WORKFLOW}" "${CONTAINER_WORKFLOW}" "${SIGNING_WORKFLOW}"; do
   [[ -f "${workflow}" && ! -L "${workflow}" ]] ||
     fail "expected regular workflow file: ${workflow##*/}"
 done
@@ -58,5 +61,55 @@ grep -Fq 'signing requires exact --confirm-sign TAG confirmation' "${SIGNER}" ||
   fail "local signer lacks exact tag confirmation enforcement"
 grep -Fq -- '--confirm-sign vX.Y.Z' "${SIGNING_DOC}" ||
   fail "release signing doc does not document the local signing confirmation"
+
+# The release signing key may reach exactly one workflow: sign-release.yml,
+# started by hand, read-only, returning a short-lived artifact and nothing else.
+for workflow in "${WORKFLOW_DIR}"/*; do
+  [[ "${workflow}" == "${SIGNING_WORKFLOW}" ]] && continue
+  if [[ -f "${workflow}" ]] &&
+    grep -Eq 'RELEASE_SIGNING_PRIVATE_KEY|toJSON\(secrets\)|secrets\[|secrets:[[:space:]]*inherit' "${workflow}"; then
+    fail "only sign-release.yml may use RELEASE_SIGNING_PRIVATE_KEY, found in ${workflow##*/}"
+  fi
+done
+
+if [[ "$(grep -Ec "^([\"']?on[\"']?|true)[[:space:]]*:" "${SIGNING_WORKFLOW}")" != 1 ]] ||
+  ! grep -Eq '^on:[[:space:]]*$' "${SIGNING_WORKFLOW}"; then
+  fail "sign-release.yml must declare its triggers in one block"
+fi
+signing_triggers="$(awk '
+  /^on:[[:space:]]*$/ { in_on = 1; next }
+  in_on && /^[^[:space:]#]/ { in_on = 0 }
+  in_on && /^  [^[:space:]#]/ { key = $1; sub(/:.*$/, "", key); gsub(/["\047]/, "", key); print key }
+' "${SIGNING_WORKFLOW}")"
+[[ "${signing_triggers}" == "workflow_dispatch" ]] ||
+  fail "sign-release.yml must be started only by workflow_dispatch"
+
+if grep -Eq '^[[:space:]]*[A-Za-z-]+:[[:space:]]*write[[:space:]]*(#.*)?$|write-all' "${SIGNING_WORKFLOW}"; then
+  fail "sign-release.yml may not request write permissions"
+fi
+if ! grep -Eq '^permissions:[[:space:]]*$' "${SIGNING_WORKFLOW}" ||
+  ! grep -Fxq '  contents: read' "${SIGNING_WORKFLOW}"; then
+  fail "sign-release.yml lacks explicit read-only contents permission"
+fi
+
+if grep -Eq \
+  'softprops/action-gh-release|actions/create-release|release-action|upload-release|gh[[:space:]]+(release|api)|/releases|git[[:space:]]+(push|tag)|actions/attest|docker/|curl|wget' \
+  "${SIGNING_WORKFLOW}"; then
+  fail "sign-release.yml may not create releases, tags or other uploads"
+fi
+[[ "$(grep -c 'actions/upload-artifact@' "${SIGNING_WORKFLOW}")" == 1 ]] ||
+  fail "sign-release.yml must upload exactly one workflow artifact"
+grep -Eq '^[[:space:]]+retention-days:[[:space:]]*1[[:space:]]*$' "${SIGNING_WORKFLOW}" ||
+  fail "sign-release.yml artifact must expire after one day"
+
+[[ "$(grep -o 'secrets[^[:space:]}]*' "${SIGNING_WORKFLOW}")" == 'secrets.RELEASE_SIGNING_PRIVATE_KEY' ]] ||
+  fail "sign-release.yml must reference only RELEASE_SIGNING_PRIVATE_KEY, exactly once"
+if grep -Eq '(^|[[:space:]])(set|bash)[[:space:]]+-[A-Za-z]*x|xtrace' "${SIGNING_WORKFLOW}"; then
+  fail "sign-release.yml may not trace shell commands"
+fi
+grep -Fq 'unset RELEASE_SIGNING_PRIVATE_KEY' "${SIGNING_WORKFLOW}" ||
+  fail "sign-release.yml must unset the key variable after reading it"
+grep -Fq -- '--confirm-sign "${TAG}"' "${SIGNING_WORKFLOW}" ||
+  fail "sign-release.yml must pass the exact tag confirmation to the signer"
 
 printf 'release workflow policy: PASS\n'

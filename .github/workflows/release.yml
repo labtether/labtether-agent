@@ -86,6 +86,7 @@ jobs:
             ./cmd/labtether-agent
           test -s "${output}"
 
-      # Binary release assets are intentionally not signed, attested, uploaded,
-      # or published from GitHub Actions. Maintainers use the local-only
-      # draft/inspect/publish lane documented in docs/RELEASE_SIGNING.md.
+      # This workflow does not sign, attest, upload or publish binary release
+      # assets. Signatures come only from the manual sign-release.yml workflow;
+      # maintainers stage, inspect and publish locally as documented in
+      # docs/RELEASE_SIGNING.md.
