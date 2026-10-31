@@ -99,25 +99,8 @@ func HandleCommandRequest(transport MessageSender, msg protocol.Message, cfg Exe
 		return
 	}
 	outputStr, err := runRemoteCommandOutput(cmd)
-
-	status := "succeeded"
-	if ctx.Err() == context.DeadlineExceeded {
-		status = "failed"
-		if outputStr != "" {
-			outputStr += "\nerror: command timed out"
-		} else {
-			outputStr = "command timed out"
-		}
-	} else if err != nil {
-		status = "failed"
-		if outputStr != "" {
-			outputStr += "\nerror: " + err.Error()
-		} else {
-			outputStr = err.Error()
-		}
-	}
-
-	sendCommandResult(transport, req, status, outputStr)
+	status, outputStr, exitCode := remoteCommandOutcome(ctx, cmd, outputStr, err)
+	sendCommandResultWithExitCode(transport, req, status, outputStr, exitCode)
 }
 
 // HandleUpdateRequest executes a system update and reports progress/results.
@@ -308,13 +291,20 @@ func BuildUpdatePackageCommand(manager string, packages []string) (UpdatePackage
 	return UpdatePackageCommand{Name: manager, Args: args}, nil
 }
 
+// sendCommandResult reports a command that never ran, so its exit code is
+// unknown and stays off the wire.
 func sendCommandResult(transport MessageSender, req protocol.CommandRequestData, status, output string) {
+	sendCommandResultWithExitCode(transport, req, status, output, nil)
+}
+
+func sendCommandResultWithExitCode(transport MessageSender, req protocol.CommandRequestData, status, output string, exitCode *int) {
 	result := protocol.CommandResultData{
 		JobID:     req.JobID,
 		SessionID: req.SessionID,
 		CommandID: req.CommandID,
 		Status:    status,
 		Output:    output,
+		ExitCode:  exitCode,
 	}
 	data, marshalErr := json.Marshal(result)
 	if marshalErr != nil {

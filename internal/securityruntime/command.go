@@ -47,8 +47,10 @@ var defaultAllowedExecBinaries = []string{
 	"gst-inspect-1.0",
 	"gst-launch-1.0",
 	"head",
+	"hostname",
 	"ifconfig",
 	"ip",
+	"ipconfig",
 	"istats",
 	"journalctl",
 	"launchctl",
@@ -78,11 +80,13 @@ var defaultAllowedExecBinaries = []string{
 	"sensors",
 	"sh",
 	"sysctl",
+	"systeminfo",
 	"system_profiler",
 	"systemctl",
 	"schtasks",
 	"tailscale",
 	"tail",
+	"tasklist",
 	"tmux",
 	"top",
 	"uname",
@@ -93,6 +97,7 @@ var defaultAllowedExecBinaries = []string{
 	"winget",
 	"winvnc4",
 	"who",
+	"whoami",
 	"wl-copy",
 	"wl-paste",
 	"xvfb",
@@ -131,6 +136,17 @@ var defaultShellAllowlistPrefixes = []string{
 	"grep",
 	"tail",
 	"head",
+	// Windows read-only commands, the same rules as the Hub's default list.
+	// Rules starting with "=" must match the whole command: `hostname` and
+	// `ipconfig` change settings when given arguments.
+	"whoami",
+	"=hostname",
+	"=ipconfig",
+	"=ipconfig /all",
+	"systeminfo",
+	"tasklist",
+	"=cmd /c ver",
+	"=powershell -Command Get-Date",
 }
 
 // defaultShellBlockedSubstrings lists patterns that are blocked via substring
@@ -316,18 +332,13 @@ func ValidateShellCommand(command string) error {
 		return nil
 	}
 
-	for _, prefix := range parseCSVEnv(envShellAllowlistPrefixes, defaultShellAllowlistPrefixes) {
-		prefixArgs, err := ParseCommandLine(prefix)
-		if err != nil || len(prefixArgs) == 0 {
-			continue
+	for _, rule := range parseCSVEnv(envShellAllowlistPrefixes, defaultShellAllowlistPrefixes) {
+		matched, err := shellRuleMatches(args, rule)
+		if err != nil {
+			return err
 		}
-		if commandArgsHavePrefix(args, prefixArgs) {
-			if normalizeExecutableName(args[0]) == "cmd" {
-				if err := validateWindowsCmdEcho(args); err != nil {
-					return err
-				}
-			}
-			return nil
+		if matched {
+			return validateReadOnlyCommand(args)
 		}
 	}
 

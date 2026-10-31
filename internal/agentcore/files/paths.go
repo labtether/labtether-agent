@@ -137,39 +137,18 @@ func FilesystemRootForPath(path string) string {
 }
 
 // ValidatePath resolves and validates a path, preventing traversal attacks.
-// The resolved path must remain under BaseDir.
+// The resolved path must remain under an allowed root.
 func (fm *Manager) ValidatePath(rawPath string) (string, error) {
-	if rawPath == "" {
-		rawPath = fm.BaseDir
+	scope := fm.scope()
+	cleaned, err := scope.expand(rawPath)
+	if err != nil {
+		return "", err
 	}
-
-	// Expand ~ to home directory.
-	if strings.HasPrefix(rawPath, "~/") || rawPath == "~" {
-		home := fm.HomeDir
-		if home == "" {
-			home = ResolveAgentFileHomeDir()
-		}
-		if home == "" {
-			return "", fmt.Errorf("cannot resolve home directory")
-		}
-		rawPath = filepath.Join(home, strings.TrimPrefix(rawPath, "~"))
-	}
-
-	// Make absolute.
-	if !filepath.IsAbs(rawPath) {
-		rawPath = filepath.Join(fm.BaseDir, rawPath)
-	}
-
-	cleaned := filepath.Clean(rawPath)
-
-	// Resolve baseDir symlinks first so path containment checks are performed on
-	// canonical paths.
-	resolvedBase := resolveBaseForContainment(fm.BaseDir)
 
 	resolved := cleaned
 	if info, statErr := os.Lstat(cleaned); statErr == nil && info != nil {
 		// Resolve full target path when it exists. This blocks symlink escapes
-		// where the final path component points outside baseDir.
+		// where the final path component points outside the allowed roots.
 		resolvedTarget, evalErr := filepath.EvalSymlinks(cleaned)
 		if evalErr != nil {
 			return "", fmt.Errorf("resolve path %q: %w", cleaned, evalErr)
@@ -191,8 +170,8 @@ func (fm *Manager) ValidatePath(rawPath string) (string, error) {
 		return "", fmt.Errorf("stat path %q: %w", cleaned, statErr)
 	}
 
-	if !PathWithinBaseDir(resolvedBase, resolved) {
-		return "", fmt.Errorf("path %q is outside the allowed base directory", rawPath)
+	if !scope.containsResolved(resolved) {
+		return "", fmt.Errorf("path %q is outside the allowed base directory", cleaned)
 	}
 
 	return resolved, nil
@@ -203,26 +182,12 @@ func (fm *Manager) ValidatePath(rawPath string) (string, error) {
 // operations use this so deleting, renaming, or overwriting a symlink acts on
 // the link itself rather than the file or directory it points to.
 func (fm *Manager) ValidatePathNoFollowFinal(rawPath string) (string, error) {
-	if rawPath == "" {
-		rawPath = fm.BaseDir
+	scope := fm.scope()
+	cleaned, err := scope.expand(rawPath)
+	if err != nil {
+		return "", err
 	}
-	if strings.HasPrefix(rawPath, "~/") || rawPath == "~" {
-		home := fm.HomeDir
-		if home == "" {
-			home = ResolveAgentFileHomeDir()
-		}
-		if home == "" {
-			return "", fmt.Errorf("cannot resolve home directory")
-		}
-		rawPath = filepath.Join(home, strings.TrimPrefix(rawPath, "~"))
-	}
-	if !filepath.IsAbs(rawPath) {
-		rawPath = filepath.Join(fm.BaseDir, rawPath)
-	}
-
-	cleaned := filepath.Clean(rawPath)
-	resolvedBase := resolveBaseForContainment(fm.BaseDir)
-	if cleaned == filepath.Clean(fm.BaseDir) {
+	if scope.isRoot(cleaned) {
 		return cleaned, nil
 	}
 
@@ -235,49 +200,23 @@ func (fm *Manager) ValidatePathNoFollowFinal(rawPath string) (string, error) {
 		return "", fmt.Errorf("stat path %q: %w", cleaned, statErr)
 	}
 
-	if !PathWithinBaseDir(resolvedBase, containmentPath) {
-		return "", fmt.Errorf("path %q is outside the allowed base directory", rawPath)
+	if !scope.containsResolved(containmentPath) {
+		return "", fmt.Errorf("path %q is outside the allowed base directory", cleaned)
 	}
 	return cleaned, nil
 }
 
-// OpenRootPath converts an operator path to a lexical path beneath BaseDir and
-// opens an os.Root for race-safe filesystem access. os.Root resolves every
-// component relative to an open directory handle and refuses symlink targets
-// outside the root, closing the validation/open TOCTOU window present in plain
-// filepath.EvalSymlinks followed by os.Open.
+// OpenRootPath converts an operator path to a lexical path beneath the allowed
+// root that holds it and opens an os.Root for race-safe filesystem access.
+// os.Root resolves every component relative to an open directory handle and
+// refuses symlink targets outside the root, closing the validation/open TOCTOU
+// window present in plain filepath.EvalSymlinks followed by os.Open.
 func (fm *Manager) OpenRootPath(rawPath string) (*os.Root, string, string, error) {
-	if rawPath == "" {
-		rawPath = fm.BaseDir
-	}
-	if strings.HasPrefix(rawPath, "~/") || rawPath == "~" {
-		home := fm.HomeDir
-		if home == "" {
-			home = ResolveAgentFileHomeDir()
-		}
-		if home == "" {
-			return nil, "", "", fmt.Errorf("cannot resolve home directory")
-		}
-		rawPath = filepath.Join(home, strings.TrimPrefix(rawPath, "~"))
-	}
-	if !filepath.IsAbs(rawPath) {
-		rawPath = filepath.Join(fm.BaseDir, rawPath)
-	}
-
-	base := filepath.Clean(fm.BaseDir)
-	displayPath := filepath.Clean(rawPath)
-	rel, err := filepath.Rel(base, displayPath)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return nil, "", "", fmt.Errorf("path %q is outside the allowed base directory", rawPath)
-	}
-	if rel == "" {
-		rel = "."
-	}
-	root, err := os.OpenRoot(base)
+	opened, err := fm.openScopedPath(rawPath)
 	if err != nil {
-		return nil, "", "", fmt.Errorf("open file root: %w", err)
+		return nil, "", "", err
 	}
-	return root, rel, displayPath, nil
+	return opened.root, opened.rel, opened.display, nil
 }
 
 func resolveParentForContainment(cleaned string) (string, error) {

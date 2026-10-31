@@ -93,6 +93,7 @@ type wsTransport struct {
 	pingDone                   chan struct{} // closed to stop ping goroutine
 	consecutiveAuthFailures    int
 	lastError                  string
+	lastErrorReason            string // fixed code from classifyConnectReason
 	lastErrorAt                time.Time
 	disconnectedAt             time.Time
 	credentialPersistenceError string
@@ -116,6 +117,7 @@ func (t *wsTransport) updateToken(token string) {
 	t.mu.Lock()
 	t.consecutiveAuthFailures = 0
 	t.lastError = ""
+	t.lastErrorReason = ""
 	t.credentialError = ""
 	t.mu.Unlock()
 }
@@ -267,10 +269,11 @@ func (t *wsTransport) connectWithResponse(ctx context.Context) (*http.Response, 
 		if applied {
 			connectionIdentity = adopted
 			if err := saveEnrollmentState(t.tokenFilePath, enrollmentState{
-				AssetID:   adopted.AssetID,
-				GroupID:   canonicalGroupIDPointer(adopted.GroupID, adopted.GroupKnown),
-				HubWSURL:  adopted.WSBaseURL,
-				HubAPIURL: adopted.APIBaseURL,
+				AssetID:      adopted.AssetID,
+				GroupID:      canonicalGroupIDPointer(adopted.GroupID, adopted.GroupKnown),
+				HubWSURL:     adopted.WSBaseURL,
+				HubAPIURL:    adopted.APIBaseURL,
+				TokenOrigins: savedTokenOrigins(t.tokenFilePath),
 			}); err != nil {
 				log.Printf("agentws: warning: failed to persist canonical asset ID: %v", err)
 			}
@@ -315,6 +318,7 @@ func (t *wsTransport) connectWithResponse(ctx context.Context) (*http.Response, 
 	t.pendingEnrollment = token == ""
 	t.consecutiveAuthFailures = 0
 	t.lastError = ""
+	t.lastErrorReason = ""
 	t.disconnectedAt = time.Time{}
 	t.mu.Unlock()
 
@@ -466,6 +470,17 @@ func (t *wsTransport) ConnectionState() (state string, lastErr string, disconnec
 		return "connecting", t.credentialPersistenceError, t.disconnectedAt
 	}
 	return "disconnected", "", t.disconnectedAt
+}
+
+// ConnectionErrorReason returns the fixed reason for the last failed Hub
+// connect attempt, or "" while connected or when the cause is not known.
+func (t *wsTransport) ConnectionErrorReason() string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.connected || t.credentialError != "" || t.lastError == "" {
+		return ""
+	}
+	return t.lastErrorReason
 }
 
 func (t *wsTransport) markDisconnected() { t.markDisconnectedIfCurrent(nil) }

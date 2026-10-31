@@ -70,7 +70,6 @@ func resolveTokenWithIdentity(ctx context.Context, cfg *RuntimeConfig, identity 
 
 	// Priority 2: persisted token file
 	if token, err := loadTokenFromFile(cfg.TokenFilePath); err == nil && token != "" {
-		log.Printf("agent: loaded token from %s", cfg.TokenFilePath)
 		cfg.APIToken = token
 		if err := restoreEnrollmentState(cfg); err != nil {
 			log.Printf("agent: warning: could not restore enrollment state: %v", err)
@@ -78,7 +77,12 @@ func resolveTokenWithIdentity(ctx context.Context, cfg *RuntimeConfig, identity 
 		// Preserve an independently staged one-time enrollment token. It arms
 		// the authenticated re-enrollment callback if this persisted agent
 		// credential is later rejected; it is discarded only after rotation.
-		return nil
+		if cfg.APIToken != "" {
+			log.Printf("agent: loaded token from %s", cfg.TokenFilePath)
+			return nil
+		}
+		// The saved token belongs to another Hub address; enroll with the
+		// configured Hub if an enrollment token is staged.
 	}
 
 	// Priority 3: enrollment
@@ -90,6 +94,7 @@ func resolveTokenWithIdentity(ctx context.Context, cfg *RuntimeConfig, identity 
 	}
 
 	log.Printf("agent: enrolling with hub...")
+	enrolledWSURL, enrolledAPIURL := cfg.WSBaseURL, cfg.APIBaseURL
 	resp, err := enrollWithHubWithIdentity(ctx, cfg, identity)
 	if err != nil {
 		return fmt.Errorf("enrollment failed: %w", err)
@@ -103,11 +108,18 @@ func resolveTokenWithIdentity(ctx context.Context, cfg *RuntimeConfig, identity 
 		cfg.GroupID = strings.TrimSpace(*resp.GroupID)
 		cfg.groupIDCanonical = true
 	}
-	if normalized := normalizeWSBaseURL(resp.HubWSURL); normalized != "" {
-		cfg.WSBaseURL = normalized
-	}
-	if normalized := normalizeAPIBaseURL(resp.HubAPIURL); normalized != "" {
-		cfg.APIBaseURL = normalized
+	// Keep the address that just reached the Hub. The Hub may name another
+	// one (for example a Tailscale name) that this host cannot reach; a
+	// restart would also go back to the configured address.
+	if enrolledWSURL == "" {
+		if normalized := normalizeWSBaseURL(resp.HubWSURL); normalized != "" {
+			cfg.WSBaseURL = normalized
+		}
+		if normalized := normalizeAPIBaseURL(resp.HubAPIURL); normalized != "" {
+			cfg.APIBaseURL = normalized
+		}
+	} else if cfg.APIBaseURL == "" {
+		cfg.APIBaseURL = apiBaseURLFromWS(cfg.WSBaseURL)
 	}
 
 	// Persist token to disk. If persistence fails after the hub has consumed the
@@ -127,10 +139,11 @@ func resolveTokenWithIdentity(ctx context.Context, cfg *RuntimeConfig, identity 
 	} else {
 		log.Printf("agent: token persisted to %s", cfg.TokenFilePath)
 		if err := saveEnrollmentState(cfg.TokenFilePath, enrollmentState{
-			AssetID:   cfg.AssetID,
-			GroupID:   canonicalGroupIDPointer(cfg.GroupID, cfg.groupIDCanonical),
-			HubWSURL:  cfg.WSBaseURL,
-			HubAPIURL: cfg.APIBaseURL,
+			AssetID:      cfg.AssetID,
+			GroupID:      canonicalGroupIDPointer(cfg.GroupID, cfg.groupIDCanonical),
+			HubWSURL:     cfg.WSBaseURL,
+			HubAPIURL:    cfg.APIBaseURL,
+			TokenOrigins: mergeHubOrigins(nil, enrolledWSURL, enrolledAPIURL, resp.HubWSURL, resp.HubAPIURL),
 		}); err != nil {
 			log.Printf("agent: warning: could not persist enrollment state: %v", err)
 		}

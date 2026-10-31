@@ -1,6 +1,11 @@
 package securityruntime
 
-import "testing"
+import (
+	"context"
+	"path/filepath"
+	"runtime"
+	"testing"
+)
 
 func TestValidateExecBinaryAllowsUnknownWhenAllowlistDisabled(t *testing.T) {
 	t.Setenv(envExecAllowlistMode, "false")
@@ -149,6 +154,35 @@ func TestValidateShellCommandAllowsNarrowWindowsEchoProbe(t *testing.T) {
 	}
 }
 
+// The Hub allows these read-only Windows commands, so the agent must run
+// them too, with the same strictness: forms that change settings and extra
+// interpreter arguments, which would run as code, stay refused.
+func TestNewValidatedShellCommandMatchesHubWindowsReadOnlyRules(t *testing.T) {
+	t.Setenv(envShellAllowlistMode, "")
+	t.Setenv(envShellAllowlistPrefixes, "")
+	t.Setenv(envExecAllowlistMode, "")
+	t.Setenv(envExecAllowedBinaries, "")
+
+	for _, command := range []string{
+		"whoami", "whoami /all", "hostname", "ipconfig", "ipconfig /all",
+		"systeminfo", "tasklist", "tasklist /svc", "cmd /c ver", "powershell -Command Get-Date",
+	} {
+		if _, err := NewValidatedShellCommandContext(context.Background(), command); err != nil {
+			t.Errorf("expected %q to be allowed: %v", command, err)
+		}
+	}
+	for _, command := range []string{
+		"ipconfig /release", "ipconfig /all /release", "hostname newname",
+		"cmd", "cmd /c", `cmd /c ver "& del x"`, "cmd /c dir",
+		"powershell", "powershell -Command", `powershell -Command Get-Date "; Remove-Item x"`,
+		"pwsh -Command Get-Date",
+	} {
+		if _, err := NewValidatedShellCommandContext(context.Background(), command); err == nil {
+			t.Errorf("expected %q to be refused", command)
+		}
+	}
+}
+
 func TestValidateShellCommandRejectsWindowsCmdInterpreterBypasses(t *testing.T) {
 	t.Setenv(envShellAllowlistMode, "")
 	t.Setenv(envShellAllowlistPrefixes, "")
@@ -225,5 +259,46 @@ func TestValidateShellCommandDoesNotBlockShutdownSubstring(t *testing.T) {
 				t.Fatalf("expected %q to be allowed, but it was blocked: %v", tc.command, err)
 			}
 		})
+	}
+}
+
+// The default "safe" list must stay read-only and away from secrets: a key
+// meant for safe commands must not wipe logs or read the agent token.
+func TestValidateShellCommandKeepsDefaultReadersReadOnly(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses Unix paths")
+	}
+	t.Setenv(envShellAllowlistMode, "true")
+	t.Setenv(envShellAllowlistPrefixes, "")
+	stateDir := t.TempDir()
+	SetProtectedReadPaths(stateDir)
+	t.Cleanup(func() { SetProtectedReadPaths() })
+	token := filepath.Join(stateDir, "agent-token")
+
+	for _, command := range []string{
+		"journalctl --vacuum-time=1s",
+		"journalctl --rotate",
+		"journalctl --cursor-file=/tmp/cursor -n 1",
+		"cat " + token,
+		"head -c 64 " + filepath.Join(stateDir, ".", "agent-token"),
+		"grep --file=" + token + " /dev/null",
+		"grep -r token " + filepath.Dir(stateDir),
+		"tail /etc/shadow",
+		"cat /proc/self/environ",
+		"cat /root/.ssh/id_ed25519",
+	} {
+		if err := ValidateShellCommand(command); err == nil {
+			t.Errorf("expected %q to be rejected", command)
+		}
+	}
+	for _, command := range []string{
+		"journalctl -u sshd -n 50 --no-pager",
+		"tail -n 100 /var/log/syslog",
+		"grep -i error /var/log/syslog",
+		"cat /etc/os-release",
+	} {
+		if err := ValidateShellCommand(command); err != nil {
+			t.Errorf("expected %q to be allowed, got %v", command, err)
+		}
 	}
 }

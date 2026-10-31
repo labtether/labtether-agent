@@ -21,7 +21,9 @@ import (
 // CleanupOrphanedTempFiles removes .lt-upload-* temp files older than 5 minutes
 // that were left behind by interrupted uploads.
 func (fm *Manager) CleanupOrphanedTempFiles() {
-	fm.cleanupOrphanedTempFiles(fm.BaseDir)
+	for _, root := range fm.scope().roots {
+		fm.cleanupOrphanedTempFiles(root)
+	}
 }
 
 func (fm *Manager) cleanupOrphanedTempFiles(baseDir string) {
@@ -150,11 +152,13 @@ func (fm *Manager) WriteChunkContext(ctx context.Context, req protocol.FileWrite
 	// abandoned requests cannot deny all future uploads until reconnect.
 	fm.cleanupExpiredPendingWrites(fm.pendingWriteTime())
 
-	requestRoot, relPath, filePath, err := fm.OpenRootPath(req.Path)
+	target, err := fm.openScopedPath(req.Path)
 	if err != nil {
 		written := fm.abortPendingWriteContext(ctx, epoch, req.RequestID)
 		return written, err
 	}
+
+	requestRoot, relPath, filePath := target.root, target.rel, target.display
 
 	fm.mu.Lock()
 	if err := fm.uploadOwnerErrorLocked(ctx, epoch); err != nil {
@@ -175,7 +179,7 @@ func (fm *Manager) WriteChunkContext(ctx context.Context, req protocol.FileWrite
 		// Create the parent and temporary file through os.Root so a concurrent
 		// symlink swap cannot redirect the upload outside BaseDir.
 		dirRel := filepath.Dir(relPath)
-		if mkErr := requestRoot.MkdirAll(dirRel, 0o750); mkErr != nil {
+		if mkErr := mkdirIfMissing(requestRoot, dirRel, 0o750); mkErr != nil {
 			fm.mu.Unlock()
 			_ = requestRoot.Close()
 			return 0, mkErr
@@ -191,7 +195,7 @@ func (fm *Manager) WriteChunkContext(ctx context.Context, req protocol.FileWrite
 			Root:         requestRoot,
 			Path:         filePath,
 			RelPath:      relPath,
-			TmpPath:      filepath.Join(fm.BaseDir, tmpRelPath),
+			TmpPath:      filepath.Join(target.base, tmpRelPath),
 			TmpRelPath:   tmpRelPath,
 			lastActivity: fm.pendingWriteTime(),
 		}
@@ -348,6 +352,16 @@ func (fm *Manager) abortPendingWriteContext(ctx context.Context, epoch uint64, r
 	}
 	pw.mu.Unlock()
 	return written
+}
+
+// AbortWrite drops an unfinished upload and removes its temporary file. The
+// ordered upload writer calls it after the socket reader gave up on the
+// request because the writer fell too far behind.
+func (fm *Manager) AbortWrite(requestID string) {
+	fm.mu.Lock()
+	epoch := fm.writeEpoch
+	fm.mu.Unlock()
+	fm.abortPendingWriteContext(context.Background(), epoch, strings.TrimSpace(requestID))
 }
 
 func (fm *Manager) pendingWriteTime() time.Time {

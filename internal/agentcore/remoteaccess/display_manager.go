@@ -5,11 +5,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
-	"sort"
-	"strings"
 	"sync"
-
-	"github.com/labtether/labtether-agent/internal/agentcore/system"
 )
 
 // ManagedDisplay tracks a shared Xvfb display with reference counting.
@@ -137,63 +133,4 @@ func (dm *DisplayManager) CloseAll() {
 			}
 		}
 	}
-}
-
-// isDisplayAvailable checks whether an X11 display appears to be running
-// by looking for its lock file or an active graphical login using that display.
-func IsDisplayAvailable(display string) bool {
-	display = NormalizeX11DisplayIdentifier(display)
-	if display == "" {
-		return false
-	}
-	server := x11ServerIdentity(display)
-
-	lockFile := fmt.Sprintf("/tmp/.X%s-lock", strings.TrimPrefix(server, ":"))
-	if _, err := os.Stat(lockFile); err == nil {
-		return true
-	}
-
-	session := DetectDesktopSessionFn()
-	if session.Type == DesktopSessionTypeX11 && x11ServerIdentity(session.Display) == server {
-		return true
-	}
-
-	sessions, err := system.CollectUserSessionsFn()
-	if err != nil {
-		return false
-	}
-	for _, session := range sessions {
-		if x11ServerIdentity(session.RemoteHost) == server {
-			return true
-		}
-		if server == ":0" && strings.EqualFold(strings.TrimSpace(session.Terminal), "seat0") {
-			return true
-		}
-	}
-	return false
-}
-
-func AppendDetectedActiveDisplays(dst []string) []string {
-	seen := make(map[string]struct{}, len(dst))
-	for _, display := range dst {
-		normalized := NormalizeX11DisplayIdentifier(display)
-		if normalized == "" {
-			continue
-		}
-		seen[normalized] = struct{}{}
-	}
-
-	for i := 0; i <= 99; i++ {
-		display := fmt.Sprintf(":%d", i)
-		if !IsDisplayAvailable(display) {
-			continue
-		}
-		if _, ok := seen[display]; ok {
-			continue
-		}
-		seen[display] = struct{}{}
-		dst = append(dst, display)
-	}
-	sort.Strings(dst)
-	return dst
 }

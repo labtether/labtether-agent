@@ -42,6 +42,19 @@ type Runtime struct {
 	startedAt time.Time
 	alerts    []AlertSnapshot
 
+	// runningSettings holds the values the running components were built with
+	// for settings that need a restart. Reports show these until a restart.
+	runningSettings map[string]string
+	// applyFileRootMode switches the file manager's scope while it runs.
+	applyFileRootMode func(string)
+	// restartAgent restarts the agent through its service manager; nil when
+	// no service manager would start it again.
+	restartAgent func() error
+
+	// firstSample closes once the first collection has stored real values.
+	firstSample     chan struct{}
+	firstSampleOnce sync.Once
+
 	mu               sync.RWMutex
 	sample           TelemetrySample
 	lastCollectErr   string
@@ -73,7 +86,10 @@ func newRuntimeWithIdentity(cfg RuntimeConfig, provider TelemetryProvider, publi
 		sample: TelemetrySample{
 			AssetID:     cfg.AssetID,
 			CollectedAt: now,
+			pending:     true,
 		},
+		firstSample:     make(chan struct{}),
+		runningSettings: startupRestartSettings(cfg),
 	}
 }
 
@@ -249,6 +265,9 @@ func (r *Runtime) heartbeatLoop(ctx context.Context) {
 	}()
 	currentInterval := r.cfg.HeartbeatInterval
 	r.heartbeatTickInterval.Store(int64(currentInterval))
+	if !r.waitForFirstSample(ctx, firstSampleWait) {
+		return
+	}
 	r.publishOnce(ctx)
 	ticker := time.NewTicker(currentInterval)
 	defer ticker.Stop()
@@ -304,6 +323,31 @@ func (r *Runtime) collectOnce(now time.Time) {
 	r.mu.Lock()
 	r.sample = sample
 	r.mu.Unlock()
+	if r.firstSample != nil {
+		r.firstSampleOnce.Do(func() { close(r.firstSample) })
+	}
+}
+
+// firstSampleWait bounds how long the first heartbeat waits for the first
+// collection. Windows and macOS collection can take a few seconds at start.
+const firstSampleWait = 15 * time.Second
+
+// waitForFirstSample holds the first heartbeat until real values exist, so
+// the Hub never records the zeroed placeholder. It returns false when ctx ends.
+func (r *Runtime) waitForFirstSample(ctx context.Context, limit time.Duration) bool {
+	if r.firstSample == nil {
+		return ctx.Err() == nil
+	}
+	timer := time.NewTimer(limit)
+	defer timer.Stop()
+	select {
+	case <-r.firstSample:
+	case <-timer.C:
+		log.Printf("%s: first telemetry collection is still running; sending the heartbeat without metrics", r.cfg.Name)
+	case <-ctx.Done():
+		return false
+	}
+	return true
 }
 
 func (r *Runtime) publishOnce(ctx context.Context) {
@@ -321,7 +365,7 @@ func (r *Runtime) publishOnce(ctx context.Context) {
 
 	// Live samples join the replay queue first so they cannot overtake its
 	// retained tail or disappear in a Connected-to-Send race.
-	if r.transport != nil && r.telemetryBuf != nil {
+	if r.transport != nil && r.telemetryBuf != nil && !sample.pending {
 		r.telemetryBuf.Push(sample)
 		_ = replayBufferedTelemetry(r.transport, r.telemetryBuf)
 	}

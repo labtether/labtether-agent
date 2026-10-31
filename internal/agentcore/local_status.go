@@ -24,6 +24,7 @@ type StatusResponse struct {
 	ConnectionState    string          `json:"connection_state"` // "connected", "connecting", "auth_failed", "disconnected"
 	DisconnectedAt     *time.Time      `json:"disconnected_at,omitempty"`
 	LastError          string          `json:"last_error,omitempty"`
+	LastErrorReason    string          `json:"last_error_reason,omitempty"` // fixed code, see ws_connect_reason.go
 	Uptime             string          `json:"uptime,omitempty"`
 	StartedAt          time.Time       `json:"started_at"`
 	Metrics            TelemetrySample `json:"metrics"`
@@ -55,12 +56,13 @@ func (r *Runtime) statusHandler() http.HandlerFunc {
 		sample := r.current()
 		connected := r.transport != nil && r.transport.Connected()
 
-		var connState, lastErr string
+		var connState, lastErr, lastErrReason string
 		var disconnectedAt *time.Time
 		if r.transport != nil {
 			state, errStr, discAt := r.transport.ConnectionState()
 			connState = state
 			lastErr = errStr
+			lastErrReason = r.transport.ConnectionErrorReason()
 			if !discAt.IsZero() {
 				disconnectedAt = &discAt
 			}
@@ -82,6 +84,7 @@ func (r *Runtime) statusHandler() http.HandlerFunc {
 			ConnectionState:   connState,
 			DisconnectedAt:    disconnectedAt,
 			LastError:         lastErr,
+			LastErrorReason:   lastErrReason,
 			Uptime:            uptime,
 			StartedAt:         r.startedAt,
 			Metrics:           sample,

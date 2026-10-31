@@ -2,9 +2,10 @@
 
 All notable changes to `labtether-agent` are documented in this file.
 
-## [1.7.0] - unreleased
+## [1.7.1] - unreleased
 
-Changes since v1.5.1, the last public binary release.
+Changes since v1.5.1, the last public binary release. The v1.7.0 tag has no
+binary release.
 
 ### Security
 
@@ -36,6 +37,10 @@ Changes since v1.5.1, the last public binary release.
 - The container image keeps its state in `/var/lib/labtether` (mount a volume
   there) and accepts a read-only enrollment token file. A consumed token that
   cannot be deleted is remembered and never used again.
+- `/agent/status` reports `last_error_reason` while the agent cannot reach
+  the Hub: `name_lookup_failed`, `connection_refused`, `host_unreachable`,
+  `timed_out`, `certificate_untrusted` or `token_rejected`. `last_error`
+  keeps its `transient` and `auth_failed` values.
 
 ### Changed
 
@@ -43,7 +48,7 @@ Changes since v1.5.1, the last public binary release.
 - Release binaries are built and signed locally with the Ed25519 release key
   (`.sig` and `.metadata.json` assets) instead of in GitHub Actions; the README
   shows how to verify them. The container image keeps its GitHub attestation.
-- Needs a Hub that speaks protocol v1.7.0. Built with Go 1.27.3.
+- Needs a Hub that speaks protocol v1.7.1. Built with Go 1.27.3.
 - Releases ship Linux and Windows binaries for amd64 and arm64. macOS uses the
   native app; FreeBSD is not shipped.
 
@@ -58,10 +63,64 @@ Changes since v1.5.1, the last public binary release.
   network connectivity probes.
 - Restarted agents keep the Hub addresses, group and CA trust saved at
   enrollment.
+- Windows `full` files mode covers every fixed local drive, not only the
+  system drive. Copies work between drives; a move between drives is refused.
+- The first heartbeat waits for the first real reading, so Windows and macOS
+  hosts no longer report all-zero CPU, memory and disk at start.
+- Desktop diagnose answers within the Hub's 15 s wait. The X display scan
+  looked up the desktop session and logins once per display, up to 100 times.
+- Hub settings that need a restart no longer show as in use before it. The
+  files root mode now applies at once. For Docker, service discovery and
+  WebRTC start-up settings, the agent reports its running value and restarts
+  itself under systemd or as a Windows service.
+- Self-update downloads no longer fail on slow links. A download stops only
+  when no data arrives for 60 seconds, or after 30 minutes in total.
+- Command results send the command's real exit code (protocol `exit_code`),
+  so a command that exits 2 reports 2, and 0 is sent for a clean exit. The
+  output holds only what the command printed, without text such as
+  `exit status 2`. No exit code is sent after a timeout, a cancel, a signal
+  or a failed start.
+- Windows devices run the read-only commands the Hub allows by default:
+  `whoami`, `hostname`, `ipconfig`, `ipconfig /all`, `systeminfo`,
+  `tasklist`, `cmd /c ver` and `powershell -Command Get-Date`. An allowlist
+  rule starting with `=` must match the whole command, and rules for `cmd`,
+  `powershell` and other interpreters always must, so `ipconfig /release`
+  and `hostname newname` stay refused.
+- Installing or removing the Hub SSH key writes `authorized_keys` to a new
+  file and renames it into place, so a crash cannot leave it empty. The file
+  keeps its mode and owner on Linux and macOS, and its access list on
+  Windows, where `administrators_authorized_keys` must stay limited to
+  Administrators and SYSTEM. A symlinked `authorized_keys` stays a link.
+- Uploads no longer drop the Hub connection when the disk is slower than the
+  network. With 64 chunks waiting, the agent pauses reading from the Hub for
+  up to 8 seconds so TCP slows the sender. If the file write makes no
+  progress in that time, only that upload fails; other messages wait during
+  the pause and the connection stays up. Uploads of 8 MiB and more failed on
+  Windows before this.
+- Uploads and copies straight into a Windows drive root, such as `C:\x`, no
+  longer fail with "Access is denied". The agent creates only a parent folder
+  that is missing.
+- The Windows service, running as LocalSystem, installs the Hub SSH key in
+  `%ProgramData%\ssh\administrators_authorized_keys` again. It is found by
+  its SID: the agent sees its name as the machine account (`WORKGROUP\HOST$`),
+  not `NT AUTHORITY\SYSTEM`, so the key went to the SYSTEM profile, which
+  sshd never reads. A new file gets the ACL OpenSSH requires (SYSTEM and
+  Administrators only); an existing one keeps its ACL. The reply to the Hub
+  has an empty SSH username, because LocalSystem is not an SSH login.
+- For an account in Administrators, the Hub SSH key goes to
+  `administrators_authorized_keys`, the only file sshd reads for that group,
+  not to `%USERPROFILE%\.ssh\authorized_keys`. Without administrator rights
+  the agent logs "not installed: needs administrator rights" and does not
+  report success. Other accounts keep their own `authorized_keys`.
+- The `ssh_key.installed` reply lists the SSH server's host public keys
+  (`host_keys`), read from `/etc/ssh/ssh_host_*_key.pub` on Linux and macOS
+  and `%ProgramData%\ssh\ssh_host_*_key.pub` on Windows, so the Hub can pin
+  them. At most 8 keys; only lines that parse as SSH public keys; private
+  key files are never opened.
 
-## Before 1.7.0
+## Before 1.7.1
 
-These changes shipped in v1.5.1 or earlier. In 1.7.0, release signing moved
+These changes shipped in v1.5.1 or earlier. In 1.7.1, release signing moved
 from GitHub Actions to the maintainers' local release process.
 
 ### Security

@@ -44,7 +44,10 @@ func CollectDesktopDiagnostic(deskMgr *DesktopManager, webrtcMgr *WebRTCManager)
 	// --- X11 environment ---
 	d.EnvDisplay = os.Getenv("DISPLAY")
 
-	d.ActiveDisplays = AppendDetectedActiveDisplays(d.ActiveDisplays)
+	// Reuse the session found above: the display scan checks up to 100
+	// displays and must not ask loginctl again for each one.
+	displays := &displayProbe{session: session, sessionKnown: true}
+	d.ActiveDisplays = displays.appendActive(d.ActiveDisplays)
 
 	// --- Xvfb state ---
 	if out, err := diagnosticCommandOutput("pgrep", "-a", "Xvfb"); err == nil {
