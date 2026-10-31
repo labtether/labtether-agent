@@ -7,6 +7,7 @@ WORKFLOW_DIR="${ROOT_DIR}/.github/workflows"
 BINARY_WORKFLOW="${WORKFLOW_DIR}/release.yml"
 CONTAINER_WORKFLOW="${WORKFLOW_DIR}/container-release.yml"
 SIGNING_WORKFLOW="${WORKFLOW_DIR}/sign-release.yml"
+PROOF_WORKFLOW="${WORKFLOW_DIR}/release-host-proof.yml"
 SIGNER="${ROOT_DIR}/scripts/release/sign-release.go"
 SIGNING_DOC="${ROOT_DIR}/docs/RELEASE_SIGNING.md"
 
@@ -15,7 +16,40 @@ fail() {
   exit 1
 }
 
-for workflow in "${BINARY_WORKFLOW}" "${CONTAINER_WORKFLOW}" "${SIGNING_WORKFLOW}"; do
+# workflow_triggers FILE: the keys of a one-block top-level on: map.
+workflow_triggers() {
+  if [[ "$(grep -Ec "^([\"']?on[\"']?|true)[[:space:]]*:" "$1")" != 1 ]] ||
+    ! grep -Eq '^on:[[:space:]]*$' "$1"; then
+    printf 'split-on-block\n'
+    return
+  fi
+  awk '
+    /^on:[[:space:]]*$/ { in_on = 1; next }
+    in_on && /^[^[:space:]#]/ { in_on = 0 }
+    in_on && /^  [^[:space:]#]/ { key = $1; sub(/:.*$/, "", key); gsub(/["\047]/, "", key); print key }
+  ' "$1"
+}
+
+# workflow_jobs FILE: job IDs in order, space-separated.
+workflow_jobs() {
+  awk '
+    /^jobs:[[:space:]]*$/ { in_jobs = 1; next }
+    in_jobs && /^[^[:space:]#]/ { in_jobs = 0 }
+    in_jobs && /^  [^[:space:]#]/ { key = $1; sub(/:.*$/, "", key); print key }
+  ' "$1" | tr '\n' ' '
+}
+
+# workflow_job FILE JOB: the lines of one job.
+workflow_job() {
+  awk -v job="$2" '
+    /^jobs:[[:space:]]*$/ { in_jobs = 1; next }
+    in_jobs && /^[^[:space:]#]/ { in_jobs = 0 }
+    in_jobs && /^  [^[:space:]#]/ { current = $1; sub(/:.*$/, "", current) }
+    in_jobs && current == job { print }
+  ' "$1"
+}
+
+for workflow in "${BINARY_WORKFLOW}" "${CONTAINER_WORKFLOW}" "${SIGNING_WORKFLOW}" "${PROOF_WORKFLOW}"; do
   [[ -f "${workflow}" && ! -L "${workflow}" ]] ||
     fail "expected regular workflow file: ${workflow##*/}"
 done
@@ -72,15 +106,9 @@ for workflow in "${WORKFLOW_DIR}"/*; do
   fi
 done
 
-if [[ "$(grep -Ec "^([\"']?on[\"']?|true)[[:space:]]*:" "${SIGNING_WORKFLOW}")" != 1 ]] ||
-  ! grep -Eq '^on:[[:space:]]*$' "${SIGNING_WORKFLOW}"; then
+signing_triggers="$(workflow_triggers "${SIGNING_WORKFLOW}")"
+[[ "${signing_triggers}" != "split-on-block" ]] ||
   fail "sign-release.yml must declare its triggers in one block"
-fi
-signing_triggers="$(awk '
-  /^on:[[:space:]]*$/ { in_on = 1; next }
-  in_on && /^[^[:space:]#]/ { in_on = 0 }
-  in_on && /^  [^[:space:]#]/ { key = $1; sub(/:.*$/, "", key); gsub(/["\047]/, "", key); print key }
-' "${SIGNING_WORKFLOW}")"
 [[ "${signing_triggers}" == "workflow_dispatch" ]] ||
   fail "sign-release.yml must be started only by workflow_dispatch"
 
@@ -106,23 +134,10 @@ fi
 
 # Two jobs: build compiles the tag without the key; sign runs only code from
 # the trusted workflow commit and the build job's binaries as data.
-signing_jobs="$(awk '
-  /^jobs:[[:space:]]*$/ { in_jobs = 1; next }
-  in_jobs && /^[^[:space:]#]/ { in_jobs = 0 }
-  in_jobs && /^  [^[:space:]#]/ { key = $1; sub(/:.*$/, "", key); print key }
-' "${SIGNING_WORKFLOW}" | tr '\n' ' ')"
-[[ "${signing_jobs}" == "build sign " ]] ||
+[[ "$(workflow_jobs "${SIGNING_WORKFLOW}")" == "build sign " ]] ||
   fail "sign-release.yml must have exactly a build job and a sign job"
-signing_job() {
-  awk -v job="$1" '
-    /^jobs:[[:space:]]*$/ { in_jobs = 1; next }
-    in_jobs && /^[^[:space:]#]/ { in_jobs = 0 }
-    in_jobs && /^  [^[:space:]#]/ { current = $1; sub(/:.*$/, "", current) }
-    in_jobs && current == job { print }
-  ' "${SIGNING_WORKFLOW}"
-}
-build_job="$(signing_job build)"
-sign_job="$(signing_job sign)"
+build_job="$(workflow_job "${SIGNING_WORKFLOW}" build)"
+sign_job="$(workflow_job "${SIGNING_WORKFLOW}" sign)"
 if grep -q 'secrets' <<< "${build_job}"; then
   fail "sign-release.yml build job must not reference secrets"
 fi
@@ -147,5 +162,64 @@ grep -Fq 'unset RELEASE_SIGNING_PRIVATE_KEY' "${SIGNING_WORKFLOW}" ||
   fail "sign-release.yml must unset the key variable after reading it"
 grep -Fq -- '--confirm-sign "${TAG}"' "${SIGNING_WORKFLOW}" ||
   fail "sign-release.yml must pass the exact tag confirmation to the signer"
+
+# release-host-proof.yml runs host-proof on a draft's assets on hosted Linux
+# and Windows runners. It is started by hand, uses no secret and changes
+# nothing. GitHub lists draft releases only to tokens with push access, so its
+# stage job alone holds contents: write. That job runs no repository code and
+# its only GitHub command is `gh release download`.
+if grep -Eq 'secrets|toJSON\(|id-token' "${PROOF_WORKFLOW}"; then
+  fail "release-host-proof.yml may not use secrets"
+fi
+[[ "$(workflow_triggers "${PROOF_WORKFLOW}")" == "workflow_dispatch" ]] ||
+  fail "release-host-proof.yml must be started only by workflow_dispatch"
+[[ "$(workflow_jobs "${PROOF_WORKFLOW}")" == "stage linux-proof windows-proof " ]] ||
+  fail "release-host-proof.yml must have exactly stage, linux-proof and windows-proof jobs"
+proof_stage="$(workflow_job "${PROOF_WORKFLOW}" stage)"
+proof_writes="$(grep -E ':[[:space:]]*write([[:space:]]|$)|write-all' "${PROOF_WORKFLOW}" || true)"
+if [[ "$(grep -c . <<< "${proof_writes}")" != 1 ]] ||
+  ! grep -Eq '^      contents:[[:space:]]*write([[:space:]]+#.*)?$' <<< "${proof_writes}" ||
+  ! grep -Fxq -- "${proof_writes}" <<< "${proof_stage}"; then
+  fail "release-host-proof.yml may request only contents: write, only in its stage job"
+fi
+if ! grep -Eq '^permissions:[[:space:]]*$' "${PROOF_WORKFLOW}" ||
+  ! grep -Fxq '  contents: read' "${PROOF_WORKFLOW}"; then
+  fail "release-host-proof.yml lacks explicit read-only contents permission"
+fi
+stage_uses="$(grep -E '^[[:space:]]+(- )?uses:' <<< "${proof_stage}" || true)"
+if grep -Ev 'uses:[[:space:]]*actions/upload-artifact@' <<< "${stage_uses}" | grep -q . ||
+  grep -Eq 'working-directory|scripts/|(^|[[:space:]])(go|git|make|npm)[[:space:]]' <<< "${proof_stage}"; then
+  fail "release-host-proof.yml stage job may not run repository code"
+fi
+proof_code="$(sed -E 's/(^|[[:space:]])#.*$//' "${PROOF_WORKFLOW}")"
+proof_gh="$(grep -oE '(^|[^[:alnum:]_./-])gh[[:space:]]+[a-z-]+([[:space:]]+[a-z-]+)?' <<< "${proof_code}" |
+  sed -E 's/^[^g]+//' | LC_ALL=C sort -u)"
+if [[ "${proof_gh}" != "gh release download" ]] ||
+  [[ "$(grep -c 'github\.token' "${PROOF_WORKFLOW}")" != 1 ]] ||
+  ! grep -Fq 'GH_TOKEN: ${{ github.token }}' <<< "${proof_stage}" ||
+  grep -Eq 'curl|wget|/releases|api\.github|git[[:space:]]+(push|tag)|softprops|create-release|upload-release|attest|docker/' <<< "${proof_code}"; then
+  fail "release-host-proof.yml may only download release assets"
+fi
+if [[ "$(grep -c 'actions/upload-artifact@' "${PROOF_WORKFLOW}")" != 3 ]] ||
+  [[ "$(grep -c 'retention-days:' "${PROOF_WORKFLOW}")" != 3 ]] ||
+  [[ "$(grep -Ec '^[[:space:]]+retention-days:[[:space:]]*1[[:space:]]*$' "${PROOF_WORKFLOW}")" != 3 ]]; then
+  fail "release-host-proof.yml must upload exactly three one-day artifacts"
+fi
+for job in linux-proof windows-proof; do
+  proof_job="$(workflow_job "${PROOF_WORKFLOW}" "${job}")"
+  proof_sources="$(grep -E '^[[:space:]]+(ref|repository|run-id|github-token):' <<< "${proof_job}" || true)"
+  if grep -Ev '^[[:space:]]+ref:[[:space:]]*(\$\{\{ github\.sha \}\}|refs/tags/\$\{\{ inputs\.tag \}\})[[:space:]]*$' <<< "${proof_sources}" |
+    grep -q . || grep -Eq 'permissions:|go[[:space:]]+run' <<< "${proof_job}"; then
+    fail "release-host-proof.yml proof jobs may check out only the trusted commit and the tag"
+  fi
+  if ! grep -Eq '^[[:space:]]+working-directory:[[:space:]]*trusted[[:space:]]*$' <<< "${proof_job}" ||
+    ! grep -Eq 'go build -mod=readonly -trimpath -o .* \./scripts/release/release-contract$' <<< "${proof_job}" ||
+    ! grep -Fq -- '--repository-root' <<< "${proof_job}"; then
+    fail "release-host-proof.yml proof jobs must build release-contract from the trusted checkout"
+  fi
+done
+if grep -Eq '(^|[[:space:]])(set|bash)[[:space:]]+-[A-Za-z]*x|xtrace|Set-PSDebug' "${PROOF_WORKFLOW}"; then
+  fail "release-host-proof.yml may not trace shell commands"
+fi
 
 printf 'release workflow policy: PASS\n'

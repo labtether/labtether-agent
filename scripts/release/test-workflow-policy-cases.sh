@@ -2,7 +2,10 @@
 # Proves test-workflow-policy.sh rejects each way the release signing key could
 # leak past sign-release.yml: another workflow, an automatic trigger, a write
 # permission, a release upload, the key in the build job, or the sign job
-# running code from the tag. Each case changes one line in a copy.
+# running code from the tag. The release-host-proof.yml cases prove it may not
+# use a secret, start on its own, write outside its stage job, edit a release,
+# run repository code with the write token, or build its tool from elsewhere.
+# Each case changes one line in a copy.
 set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -48,5 +51,19 @@ expect_fail build-job-secret 'build job must not reference secrets' .github/work
   's/(        id: build\n        env:\n)/$1          LEAK: \$\{\{ secrets.RELEASE_SIGNING_PRIVATE_KEY \}\}\n/'
 expect_fail sign-job-tag-checkout 'sign job may use only the trusted commit' .github/workflows/sign-release.yml \
   's/ref: \$\{\{ github\.sha \}\}/ref: refs\/tags\/\$\{\{ inputs.tag \}\}/'
+
+P=.github/workflows/release-host-proof.yml
+expect_fail proof-secret 'release-host-proof.yml may not use secrets' "${P}" \
+  '$_ .= "      - run: echo \"\${{ secrets.GITHUB_TOKEN }}\"\n"'
+expect_fail proof-push-trigger 'release-host-proof.yml must be started only by workflow_dispatch' "${P}" \
+  's/^on:\n/on:\n  push:\n/m'
+expect_fail proof-job-write 'only contents: write, only in its stage job' "${P}" \
+  's/(  linux-proof:\n)/$1    permissions:\n      contents: write\n/'
+expect_fail proof-release-edit 'release-host-proof.yml may only download release assets' "${P}" \
+  '$_ .= "      - run: gh release edit \"\$TAG\" --draft=false\n"'
+expect_fail proof-stage-checkout 'stage job may not run repository code' "${P}" \
+  's/(    steps:\n      - name: Validate inputs)/    steps:\n      - uses: actions\/checkout\@v7\n      - name: Validate inputs/'
+expect_fail proof-branch-checkout 'proof jobs may check out only the trusted commit and the tag' "${P}" \
+  's/ref: \$\{\{ github\.sha \}\}/ref: main/'
 
 printf 'release workflow policy cases: PASS\n'

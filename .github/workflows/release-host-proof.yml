@@ -1,0 +1,285 @@
+name: Release Host Proof
+
+# Started by hand from main for one draft release. It runs release-contract
+# host-proof on the exact draft assets on hosted Linux and Windows runners.
+# - stage downloads the draft's 20 assets and rebuilds the sealed stage from
+#   the manifest and build record given as inputs. It runs no repository code.
+#   GitHub lists draft releases only to tokens with push access, so this job
+#   alone gets contents: write, and it uses that token only for one
+#   `gh release download`.
+# - linux-proof and windows-proof build release-contract from this workflow's
+#   own commit (trusted), check out the tag only for its pinned public key,
+#   and run host-proof. Each returns its proof file as a one-day artifact.
+# No secret is used. Nothing is signed, uploaded to a release, edited or
+# published. See docs/RELEASE_SIGNING.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Draft release tag (vX.Y.Z)
+        required: true
+        type: string
+      confirm:
+        description: Type the same tag again
+        required: true
+        type: string
+      manifest_sha256:
+        description: SHA-256 of the sealed release-manifest.json
+        required: true
+        type: string
+      manifest_b64:
+        description: Base64 of the sealed release-manifest.json
+        required: true
+        type: string
+      build_record_b64:
+        description: Base64 of the stage's .release-control/build.json
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-host-proof-${{ inputs.tag }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  stage:
+    name: Stage ${{ inputs.tag }} draft assets
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write # draft releases are visible only with push access
+    steps:
+      - name: Validate inputs and write the release control files
+        env:
+          TAG: ${{ inputs.tag }}
+          CONFIRM: ${{ inputs.confirm }}
+          MANIFEST_SHA256: ${{ inputs.manifest_sha256 }}
+          MANIFEST_B64: ${{ inputs.manifest_b64 }}
+          BUILD_RECORD_B64: ${{ inputs.build_record_b64 }}
+          WORKFLOW_REF: ${{ github.ref }}
+        run: |
+          set -Eeuo pipefail
+          if [[ ! "${TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ || "${CONFIRM}" != "${TAG}" ]]; then
+            echo "::error::tag must use strict vX.Y.Z form and confirm must equal it"
+            exit 1
+          fi
+          if [[ "${WORKFLOW_REF}" != "refs/heads/main" ]]; then
+            echo "::error::run this workflow from main, not ${WORKFLOW_REF}"
+            exit 1
+          fi
+          if [[ ! "${MANIFEST_SHA256}" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "::error::manifest_sha256 must be 64 lowercase hexadecimal characters"
+            exit 1
+          fi
+          control="${RUNNER_TEMP}/release-stage/.release-control"
+          mkdir -p "${control}" "${RUNNER_TEMP}/release-stage/assets"
+          printf '%s' "${MANIFEST_B64}" | base64 --decode > "${control}/release-manifest.json"
+          printf '%s' "${BUILD_RECORD_B64}" | base64 --decode > "${control}/build.json"
+          for file in release-manifest.json build.json; do
+            size="$(stat -c %s "${control}/${file}")"
+            if (( size == 0 || size > 32768 )); then
+              echo "::error::${file} input is empty or larger than 32768 bytes"
+              exit 1
+            fi
+          done
+          if [[ "$(sha256sum "${control}/release-manifest.json" | cut -d' ' -f1)" != "${MANIFEST_SHA256}" ]]; then
+            echo "::error::release-manifest.json does not match manifest_sha256"
+            exit 1
+          fi
+          jq -e --arg tag "${TAG}" --slurpfile build "${control}/build.json" '
+            .tag == $tag and (.assets | length) == 20 and
+            $build[0].tag == $tag and $build[0].commit == .commit
+          ' "${control}/release-manifest.json" > /dev/null || {
+            echo "::error::manifest and build record do not describe ${TAG} with 20 assets"
+            exit 1
+          }
+
+      - name: Download the draft's assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -Eeuo pipefail
+          gh release download "${TAG}" --repo "${GITHUB_REPOSITORY}" \
+            --dir "${RUNNER_TEMP}/release-stage/assets"
+
+      - name: Check the assets against the manifest
+        run: |
+          set -Eeuo pipefail
+          stage="${RUNNER_TEMP}/release-stage"
+          manifest="${stage}/.release-control/release-manifest.json"
+          actual="$(cd "${stage}/assets" && find . -mindepth 1 -printf '%P\n' | LC_ALL=C sort)"
+          wanted="$(jq -r '.assets[].name' "${manifest}" | LC_ALL=C sort)"
+          if [[ "${actual}" != "${wanted}" ]]; then
+            echo "::error::draft assets differ from the manifest's 20 names"
+            printf 'found:\n%s\n' "${actual}"
+            exit 1
+          fi
+          jq -r '.assets[] | "\(.sha256)  \(.name)"' "${manifest}" > "${RUNNER_TEMP}/SHA256SUMS"
+          (cd "${stage}/assets" && sha256sum --check --strict --quiet "${RUNNER_TEMP}/SHA256SUMS")
+
+      - name: Upload the stage for the proof jobs
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-stage-${{ inputs.tag }}
+          path: ${{ runner.temp }}/release-stage/
+          include-hidden-files: true
+          retention-days: 1
+          if-no-files-found: error
+
+  linux-proof:
+    name: Linux host proof
+    needs: stage
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GOTOOLCHAIN: local
+      GOWORK: "off"
+    steps:
+      - name: Check out the trusted workflow commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          path: trusted
+          persist-credentials: false
+
+      - name: Check out the tag for its pinned public key
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ inputs.tag }}
+          path: release-source
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.3"
+          cache: false
+
+      - name: Build the trusted release-contract
+        working-directory: trusted
+        run: |
+          set -Eeuo pipefail
+          if [[ "$(go env GOVERSION)" != "go1.27.3" ]]; then
+            echo "::error::builder must be go1.27.3, got $(go env GOVERSION)"
+            exit 1
+          fi
+          go build -mod=readonly -trimpath -o "${RUNNER_TEMP}/release-contract" ./scripts/release/release-contract
+
+      - name: Download the stage
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-stage-${{ inputs.tag }}
+          path: ${{ runner.temp }}/release-stage
+          digest-mismatch: error
+
+      - name: Run host-proof
+        env:
+          MANIFEST_SHA256: ${{ inputs.manifest_sha256 }}
+        run: |
+          set -Eeuo pipefail
+          stage="${RUNNER_TEMP}/release-stage"
+          manifest="${stage}/.release-control/release-manifest.json"
+          if [[ "$(sha256sum "${manifest}" | cut -d' ' -f1)" != "${MANIFEST_SHA256}" ]]; then
+            echo "::error::staged manifest does not match manifest_sha256"
+            exit 1
+          fi
+          if [[ "$(git -C release-source rev-parse HEAD)" != "$(jq -r .commit "${manifest}")" ]]; then
+            echo "::error::the tag checkout is not the manifest's commit"
+            exit 1
+          fi
+          chmod 700 "${stage}"
+          chmod 755 "${stage}/assets/labtether-agent-linux-amd64"
+          mkdir -p "${RUNNER_TEMP}/proofs"
+          "${RUNNER_TEMP}/release-contract" host-proof --stage "${stage}" --manifest "${manifest}" \
+            --platform linux --output "${RUNNER_TEMP}/proofs/linux.json" \
+            --repository-root "${GITHUB_WORKSPACE}/release-source"
+          cat "${RUNNER_TEMP}/proofs/linux.json"
+
+      - name: Upload the Linux proof
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: host-proof-linux-${{ inputs.tag }}
+          path: ${{ runner.temp }}/proofs/linux.json
+          retention-days: 1
+          if-no-files-found: error
+
+  windows-proof:
+    name: Windows host proof
+    needs: stage
+    runs-on: windows-latest
+    timeout-minutes: 15
+    env:
+      GOTOOLCHAIN: local
+      GOWORK: "off"
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Check out the trusted workflow commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          path: trusted
+          persist-credentials: false
+
+      - name: Check out the tag for its pinned public key
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ inputs.tag }}
+          path: release-source
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.3"
+          cache: false
+
+      - name: Build the trusted release-contract
+        working-directory: trusted
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ((go env GOVERSION) -ne 'go1.27.3') { throw "builder must be go1.27.3" }
+          go build -mod=readonly -trimpath -o "$env:RUNNER_TEMP\release-contract.exe" ./scripts/release/release-contract
+          if ($LASTEXITCODE -ne 0) { throw 'release-contract build failed' }
+
+      - name: Download the stage
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-stage-${{ inputs.tag }}
+          path: ${{ runner.temp }}/release-stage
+          digest-mismatch: error
+
+      - name: Run host-proof
+        env:
+          MANIFEST_SHA256: ${{ inputs.manifest_sha256 }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $stage = Join-Path $env:RUNNER_TEMP 'release-stage'
+          $manifest = Join-Path $stage '.release-control\release-manifest.json'
+          if ((Get-FileHash -Algorithm SHA256 $manifest).Hash.ToLowerInvariant() -ne $env:MANIFEST_SHA256) {
+            throw 'staged manifest does not match manifest_sha256'
+          }
+          $commit = (Get-Content -Raw $manifest | ConvertFrom-Json).commit
+          if ((git -C release-source rev-parse HEAD) -ne $commit) { throw "the tag checkout is not the manifest's commit" }
+          $proofs = Join-Path $env:RUNNER_TEMP 'proofs'
+          New-Item -ItemType Directory -Force $proofs | Out-Null
+          & "$env:RUNNER_TEMP\release-contract.exe" host-proof --stage $stage --manifest $manifest `
+            --platform windows --output (Join-Path $proofs 'windows.json') `
+            --repository-root (Join-Path $env:GITHUB_WORKSPACE 'release-source')
+          if ($LASTEXITCODE -ne 0) { throw 'host-proof failed' }
+          Get-Content -Raw (Join-Path $proofs 'windows.json')
+
+      - name: Upload the Windows proof
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: host-proof-windows-${{ inputs.tag }}
+          path: ${{ runner.temp }}/proofs/windows.json
+          retention-days: 1
+          if-no-files-found: error

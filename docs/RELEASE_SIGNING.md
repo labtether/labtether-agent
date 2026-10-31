@@ -92,7 +92,8 @@ The release has five separate gates:
    [Signing Workflow](#signing-workflow). The confirmation value must exactly
    match the release tag.
 4. Run `go run ./scripts/release/release-contract seal`, then verify the sealed
-   manifest and host proofs on Linux and Windows.
+   manifest and host proofs on Linux and Windows, on lab hosts or with the
+   [Host Proof Workflow](#host-proof-workflow).
 5. Create a draft release, inspect its exact 20 assets, then publish only from a
    separate invocation that rechecks the fresh draft and the inspection receipt.
 
@@ -175,6 +176,38 @@ To bring the signatures into the stage:
 4. If any hash differs, the signatures cover the CI binaries, not your local
    builds. Start a new stage with the four CI binaries in its `assets`
    directory, run step 2 again, then copy the signatures in.
+
+## Host Proof Workflow
+
+`host-proof` must run on the platform it proves. When no Linux or Windows lab
+host is free, the **Release Host Proof** workflow
+(`.github/workflows/release-host-proof.yml`) runs it on GitHub-hosted
+`ubuntu-latest` and `windows-latest`. Upload the 20 sealed assets to the draft
+release first, then start it by hand from `main` with the sealed manifest and
+build record:
+
+```sh
+control=<stage>/.release-control
+gh workflow run release-host-proof.yml --repo labtether/labtether-agent --ref main \
+  -f tag=vX.Y.Z -f confirm=vX.Y.Z \
+  -f manifest_sha256="$(shasum -a 256 "${control}/release-manifest.json" | cut -d' ' -f1)" \
+  -f manifest_b64="$(base64 < "${control}/release-manifest.json" | tr -d '\n')" \
+  -f build_record_b64="$(base64 < "${control}/build.json" | tr -d '\n')"
+```
+
+- **Stage** checks the inputs, downloads the draft's assets with
+  `gh release download` and refuses them unless the names and SHA-256 match the
+  manifest. GitHub shows draft releases only to tokens with push access, so
+  this job alone has `contents: write`. It checks out no code and makes no
+  other GitHub call.
+- **Linux host proof** and **Windows host proof** build `release-contract`
+  from the workflow's own `main` commit, check out the tag only for its pinned
+  public key, and run `host-proof` on the downloaded stage.
+
+The workflow uses no secret and changes no release. Download the one-day
+artifacts `host-proof-linux-vX.Y.Z` and `host-proof-windows-vX.Y.Z` with
+`gh run download <run-id> --repo labtether/labtether-agent -n <name> -D <folder>`,
+then run `release-contract verify-proofs` against your local sealed manifest.
 
 ## Hub Wiring
 
