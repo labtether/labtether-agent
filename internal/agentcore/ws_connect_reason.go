@@ -44,7 +44,10 @@ func classifyConnectReason(err error, resp *http.Response) string {
 	case errors.Is(err, syscall.ECONNREFUSED) ||
 		containsAny(lower, "connection refused", "actively refused"):
 		return connectReasonRefused
+	// macOS refuses a connect blocked by the Local Network permission with
+	// EPERM, not EHOSTUNREACH; a local firewall can do the same on Linux.
 	case errors.Is(err, syscall.EHOSTUNREACH) || errors.Is(err, syscall.ENETUNREACH) ||
+		errors.Is(err, syscall.EPERM) ||
 		containsAny(lower, "no route to host", "host is down", "network is unreachable",
 			"host is unreachable", "unreachable host", "unreachable network"):
 		return connectReasonUnreachable

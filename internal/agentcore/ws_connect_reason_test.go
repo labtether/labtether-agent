@@ -28,7 +28,10 @@ func TestClassifyConnectReason(t *testing.T) {
 	}{
 		{"real refused dial", realDialError(t, "ws://"+closedLoopbackAddr(t)+"/ws/agent"), nil, connectReasonRefused},
 		{"real untrusted hub certificate", realDialError(t, "wss://"+tlsHubAddr(t)+"/ws/agent"), nil, connectReasonCertificate},
+		// The lab Mac's blocked dial failed with EPERM ("operation not permitted").
 		{"macOS Local Network block", &net.OpError{Op: "dial", Net: "tcp",
+			Err: os.NewSyscallError("connect", syscall.EPERM)}, nil, connectReasonUnreachable},
+		{"host unreachable", &net.OpError{Op: "dial", Net: "tcp",
 			Err: os.NewSyscallError("connect", syscall.EHOSTUNREACH)}, nil, connectReasonUnreachable},
 		{"Windows unreachable host text", errors.New(
 			"dial tcp 192.0.2.10:8443: connectex: A socket operation was attempted to an unreachable host."),
