@@ -44,8 +44,7 @@ func classifyConnectReason(err error, resp *http.Response) string {
 	case errors.Is(err, syscall.ECONNREFUSED) ||
 		containsAny(lower, "connection refused", "actively refused"):
 		return connectReasonRefused
-	// macOS refuses a connect blocked by the Local Network permission with
-	// EPERM, not EHOSTUNREACH; a local firewall can do the same on Linux.
+	// A local firewall or OS policy can refuse a connect with EPERM.
 	case errors.Is(err, syscall.EHOSTUNREACH) || errors.Is(err, syscall.ENETUNREACH) ||
 		errors.Is(err, syscall.EPERM) ||
 		containsAny(lower, "no route to host", "host is down", "network is unreachable",
@@ -54,8 +53,18 @@ func classifyConnectReason(err error, resp *http.Response) string {
 	case isTimeoutError(err) ||
 		containsAny(lower, "i/o timeout", "timed out", "did not properly respond"):
 		return connectReasonTimedOut
+	// Any other failure to open the TCP connection means the Hub cannot be
+	// reached. A blocked macOS Local Network dial on the lab Mac matched none
+	// of the errno values above.
+	case isDialError(err):
+		return connectReasonUnreachable
 	}
 	return ""
+}
+
+func isDialError(err error) bool {
+	var opErr *net.OpError
+	return errors.As(err, &opErr) && opErr.Op == "dial"
 }
 
 func isCertificateError(err error) bool {
