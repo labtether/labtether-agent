@@ -53,9 +53,10 @@ gh secret set RELEASE_SIGNING_PRIVATE_KEY --repo labtether/labtether-agent
 Do not add it to any other secret, repository file, release artifact, log,
 cache, or temporary directory inside a source checkout. Only `sign-release.yml`
 may reference it: `scripts/release/test-workflow-policy.sh` fails CI if another
-workflow does, or if that workflow gains another trigger, a write permission or
-a release upload. GitHub cannot show the secret again, so losing it means
-rotating the key.
+workflow does, if that workflow gains another trigger, a write permission or a
+release upload, if its build job can read the key, or if its sign job checks
+out anything but the trusted commit. GitHub cannot show the secret again, so
+losing it means rotating the key.
 
 ## Public Key
 
@@ -136,14 +137,26 @@ gh workflow run sign-release.yml --repo labtether/labtether-agent --ref main \
   -f tag=vX.Y.Z -f confirm_sign=vX.Y.Z
 ```
 
-It checks out the exact tag and builds the four raw binaries with the same
-flags as step 1 (`CGO_ENABLED=0`, `-trimpath -buildvcs=true`, Go 1.27.3 and
-the linked public key). It then feeds the key on stdin to the tagged
-`scripts/release/sign-release.go` with `--confirm-sign vX.Y.Z` and the tagged
-public key. A malformed tag, a confirmation that does not match, an empty
-secret or a key that does not match the public key stops the run before
-anything is uploaded. The workflow has read-only repository access and creates
-no release, tag or package.
+It has two jobs, so no code from the tag runs where the key is:
+
+- **Build** checks out the exact tag and builds the four raw binaries with the
+  same flags as step 1 (`CGO_ENABLED=0`, `-trimpath -buildvcs=true`, Go 1.27.3
+  and the linked public key). It cannot read the key. It passes the binaries to
+  the sign job as a one-day artifact `tag-build-vX.Y.Z`, and their SHA-256 and
+  the linked public key as job outputs.
+- **Sign** checks out only the workflow's own `main` commit, into `trusted/`.
+  It refuses to sign if the tag links a different public key than
+  `trusted/scripts/release/agent-release-public-key.b64`. It builds the signer
+  from `trusted/scripts/release/sign-release.go`, downloads the build job's
+  binaries and refuses them unless their SHA-256 matches the build job's
+  output. Then it feeds the key on stdin to that signer with
+  `--confirm-sign vX.Y.Z` and the trusted public key.
+
+A malformed tag, a confirmation that does not match, a changed public key,
+binaries that do not match, an empty secret or a key that does not match the
+public key stops the run before anything is signed. The workflow has
+read-only repository access and creates no release, tag or package. To change
+the signer or the public key, change them on `main` first.
 
 The artifact `agent-signatures-vX.Y.Z` expires after one day and holds 13
 files: four `<raw>-<tag>.sig`, four `<raw>-<tag>.metadata.json`, `SHA256SUMS`
@@ -151,7 +164,8 @@ for the four CI-built raw binaries, and those four binaries.
 
 To bring the signatures into the stage:
 
-1. Download the artifact into a new private folder outside the repository:
+1. Download the `agent-signatures-vX.Y.Z` artifact (not `tag-build-vX.Y.Z`)
+   into a new private folder outside the repository:
    `gh run download <run-id> --repo labtether/labtether-agent -n agent-signatures-vX.Y.Z -D <folder>`.
 2. From the stage `assets` directory, compare the hashes:
    `shasum -a 256 -c <folder>/SHA256SUMS` (Linux: `sha256sum -c`).

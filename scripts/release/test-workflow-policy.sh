@@ -63,7 +63,7 @@ grep -Fq -- '--confirm-sign vX.Y.Z' "${SIGNING_DOC}" ||
   fail "release signing doc does not document the local signing confirmation"
 
 # The release signing key may reach exactly one workflow: sign-release.yml,
-# started by hand, read-only, returning a short-lived artifact and nothing else.
+# started by hand, read-only, returning short-lived artifacts and nothing else.
 for workflow in "${WORKFLOW_DIR}"/*; do
   [[ "${workflow}" == "${SIGNING_WORKFLOW}" ]] && continue
   if [[ -f "${workflow}" ]] &&
@@ -97,10 +97,46 @@ if grep -Eq \
   "${SIGNING_WORKFLOW}"; then
   fail "sign-release.yml may not create releases, tags or other uploads"
 fi
-[[ "$(grep -c 'actions/upload-artifact@' "${SIGNING_WORKFLOW}")" == 1 ]] ||
-  fail "sign-release.yml must upload exactly one workflow artifact"
-grep -Eq '^[[:space:]]+retention-days:[[:space:]]*1[[:space:]]*$' "${SIGNING_WORKFLOW}" ||
-  fail "sign-release.yml artifact must expire after one day"
+[[ "$(grep -c 'actions/upload-artifact@' "${SIGNING_WORKFLOW}")" == 2 ]] ||
+  fail "sign-release.yml must upload exactly two workflow artifacts"
+if [[ "$(grep -c 'retention-days:' "${SIGNING_WORKFLOW}")" != 2 ]] ||
+  [[ "$(grep -Ec '^[[:space:]]+retention-days:[[:space:]]*1[[:space:]]*$' "${SIGNING_WORKFLOW}")" != 2 ]]; then
+  fail "sign-release.yml artifacts must expire after one day"
+fi
+
+# Two jobs: build compiles the tag without the key; sign runs only code from
+# the trusted workflow commit and the build job's binaries as data.
+signing_jobs="$(awk '
+  /^jobs:[[:space:]]*$/ { in_jobs = 1; next }
+  in_jobs && /^[^[:space:]#]/ { in_jobs = 0 }
+  in_jobs && /^  [^[:space:]#]/ { key = $1; sub(/:.*$/, "", key); print key }
+' "${SIGNING_WORKFLOW}" | tr '\n' ' ')"
+[[ "${signing_jobs}" == "build sign " ]] ||
+  fail "sign-release.yml must have exactly a build job and a sign job"
+signing_job() {
+  awk -v job="$1" '
+    /^jobs:[[:space:]]*$/ { in_jobs = 1; next }
+    in_jobs && /^[^[:space:]#]/ { in_jobs = 0 }
+    in_jobs && /^  [^[:space:]#]/ { current = $1; sub(/:.*$/, "", current) }
+    in_jobs && current == job { print }
+  ' "${SIGNING_WORKFLOW}"
+}
+build_job="$(signing_job build)"
+sign_job="$(signing_job sign)"
+if grep -q 'secrets' <<< "${build_job}"; then
+  fail "sign-release.yml build job must not reference secrets"
+fi
+sign_sources="$(grep -E '^[[:space:]]+(ref|repository|run-id|github-token):' <<< "${sign_job}" || true)"
+bad_sources="$(grep -Ev '^[[:space:]]+ref:[[:space:]]*\$\{\{ github\.sha \}\}[[:space:]]*$' <<< "${sign_sources}" || true)"
+if [[ -n "${bad_sources//[[:space:]]/}" ]] ||
+  grep -Eq 'cmd/labtether-agent|refs/tags|git[[:space:]]+(clone|fetch|checkout|archive)' <<< "${sign_job}"; then
+  fail "sign-release.yml sign job may use only the trusted commit and this run's build"
+fi
+if ! grep -Eq '^[[:space:]]+path:[[:space:]]*trusted[[:space:]]*$' <<< "${sign_job}" ||
+  ! grep -Eq '^[[:space:]]+working-directory:[[:space:]]*trusted[[:space:]]*$' <<< "${sign_job}" ||
+  ! grep -Fq 'trusted/scripts/release/agent-release-public-key.b64' <<< "${sign_job}"; then
+  fail "sign-release.yml sign job must build the signer and read the public key from the trusted checkout"
+fi
 
 [[ "$(grep -o 'secrets[^[:space:]}]*' "${SIGNING_WORKFLOW}")" == 'secrets.RELEASE_SIGNING_PRIVATE_KEY' ]] ||
   fail "sign-release.yml must reference only RELEASE_SIGNING_PRIVATE_KEY, exactly once"
