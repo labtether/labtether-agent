@@ -1,0 +1,204 @@
+name: Sign Release Binaries
+
+# Started by hand for one tag. Builds the four raw agent binaries from the
+# exact tag, signs them with the repository's Ed25519 release key, and returns
+# only the signatures, metadata, checksums and CI binaries as a one-day
+# workflow artifact. It creates no release, tag or package. The private key
+# stays on the runner and reaches the signer only on stdin.
+# See docs/RELEASE_SIGNING.md for how the artifact enters the local stage.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to sign (vX.Y.Z)
+        required: true
+        type: string
+      confirm_sign:
+        description: Type the same tag again to confirm signing
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sign-release-${{ inputs.tag }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  sign-release:
+    name: Sign ${{ inputs.tag }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GOTOOLCHAIN: local
+      GOWORK: "off"
+    steps:
+      - name: Validate tag and confirmation
+        env:
+          TAG: ${{ inputs.tag }}
+          CONFIRM_SIGN: ${{ inputs.confirm_sign }}
+          WORKFLOW_REF: ${{ github.ref }}
+        run: |
+          set -Eeuo pipefail
+          if [[ ! "${TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::tag must use strict vX.Y.Z form"
+            exit 1
+          fi
+          if [[ "${CONFIRM_SIGN}" != "${TAG}" ]]; then
+            echo "::error::confirm_sign must equal the tag exactly"
+            exit 1
+          fi
+          if [[ "${WORKFLOW_REF}" != "refs/heads/main" ]]; then
+            echo "::error::run this workflow from main, not ${WORKFLOW_REF}"
+            exit 1
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ inputs.tag }}
+          persist-credentials: false
+          fetch-tags: true
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.3"
+          cache: false
+
+      - name: Verify exact tagged source and Go version
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -Eeuo pipefail
+          tag_commit="$(git rev-parse --verify --quiet "refs/tags/${TAG}^{commit}")" || {
+            echo "::error::tag ${TAG} does not resolve to a commit"
+            exit 1
+          }
+          if [[ "$(git rev-parse HEAD)" != "${tag_commit}" ]]; then
+            echo "::error::checked-out source does not match tag ${TAG}"
+            exit 1
+          fi
+          if [[ -n "$(git status --porcelain=v1 --untracked-files=all)" ]]; then
+            echo "::error::tagged source checkout is not clean"
+            exit 1
+          fi
+          if [[ "$(go env GOVERSION)" != "go1.27.3" ]]; then
+            echo "::error::builder must be go1.27.3, got $(go env GOVERSION)"
+            exit 1
+          fi
+          echo "Signing ${TAG} at ${tag_commit}"
+
+      - name: Build raw binaries
+        env:
+          TAG: ${{ inputs.tag }}
+          CGO_ENABLED: "0"
+        run: |
+          set -Eeuo pipefail
+          out_dir="${RUNNER_TEMP}/agent-signatures"
+          mkdir -p "${out_dir}"
+          update_key="$(tr -d '[:space:]' < scripts/release/agent-release-public-key.b64)"
+          test -n "${update_key}"
+          targets=(
+            "linux amd64 linux-amd64"
+            "linux arm64 linux-arm64"
+            "windows amd64 windows-amd64.exe"
+            "windows arm64 windows-arm64.exe"
+          )
+          for target in "${targets[@]}"; do
+            read -r goos goarch suffix <<< "${target}"
+            output="${out_dir}/labtether-agent-${suffix}"
+            GOOS="${goos}" GOARCH="${goarch}" go build -mod=readonly -trimpath -buildvcs=true \
+              -ldflags="-s -w -X main.version=${TAG} -X main.updatePublicKey=${update_key}" \
+              -o "${output}" \
+              ./cmd/labtether-agent
+            test -s "${output}"
+          done
+          if [[ -n "$(git status --porcelain=v1 --untracked-files=all)" ]]; then
+            echo "::error::build changed the tagged source checkout"
+            exit 1
+          fi
+          (
+            cd "${out_dir}"
+            sha256sum -- labtether-agent-linux-amd64 labtether-agent-linux-arm64 \
+              labtether-agent-windows-amd64.exe labtether-agent-windows-arm64.exe > SHA256SUMS
+          )
+
+      - name: Build tagged signer
+        run: |
+          set -Eeuo pipefail
+          go build -mod=readonly -o "${RUNNER_TEMP}/sign-release" ./scripts/release/sign-release.go
+
+      - name: Sign raw binaries
+        env:
+          TAG: ${{ inputs.tag }}
+          RELEASE_SIGNING_PRIVATE_KEY: ${{ secrets.RELEASE_SIGNING_PRIVATE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          set +x
+          if [[ -z "${RELEASE_SIGNING_PRIVATE_KEY}" ]]; then
+            echo "::error::RELEASE_SIGNING_PRIVATE_KEY is empty; refusing to sign"
+            exit 1
+          fi
+          signing_key="${RELEASE_SIGNING_PRIVATE_KEY}"
+          unset RELEASE_SIGNING_PRIVATE_KEY
+          expected_public_key="$(tr -d '[:space:]' < scripts/release/agent-release-public-key.b64)"
+          test -n "${expected_public_key}"
+          out_dir="${RUNNER_TEMP}/agent-signatures"
+          targets=(
+            "linux amd64 linux-amd64"
+            "linux arm64 linux-arm64"
+            "windows amd64 windows-amd64.exe"
+            "windows arm64 windows-arm64.exe"
+          )
+          for target in "${targets[@]}"; do
+            read -r goos goarch suffix <<< "${target}"
+            raw="${out_dir}/labtether-agent-${suffix}"
+            printf '%s' "${signing_key}" | "${RUNNER_TEMP}/sign-release" \
+              --version "${TAG}" \
+              --os "${goos}" \
+              --arch "${goarch}" \
+              --binary "${raw}" \
+              --out-prefix "${raw}-${TAG}" \
+              --expected-public-key "${expected_public_key}" \
+              --confirm-sign "${TAG}"
+          done
+          unset signing_key
+
+      - name: Check artifact contents
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -Eeuo pipefail
+          out_dir="${RUNNER_TEMP}/agent-signatures"
+          expected=(SHA256SUMS)
+          for suffix in linux-amd64 linux-arm64 windows-amd64.exe windows-arm64.exe; do
+            raw="labtether-agent-${suffix}"
+            expected+=("${raw}" "${raw}-${TAG}.sig" "${raw}-${TAG}.metadata.json")
+          done
+          actual="$(cd "${out_dir}" && find . -mindepth 1 -printf '%P\n' | LC_ALL=C sort)"
+          wanted="$(printf '%s\n' "${expected[@]}" | LC_ALL=C sort)"
+          if [[ "${actual}" != "${wanted}" ]]; then
+            echo "::error::artifact folder does not hold exactly the 13 expected files"
+            printf 'found:\n%s\n' "${actual}"
+            exit 1
+          fi
+          (cd "${out_dir}" && sha256sum --check --strict SHA256SUMS)
+          {
+            echo "### SHA-256 of CI-built raw binaries for ${TAG}"
+            echo '```'
+            cat "${out_dir}/SHA256SUMS"
+            echo '```'
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload signatures and CI binaries
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: agent-signatures-${{ inputs.tag }}
+          path: ${{ runner.temp }}/agent-signatures/
+          retention-days: 1
+          if-no-files-found: error

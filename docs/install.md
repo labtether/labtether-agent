@@ -163,7 +163,7 @@ export LABTETHER_AUTO_UPDATE_TRUSTED_PUBLIC_KEY="jM9Mqx0db6S+w6FMKDnIX2jvVp7N554
 ```
 
 Maintainers: see [`RELEASE_SIGNING.md`](RELEASE_SIGNING.md) for
-local-only signing, draft inspection, publication, and key rotation.
+signing, draft inspection, publication, and key rotation.
 
 ## Reboot and shutdown
 
