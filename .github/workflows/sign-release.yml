@@ -1,10 +1,16 @@
 name: Sign Release Binaries
 
-# Started by hand for one tag. Builds the four raw agent binaries from the
-# exact tag, signs them with the repository's Ed25519 release key, and returns
-# only the signatures, metadata, checksums and CI binaries as a one-day
-# workflow artifact. It creates no release, tag or package. The private key
-# stays on the runner and reaches the signer only on stdin.
+# Started by hand from main for one tag. Two jobs:
+# - build checks out the tag and builds the four raw agent binaries. It has no
+#   access to the release key.
+# - sign checks out only this workflow's own commit (trusted), builds the
+#   signer and reads the expected public key from it, checks the tag links the
+#   same public key, downloads the build job's binaries, checks their SHA-256
+#   against the build job's output, and signs them. No code from the tag runs
+#   in this job.
+# The result is a one-day workflow artifact with the signatures, metadata,
+# checksums and CI binaries. It creates no release, tag or package. The private
+# key reaches the signer only on stdin.
 # See docs/RELEASE_SIGNING.md for how the artifact enters the local stage.
 
 on:
@@ -31,13 +37,17 @@ defaults:
     shell: bash
 
 jobs:
-  sign-release:
-    name: Sign ${{ inputs.tag }}
+  build:
+    name: Build ${{ inputs.tag }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
       GOTOOLCHAIN: local
       GOWORK: "off"
+    outputs:
+      tag_commit: ${{ steps.source.outputs.tag_commit }}
+      update_key: ${{ steps.build.outputs.update_key }}
+      sha256sums: ${{ steps.build.outputs.sha256sums }}
     steps:
       - name: Validate tag and confirmation
         env:
@@ -71,6 +81,7 @@ jobs:
           cache: false
 
       - name: Verify exact tagged source and Go version
+        id: source
         env:
           TAG: ${{ inputs.tag }}
         run: |
@@ -91,18 +102,23 @@ jobs:
             echo "::error::builder must be go1.27.3, got $(go env GOVERSION)"
             exit 1
           fi
-          echo "Signing ${TAG} at ${tag_commit}"
+          echo "tag_commit=${tag_commit}" >> "${GITHUB_OUTPUT}"
+          echo "Building ${TAG} at ${tag_commit}"
 
       - name: Build raw binaries
+        id: build
         env:
           TAG: ${{ inputs.tag }}
           CGO_ENABLED: "0"
         run: |
           set -Eeuo pipefail
-          out_dir="${RUNNER_TEMP}/agent-signatures"
+          out_dir="${RUNNER_TEMP}/tag-build"
           mkdir -p "${out_dir}"
           update_key="$(tr -d '[:space:]' < scripts/release/agent-release-public-key.b64)"
-          test -n "${update_key}"
+          if [[ ! "${update_key}" =~ ^[A-Za-z0-9+/]{43}=$ ]]; then
+            echo "::error::tag public key file is not one base64 Ed25519 public key"
+            exit 1
+          fi
           targets=(
             "linux amd64 linux-amd64"
             "linux arm64 linux-arm64"
@@ -122,16 +138,111 @@ jobs:
             echo "::error::build changed the tagged source checkout"
             exit 1
           fi
-          (
-            cd "${out_dir}"
-            sha256sum -- labtether-agent-linux-amd64 labtether-agent-linux-arm64 \
-              labtether-agent-windows-amd64.exe labtether-agent-windows-arm64.exe > SHA256SUMS
-          )
+          {
+            echo "update_key=${update_key}"
+            echo "sha256sums<<SHA256SUMS_END"
+            (
+              cd "${out_dir}"
+              sha256sum -- labtether-agent-linux-amd64 labtether-agent-linux-arm64 \
+                labtether-agent-windows-amd64.exe labtether-agent-windows-arm64.exe
+            )
+            echo "SHA256SUMS_END"
+          } >> "${GITHUB_OUTPUT}"
 
-      - name: Build tagged signer
+      - name: Upload binaries for the sign job
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: tag-build-${{ inputs.tag }}
+          path: ${{ runner.temp }}/tag-build/
+          retention-days: 1
+          if-no-files-found: error
+
+  sign:
+    name: Sign ${{ inputs.tag }}
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GOTOOLCHAIN: local
+      GOWORK: "off"
+    steps:
+      - name: Validate tag and workflow branch
+        env:
+          TAG: ${{ inputs.tag }}
+          CONFIRM_SIGN: ${{ inputs.confirm_sign }}
+          WORKFLOW_REF: ${{ github.ref }}
         run: |
           set -Eeuo pipefail
+          if [[ ! "${TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ || "${CONFIRM_SIGN}" != "${TAG}" ]]; then
+            echo "::error::tag or confirmation is invalid"
+            exit 1
+          fi
+          if [[ "${WORKFLOW_REF}" != "refs/heads/main" ]]; then
+            echo "::error::run this workflow from main, not ${WORKFLOW_REF}"
+            exit 1
+          fi
+
+      - name: Check out the trusted workflow commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          path: trusted
+          persist-credentials: false
+
+      - name: Compare the tag's public key with the trusted one
+        env:
+          TAG: ${{ inputs.tag }}
+          TAG_UPDATE_KEY: ${{ needs.build.outputs.update_key }}
+        run: |
+          set -Eeuo pipefail
+          trusted_key="$(tr -d '[:space:]' < trusted/scripts/release/agent-release-public-key.b64)"
+          if [[ -z "${trusted_key}" || "${trusted_key}" != "${TAG_UPDATE_KEY}" ]]; then
+            echo "::error::${TAG} links a different update public key than main; refusing to sign"
+            exit 1
+          fi
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.3"
+          cache: false
+
+      - name: Build the trusted signer
+        working-directory: trusted
+        run: |
+          set -Eeuo pipefail
+          if [[ "$(go env GOVERSION)" != "go1.27.3" ]]; then
+            echo "::error::builder must be go1.27.3, got $(go env GOVERSION)"
+            exit 1
+          fi
           go build -mod=readonly -o "${RUNNER_TEMP}/sign-release" ./scripts/release/sign-release.go
+
+      - name: Download the build job's binaries
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: tag-build-${{ inputs.tag }}
+          path: ${{ runner.temp }}/agent-signatures
+          digest-mismatch: error
+
+      - name: Check binaries against the build job's SHA-256
+        env:
+          EXPECTED_SHA256SUMS: ${{ needs.build.outputs.sha256sums }}
+        run: |
+          set -Eeuo pipefail
+          out_dir="${RUNNER_TEMP}/agent-signatures"
+          names=(labtether-agent-linux-amd64 labtether-agent-linux-arm64
+            labtether-agent-windows-amd64.exe labtether-agent-windows-arm64.exe)
+          actual_names="$(cd "${out_dir}" && find . -mindepth 1 -printf '%P\n' | LC_ALL=C sort)"
+          if [[ "${actual_names}" != "$(printf '%s\n' "${names[@]}" | LC_ALL=C sort)" ]]; then
+            echo "::error::downloaded build does not hold exactly the four raw binaries"
+            exit 1
+          fi
+          actual_sums="$(cd "${out_dir}" && sha256sum -- "${names[@]}")"
+          expected_sums="$(printf '%s\n' "${EXPECTED_SHA256SUMS}")"
+          if [[ -z "${expected_sums}" || "${actual_sums}" != "${expected_sums}" ]]; then
+            echo "::error::downloaded binaries do not match the build job's SHA-256"
+            exit 1
+          fi
+          printf '%s\n' "${actual_sums}" > "${out_dir}/SHA256SUMS"
 
       - name: Sign raw binaries
         env:
@@ -146,7 +257,7 @@ jobs:
           fi
           signing_key="${RELEASE_SIGNING_PRIVATE_KEY}"
           unset RELEASE_SIGNING_PRIVATE_KEY
-          expected_public_key="$(tr -d '[:space:]' < scripts/release/agent-release-public-key.b64)"
+          expected_public_key="$(tr -d '[:space:]' < trusted/scripts/release/agent-release-public-key.b64)"
           test -n "${expected_public_key}"
           out_dir="${RUNNER_TEMP}/agent-signatures"
           targets=(
@@ -172,6 +283,8 @@ jobs:
       - name: Check artifact contents
         env:
           TAG: ${{ inputs.tag }}
+          TAG_COMMIT: ${{ needs.build.outputs.tag_commit }}
+          TRUSTED_COMMIT: ${{ github.sha }}
         run: |
           set -Eeuo pipefail
           out_dir="${RUNNER_TEMP}/agent-signatures"
@@ -189,7 +302,8 @@ jobs:
           fi
           (cd "${out_dir}" && sha256sum --check --strict SHA256SUMS)
           {
-            echo "### SHA-256 of CI-built raw binaries for ${TAG}"
+            echo "### Signed ${TAG}"
+            echo "Tag commit \`${TAG_COMMIT}\`, signer from \`${TRUSTED_COMMIT}\`."
             echo '```'
             cat "${out_dir}/SHA256SUMS"
             echo '```'

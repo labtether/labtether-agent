@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Proves test-workflow-policy.sh rejects each way the release signing key could
 # leak past sign-release.yml: another workflow, an automatic trigger, a write
-# permission, or a release upload. Each case changes one line in a copy.
+# permission, a release upload, the key in the build job, or the sign job
+# running code from the tag. Each case changes one line in a copy.
 set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -43,5 +44,9 @@ expect_fail write-permission 'may not request write permissions' .github/workflo
   's/^  contents: read$/  contents: write/m'
 expect_fail release-upload 'may not create releases' .github/workflows/sign-release.yml \
   '$_ .= "      - run: gh release upload \"\$TAG\" agent-signatures/*\n"'
+expect_fail build-job-secret 'build job must not reference secrets' .github/workflows/sign-release.yml \
+  's/(        id: build\n        env:\n)/$1          LEAK: \$\{\{ secrets.RELEASE_SIGNING_PRIVATE_KEY \}\}\n/'
+expect_fail sign-job-tag-checkout 'sign job may use only the trusted commit' .github/workflows/sign-release.yml \
+  's/ref: \$\{\{ github\.sha \}\}/ref: refs\/tags\/\$\{\{ inputs.tag \}\}/'
 
 printf 'release workflow policy cases: PASS\n'
