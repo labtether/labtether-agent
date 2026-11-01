@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os/exec"
@@ -45,6 +46,19 @@ var SelfUpdateExitFn func(code int)
 // SelfUpdateExitCode is the exit code used after self-update.
 const SelfUpdateExitCode = 10
 
+// SelfUpdateStatusUnsupported is the update.result status for a self-update
+// this agent cannot perform at all. Hubs treat any status other than
+// "succeeded" as not done, so it is never recorded as a success.
+const SelfUpdateStatusUnsupported = "unsupported"
+
+// UnsupportedSelfUpdateError reports that self-update cannot run here, for
+// example in the child of a native app that must be updated as one bundle.
+type UnsupportedSelfUpdateError struct {
+	Reason string
+}
+
+func (e UnsupportedSelfUpdateError) Error() string { return e.Reason }
+
 // HandleCommandRequest executes a command locally and sends the result back.
 func HandleCommandRequest(transport MessageSender, msg protocol.Message, cfg ExecConfig) {
 	var req protocol.CommandRequestData
@@ -85,25 +99,8 @@ func HandleCommandRequest(transport MessageSender, msg protocol.Message, cfg Exe
 		return
 	}
 	outputStr, err := runRemoteCommandOutput(cmd)
-
-	status := "succeeded"
-	if ctx.Err() == context.DeadlineExceeded {
-		status = "failed"
-		if outputStr != "" {
-			outputStr += "\nerror: command timed out"
-		} else {
-			outputStr = "command timed out"
-		}
-	} else if err != nil {
-		status = "failed"
-		if outputStr != "" {
-			outputStr += "\nerror: " + err.Error()
-		} else {
-			outputStr = err.Error()
-		}
-	}
-
-	sendCommandResult(transport, req, status, outputStr)
+	status, outputStr, exitCode := remoteCommandOutcome(ctx, cmd, outputStr, err)
+	sendCommandResultWithExitCode(transport, req, status, outputStr, exitCode)
 }
 
 // HandleUpdateRequest executes a system update and reports progress/results.
@@ -165,6 +162,11 @@ func HandleUpdateRequest(transport MessageSender, msg protocol.Message, cfg Exec
 			return
 		}
 		updated, summary, err := SelfUpdateFn(cfg, req.Force)
+		var unsupported UnsupportedSelfUpdateError
+		if errors.As(err, &unsupported) {
+			sendResult(SelfUpdateStatusUnsupported, "", unsupported.Error())
+			return
+		}
 		if err != nil {
 			sendResult("failed", "", err.Error())
 			return
@@ -289,13 +291,20 @@ func BuildUpdatePackageCommand(manager string, packages []string) (UpdatePackage
 	return UpdatePackageCommand{Name: manager, Args: args}, nil
 }
 
+// sendCommandResult reports a command that never ran, so its exit code is
+// unknown and stays off the wire.
 func sendCommandResult(transport MessageSender, req protocol.CommandRequestData, status, output string) {
+	sendCommandResultWithExitCode(transport, req, status, output, nil)
+}
+
+func sendCommandResultWithExitCode(transport MessageSender, req protocol.CommandRequestData, status, output string, exitCode *int) {
 	result := protocol.CommandResultData{
 		JobID:     req.JobID,
 		SessionID: req.SessionID,
 		CommandID: req.CommandID,
 		Status:    status,
 		Output:    output,
+		ExitCode:  exitCode,
 	}
 	data, marshalErr := json.Marshal(result)
 	if marshalErr != nil {

@@ -20,6 +20,10 @@ func init() {
 		if err == nil && !updated && summary == selfUpdateEndpointUnavailableMessage {
 			return false, "", fmt.Errorf("%s", selfUpdateEndpointUnavailableMessage)
 		}
+		// Nothing was updated: report it as unsupported, never as succeeded.
+		if err == nil && !updated && summary == nativeWrapperSelfUpdateMessage {
+			return false, "", remoteaccess.UnsupportedSelfUpdateError{Reason: summary}
+		}
 		return updated, summary, err
 	}
 	remoteaccess.SelfUpdateExitFn = agentExitFn

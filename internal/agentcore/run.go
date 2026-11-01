@@ -39,6 +39,12 @@ func init() {
 func Run(ctx context.Context, cfg RuntimeConfig, provider TelemetryProvider) error {
 	setConnectorDiscoveryDockerConfig(cfg.DockerEnabled, cfg.DockerSocket)
 
+	// A freshly self-updated binary must reach the Hub, or it puts the
+	// previous binary back. This runs before anything else can fail.
+	if checkPendingSelfUpdate() {
+		go watchSelfUpdateHealth(ctx)
+	}
+
 	identity, identityErr := ensureDeviceIdentity(cfg)
 	if identityErr != nil {
 		log.Printf("%s: device identity initialization failed: %v", cfg.Name, identityErr)
@@ -160,8 +166,9 @@ func Run(ctx context.Context, cfg RuntimeConfig, provider TelemetryProvider) err
 		runtime.deviceIdentity = identity
 
 		go RunWatchdog(ctx, WatchdogConfig{
-			HeartbeatCounter: &runtime.HeartbeatCounter,
-			ExitFunc:         os.Exit,
+			HeartbeatCounter:  &runtime.HeartbeatCounter,
+			HeartbeatInterval: runtime.watchdogHeartbeatInterval,
+			ExitFunc:          os.Exit,
 		})
 
 		// Docker and web service collectors are wired before the reconnect callback.
@@ -176,6 +183,8 @@ func Run(ctx context.Context, cfg RuntimeConfig, provider TelemetryProvider) err
 		dispMgr := newDisplayManager()
 		deskMgr := newDesktopManager(dispMgr)
 		fileMgr := files.NewManager(cfg.FileRootMode)
+		runtime.applyFileRootMode = fileMgr.SetRootMode
+		runtime.restartAgent = serviceManagerRestart()
 		webrtcMgr := newWebRTCManager(webrtcCaps, runtime, fileMgr, dispMgr)
 		audioMgr := newAudioSidebandManager()
 
@@ -285,8 +294,9 @@ func Run(ctx context.Context, cfg RuntimeConfig, provider TelemetryProvider) err
 	runtime := newRuntimeWithIdentity(cfg, provider, publisher, runtimeIdentity)
 	runtime.deviceIdentity = identity
 	go RunWatchdog(ctx, WatchdogConfig{
-		HeartbeatCounter: &runtime.HeartbeatCounter,
-		ExitFunc:         os.Exit,
+		HeartbeatCounter:  &runtime.HeartbeatCounter,
+		HeartbeatInterval: runtime.watchdogHeartbeatInterval,
+		ExitFunc:          os.Exit,
 	})
 	return runtime.Run(ctx)
 }
@@ -334,17 +344,14 @@ func reEnrollAgainstActiveHub(ctx context.Context, cfg RuntimeConfig, transport 
 		return "", fmt.Errorf("re-enrollment returned empty asset id")
 	}
 
-	// Adopt the complete token-bound identity before reconnecting. This single
-	// update also moves HTTP fallback to the active/reported API origin.
-	responseWSURL := normalizeWSBaseURL(resp.HubWSURL)
-	if responseWSURL == "" {
-		responseWSURL = activeWSURL
-	}
+	// Adopt the complete token-bound identity before reconnecting. Keep the
+	// address that just reached the Hub rather than one the Hub names, which
+	// this host may not reach. HTTP fallback moves to the same origin.
 	adoptedIdentity, err := transport.identitySource().AdoptCredential(
 		resp.AgentToken,
 		resp.AssetID,
-		responseWSURL,
-		normalizeAPIBaseURL(resp.HubAPIURL),
+		activeWSURL,
+		apiBaseURLFromWS(activeWSURL),
 		resp.GroupID,
 	)
 	if err != nil {
@@ -365,10 +372,11 @@ func reEnrollAgainstActiveHub(ctx context.Context, cfg RuntimeConfig, transport 
 			}
 		} else {
 			if err := saveEnrollmentState(cfg.TokenFilePath, enrollmentState{
-				AssetID:   adoptedIdentity.AssetID,
-				GroupID:   canonicalGroupIDPointer(adoptedIdentity.GroupID, adoptedIdentity.GroupKnown),
-				HubWSURL:  adoptedIdentity.WSBaseURL,
-				HubAPIURL: adoptedIdentity.APIBaseURL,
+				AssetID:      adoptedIdentity.AssetID,
+				GroupID:      canonicalGroupIDPointer(adoptedIdentity.GroupID, adoptedIdentity.GroupKnown),
+				HubWSURL:     adoptedIdentity.WSBaseURL,
+				HubAPIURL:    adoptedIdentity.APIBaseURL,
+				TokenOrigins: mergeHubOrigins(nil, resp.HubWSURL, resp.HubAPIURL),
 			}); err != nil {
 				log.Printf("agentws: warning: failed to persist re-enrollment state: %v", err)
 			}

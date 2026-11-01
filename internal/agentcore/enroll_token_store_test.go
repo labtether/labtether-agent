@@ -84,6 +84,38 @@ func TestResolveToken_FromFileRestoresCanonicalEnrollmentState(t *testing.T) {
 	if cfg.APIBaseURL != "https://operator-override.example.test:9443" {
 		t.Fatalf("APIBaseURL=%q, want API origin derived from explicit WS endpoint", cfg.APIBaseURL)
 	}
+	// The token was issued by saved.example.test. Whoever runs the new
+	// address must not receive it and replay it to the old Hub.
+	if cfg.APIToken != "" {
+		t.Fatal("saved agent token would be sent to a different Hub address")
+	}
+}
+
+// State saved before token origins existed must keep working after an
+// upgrade, including an address the Hub did not return at enrollment.
+func TestRestoreEnrollmentStateTrustsLegacyAddressesOnce(t *testing.T) {
+	tmpDir := t.TempDir()
+	tokenFile := filepath.Join(tmpDir, "agent-token")
+	legacy := `{"version":1,"asset_id":"canonical-node","hub_ws_url":"wss://hub-ts.example.test/ws/agent"}`
+	if err := os.WriteFile(filepath.Join(tmpDir, enrollmentStateFileName), []byte(legacy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for attempt := 1; attempt <= 2; attempt++ {
+		cfg := &RuntimeConfig{APIToken: "file-token", WSBaseURL: "wss://192.0.2.10:8443/ws/agent", TokenFilePath: tokenFile}
+		if err := restoreEnrollmentState(cfg); err != nil {
+			t.Fatalf("restore %d: %v", attempt, err)
+		}
+		if cfg.APIToken != "file-token" {
+			t.Fatalf("restore %d dropped the token for the address already in use", attempt)
+		}
+	}
+	moved := &RuntimeConfig{APIToken: "file-token", WSBaseURL: "wss://other-hub.example.test/ws/agent", TokenFilePath: tokenFile}
+	if err := restoreEnrollmentState(moved); err != nil {
+		t.Fatal(err)
+	}
+	if moved.APIToken != "" {
+		t.Fatal("token was kept for an address recorded after the upgrade")
+	}
 }
 
 func TestLoadTokenFromFile_Empty(t *testing.T) {

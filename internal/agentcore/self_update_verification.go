@@ -107,8 +107,37 @@ func compareStableReleaseVersions(left, right stableReleaseVersion) int {
 	return 0
 }
 
+// builtinSelfUpdatePublicKey is the release signing public key linked into
+// release builds through SetBuiltinSelfUpdatePublicKey. Development builds
+// leave it empty.
+var builtinSelfUpdatePublicKey string
+
+const builtinSelfUpdateKeySource = "the built-in release key"
+
+// SetBuiltinSelfUpdatePublicKey records the release signing public key that
+// the release build linked into this binary, so agents installed without
+// LABTETHER_AUTO_UPDATE_TRUSTED_PUBLIC_KEY can still verify updates.
+func SetBuiltinSelfUpdatePublicKey(key string) {
+	builtinSelfUpdatePublicKey = strings.TrimSpace(key)
+}
+
+// trustedSelfUpdatePublicKey returns the key every update must be signed with
+// and where it came from. A key in the environment replaces the built-in key,
+// for a key change or a private build, but no setting can turn verification
+// off while either key exists: the unsigned opt-in applies only when neither
+// is present.
+func trustedSelfUpdatePublicKey() (key string, source string) {
+	if raw := strings.TrimSpace(os.Getenv(envSelfUpdateTrustedPublicKey)); raw != "" {
+		return raw, envSelfUpdateTrustedPublicKey
+	}
+	if builtinSelfUpdatePublicKey != "" {
+		return builtinSelfUpdatePublicKey, builtinSelfUpdateKeySource
+	}
+	return "", ""
+}
+
 func verifyReleaseMetadataSignature(release agentReleaseMetadata, downloadURL string) error {
-	trustedKeyRaw := strings.TrimSpace(os.Getenv(envSelfUpdateTrustedPublicKey))
+	trustedKeyRaw, keySource := trustedSelfUpdatePublicKey()
 	if trustedKeyRaw == "" {
 		if parseBoolEnv(envSelfUpdateAcceptUnsigned, false) {
 			log.Printf("self-update: WARNING %s is unset and %s=true — applying release without signature verification", envSelfUpdateTrustedPublicKey, envSelfUpdateAcceptUnsigned)
@@ -118,11 +147,11 @@ func verifyReleaseMetadataSignature(release agentReleaseMetadata, downloadURL st
 	}
 	keyBytes, err := decodeSelfUpdatePublicKey(trustedKeyRaw)
 	if err != nil {
-		return fmt.Errorf("decode %s: %w", envSelfUpdateTrustedPublicKey, err)
+		return fmt.Errorf("decode %s: %w", keySource, err)
 	}
 	signatureRaw := strings.TrimSpace(release.Signature)
 	if signatureRaw == "" {
-		return fmt.Errorf("release metadata signature is required when %s is configured", envSelfUpdateTrustedPublicKey)
+		return fmt.Errorf("release metadata signature is required when %s is configured", keySource)
 	}
 	signature, err := decodeSelfUpdateSignature(signatureRaw)
 	if err != nil {

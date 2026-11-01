@@ -1,0 +1,45 @@
+package agentcore
+
+import (
+	"strings"
+	"testing"
+)
+
+// Risk: the LocalSystem service saw its name as WORKGROUP\HOST$, missed the
+// NT AUTHORITY\SYSTEM name check and wrote the Hub key to the SYSTEM profile,
+// which sshd never reads, and reported the machine account as the SSH user.
+func TestWindowsHubSSHKeyTarget(t *testing.T) {
+	const programData = `C:\ProgramData`
+	tests := []struct {
+		name    string
+		account windowsAccount
+		want    hubSSHKeyTarget
+	}{
+		{"LocalSystem by SID", windowsAccount{sid: "S-1-5-18", username: `WORKGROUP\HOST$`,
+			home: `C:\Windows\system32\config\systemprofile`},
+			hubSSHKeyTarget{path: `C:\ProgramData\ssh\administrators_authorized_keys`}},
+		{"standard user", windowsAccount{sid: "S-1-5-21-1-2-3-1001", username: `HOST\demo`, home: `C:\Users\demo`},
+			hubSSHKeyTarget{path: `C:\Users\demo\.ssh\authorized_keys`, sshUser: `HOST\demo`}},
+		{"elevated Administrators member", windowsAccount{sid: "S-1-5-21-1-2-3-500", username: `HOST\admin`,
+			home: `C:\Users\admin`, adminMember: true, adminRights: true},
+			hubSSHKeyTarget{path: `C:\ProgramData\ssh\administrators_authorized_keys`, sshUser: `HOST\admin`}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := windowsHubSSHKeyTarget(tc.account, programData)
+			if err != nil || got != tc.want {
+				t.Fatalf("windowsHubSSHKeyTarget = (%+v, %v), want %+v", got, err, tc.want)
+			}
+		})
+	}
+}
+
+// Risk: an Administrators member's key went to %USERPROFILE%\.ssh, which sshd
+// ignores for that group, and the agent still reported success.
+func TestWindowsHubSSHKeyTargetRefusesUnelevatedAdministrator(t *testing.T) {
+	_, err := windowsHubSSHKeyTarget(windowsAccount{sid: "S-1-5-21-1-2-3-1002", username: `HOST\admin`,
+		home: `C:\Users\admin`, adminMember: true}, `C:\ProgramData`)
+	if err == nil || !strings.Contains(err.Error(), "needs administrator rights") {
+		t.Fatalf("unelevated Administrators member: err = %v, want a needs administrator rights error", err)
+	}
+}

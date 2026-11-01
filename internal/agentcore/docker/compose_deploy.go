@@ -15,7 +15,10 @@ import (
 const composeDeployFileName = "docker-compose.yml"
 
 // composeStacksRoot holds the agent-managed directory of each deployed stack.
-var composeStacksRoot = func() string { return filepath.Join(os.TempDir(), "labtether-stacks") }
+// It must survive agent restarts and must not be in a shared temp folder:
+// Docker resolves relative bind mounts against it in the host's namespace,
+// and the systemd unit gives the agent a private /tmp that is wiped on stop.
+var composeStacksRoot = defaultComposeStacksRoot
 
 var errComposeDeployDirectory = errors.New("config_dir must be the stack's managed directory or the working directory of its existing Compose project")
 
@@ -47,7 +50,10 @@ func (dc *DockerCollector) prepareComposeDeploy(ctx context.Context, req protoco
 		return selected, err
 	}
 	if managed {
-		for _, path := range []string{root, dir} {
+		if err := os.MkdirAll(filepath.Dir(root), 0o700); err != nil {
+			return selected, err
+		}
+		for _, path := range []string{filepath.Dir(root), root, dir} {
 			if err := ensurePrivateComposeDir(path); err != nil {
 				return selected, err
 			}

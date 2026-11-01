@@ -6,10 +6,13 @@ operators can set `LABTETHER_AUTO_UPDATE_TRUSTED_PUBLIC_KEY` to the matching
 public key and the agent will fail any update that was not signed with the
 paired private key.
 
-This doc covers local-only key handling and the maintainer release flow. GitHub
-Actions does not receive the private key, does not publish release binaries,
-and does not upload signed assets. Hosted workflows only verify tagged source
-and publish the container image.
+This doc covers key handling and the maintainer release flow. The private key
+lives only in the repository secret `RELEASE_SIGNING_PRIVATE_KEY`; there is no
+local copy. Only `.github/workflows/sign-release.yml` reads it. A maintainer
+starts that workflow by hand for one tag, and it returns signatures as a
+workflow artifact that expires after one day. No workflow publishes release
+binaries or uploads signed assets to a release. The tag-push workflows only
+verify tagged source and publish the container image.
 
 ## Keypair
 
@@ -40,9 +43,20 @@ EOF
 The private key is a 64-byte ed25519 private key (seed + derived public half);
 the signer accepts either a 32-byte seed or the 64-byte expanded form.
 
-Store the private key only in the maintainer's local secret store. Do not add it
-to GitHub Actions secrets, repository files, release artifacts, logs, caches, or
-temporary directories inside a source checkout.
+Store the private key only in the repository secret. Type it at the prompt so
+it stays out of shell history and files:
+
+```sh
+gh secret set RELEASE_SIGNING_PRIVATE_KEY --repo labtether/labtether-agent
+```
+
+Do not add it to any other secret, repository file, release artifact, log,
+cache, or temporary directory inside a source checkout. Only `sign-release.yml`
+may reference it: `scripts/release/test-workflow-policy.sh` fails CI if another
+workflow does, if that workflow gains another trigger, a write permission or a
+release upload, if its build job can read the key, or if its sign job checks
+out anything but the trusted commit. GitHub cannot show the secret again, so
+losing it means rotating the key.
 
 ## Public Key
 
@@ -67,24 +81,38 @@ signature verification on every self-update.
 
 ## Local Release Flow
 
-The release has five separate local gates:
+The release has five separate gates:
 
 1. Build the four raw binaries from a clean, exact-tagged source checkout.
 2. Run `go run ./scripts/release/release-contract prepare` to create checksums,
    deterministic Linux archives, and the immutable build record in an external
    private stage directory.
-3. For each raw binary, pipe the local private key to
-   `go run ./scripts/release/sign-release.go --confirm-sign vX.Y.Z` and write
-   the matching `.sig` and `.metadata.json` files into the stage assets
-   directory. The confirmation value must exactly match the release tag.
+3. Run the signing workflow for the tag and copy its `.sig` and
+   `.metadata.json` files into the stage assets directory, as described in
+   [Signing Workflow](#signing-workflow). The confirmation value must exactly
+   match the release tag.
 4. Run `go run ./scripts/release/release-contract seal`, then verify the sealed
-   manifest and host proofs on Linux and Windows.
+   manifest and host proofs on Linux and Windows, on lab hosts or with the
+   [Host Proof Workflow](#host-proof-workflow).
 5. Create a draft release, inspect its exact 20 assets, then publish only from a
    separate invocation that rechecks the fresh draft and the inspection receipt.
 
 Build the raw binaries with `GOTOOLCHAIN=go1.27.3` and pass
 `--go-version go1.27.3` to `release-contract prepare`. The prepare gate checks
 each binary's embedded Go version and rejects older or unpinned builders.
+
+Link the public key into each binary, the same way as the version:
+
+```sh
+update_key="$(tr -d '[:space:]' < scripts/release/agent-release-public-key.b64)"
+go build -trimpath -ldflags="-s -w -X main.version=${VERSION} -X main.updatePublicKey=${update_key}" ./cmd/labtether-agent
+```
+
+An agent then verifies updates with this key even when
+`LABTETHER_AUTO_UPDATE_TRUSTED_PUBLIC_KEY` is unset. A key in that variable
+replaces the built-in key. Neither can be bypassed with
+`LABTETHER_AUTO_UPDATE_ACCEPT_UNSIGNED`, which applies only to builds without a
+linked key.
 
 The public contract is exactly 20 release assets:
 
@@ -96,8 +124,90 @@ The public contract is exactly 20 release assets:
 - two Linux tarball `.sha256` files
 
 The local stage directory must be outside the repository, private to the current
-user, and free of symlinks. Do not copy private keys into the stage; feed the
-signer through stdin and let only the signed release outputs enter the stage.
+user, and free of symlinks. Private keys never enter the stage. Only the
+signatures and metadata from the signing workflow, and its binaries when you
+use them, enter the stage.
+
+## Signing Workflow
+
+The **Sign Release Binaries** workflow (`.github/workflows/sign-release.yml`)
+runs only when started by hand from `main`:
+
+```sh
+gh workflow run sign-release.yml --repo labtether/labtether-agent --ref main \
+  -f tag=vX.Y.Z -f confirm_sign=vX.Y.Z
+```
+
+It has two jobs, so no code from the tag runs where the key is:
+
+- **Build** checks out the exact tag and builds the four raw binaries with the
+  same flags as step 1 (`CGO_ENABLED=0`, `-trimpath -buildvcs=true`, Go 1.27.3
+  and the linked public key). It cannot read the key. It passes the binaries to
+  the sign job as a one-day artifact `tag-build-vX.Y.Z`, and their SHA-256 and
+  the linked public key as job outputs.
+- **Sign** checks out only the workflow's own `main` commit, into `trusted/`.
+  It refuses to sign if the tag links a different public key than
+  `trusted/scripts/release/agent-release-public-key.b64`. It builds the signer
+  from `trusted/scripts/release/sign-release.go`, downloads the build job's
+  binaries and refuses them unless their SHA-256 matches the build job's
+  output. Then it feeds the key on stdin to that signer with
+  `--confirm-sign vX.Y.Z` and the trusted public key.
+
+A malformed tag, a confirmation that does not match, a changed public key,
+binaries that do not match, an empty secret or a key that does not match the
+public key stops the run before anything is signed. The workflow has
+read-only repository access and creates no release, tag or package. To change
+the signer or the public key, change them on `main` first.
+
+The artifact `agent-signatures-vX.Y.Z` expires after one day and holds 13
+files: four `<raw>-<tag>.sig`, four `<raw>-<tag>.metadata.json`, `SHA256SUMS`
+for the four CI-built raw binaries, and those four binaries.
+
+To bring the signatures into the stage:
+
+1. Download the `agent-signatures-vX.Y.Z` artifact (not `tag-build-vX.Y.Z`)
+   into a new private folder outside the repository:
+   `gh run download <run-id> --repo labtether/labtether-agent -n agent-signatures-vX.Y.Z -D <folder>`.
+2. From the stage `assets` directory, compare the hashes:
+   `shasum -a 256 -c <folder>/SHA256SUMS` (Linux: `sha256sum -c`).
+3. If all four match, copy only the four `.sig` and four `.metadata.json`
+   files into the stage `assets` directory and go on to step 4 of the release
+   flow.
+4. If any hash differs, the signatures cover the CI binaries, not your local
+   builds. Start a new stage with the four CI binaries in its `assets`
+   directory, run step 2 again, then copy the signatures in.
+
+## Host Proof Workflow
+
+`host-proof` must run on the platform it proves. When no Linux or Windows lab
+host is free, the **Release Host Proof** workflow
+(`.github/workflows/release-host-proof.yml`) runs it on GitHub-hosted
+`ubuntu-latest` and `windows-latest`. Upload the 20 sealed assets to the draft
+release first, then start it by hand from `main` with the sealed manifest and
+build record:
+
+```sh
+control=<stage>/.release-control
+gh workflow run release-host-proof.yml --repo labtether/labtether-agent --ref main \
+  -f tag=vX.Y.Z -f confirm=vX.Y.Z \
+  -f manifest_sha256="$(shasum -a 256 "${control}/release-manifest.json" | cut -d' ' -f1)" \
+  -f manifest_b64="$(base64 < "${control}/release-manifest.json" | tr -d '\n')" \
+  -f build_record_b64="$(base64 < "${control}/build.json" | tr -d '\n')"
+```
+
+- **Stage** checks the inputs, downloads the draft's assets with
+  `gh release download` and refuses them unless the names and SHA-256 match the
+  manifest. GitHub shows draft releases only to tokens with push access, so
+  this job alone has `contents: write`. It checks out no code and makes no
+  other GitHub call.
+- **Linux host proof** and **Windows host proof** build `release-contract`
+  from the workflow's own `main` commit, check out the tag only for its pinned
+  public key, and run `host-proof` on the downloaded stage.
+
+The workflow uses no secret and changes no release. Download the one-day
+artifacts `host-proof-linux-vX.Y.Z` and `host-proof-windows-vX.Y.Z` with
+`gh run download <run-id> --repo labtether/labtether-agent -n <name> -D <folder>`,
+then run `release-contract verify-proofs` against your local sealed manifest.
 
 ## Hub Wiring
 
@@ -122,12 +232,13 @@ standalone downloads or replace their Ed25519 checks.
 To rotate:
 
 1. Generate a new keypair locally.
-2. Update the local maintainer secret store.
+2. Replace the repository secret `RELEASE_SIGNING_PRIVATE_KEY` with the new
+   private key using `gh secret set`, then delete the local copy.
 3. Publish both the old and new public keys during the transition window.
 4. Tag a new release. Only this release is signed by the new key.
-5. Once all deployments have updated their
-   `LABTETHER_AUTO_UPDATE_TRUSTED_PUBLIC_KEY` to the new key, drop the old
-   one from published docs.
+5. Once all deployments run a release with the new built-in key, or have
+   updated their `LABTETHER_AUTO_UPDATE_TRUSTED_PUBLIC_KEY` to the new key,
+   drop the old one from published docs.
 
 The agent currently accepts exactly one trusted public key. If you need a
 rotation period where two keys are simultaneously trusted, emit two

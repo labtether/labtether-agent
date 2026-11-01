@@ -70,3 +70,26 @@ func TestWatchdog_HealthyDoesNotExit(t *testing.T) {
 		t.Fatalf("expected no exit, got code %d", exitCode.Load())
 	}
 }
+
+// A long heartbeat setting (up to 10 minutes) must not look like a hung loop:
+// the watchdog used to exit every ~6 minutes when the interval was over 5.
+func TestWatchdog_LongHeartbeatIntervalDoesNotExit(t *testing.T) {
+	var counter atomic.Int64
+	var exitCode atomic.Int32
+
+	cfg := WatchdogConfig{
+		HeartbeatCounter:  &counter,
+		HeartbeatInterval: func() time.Duration { return 300 * time.Millisecond },
+		CheckInterval:     50 * time.Millisecond,
+		StuckThreshold:    100 * time.Millisecond,
+		ExitFunc:          func(code int) { exitCode.Store(int32(code)) },
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	RunWatchdog(ctx, cfg)
+
+	if exitCode.Load() != 0 {
+		t.Fatalf("watchdog exited with code %d inside three heartbeat intervals", exitCode.Load())
+	}
+}

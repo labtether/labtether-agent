@@ -158,12 +158,14 @@ func TestHandleAgentSettingsApplyReportsRestartRequiredAndPersistsValues(t *test
 		t.Fatalf("log_level=%q, want debug", applied.AppliedValues[SettingKeyLogLevel])
 	}
 
+	// docker_enabled is read once at start, so until the restart the state
+	// reports the value the Docker collector really runs with.
 	state := decodeAgentSettingsState(t, readSettingsLifecycleMessage(t, messages))
 	if !state.AllowRemoteOverrides {
 		t.Fatalf("expected allow_remote_overrides=true")
 	}
-	if state.Values[SettingKeyDockerEnabled] != "true" {
-		t.Fatalf("state docker_enabled=%q, want true", state.Values[SettingKeyDockerEnabled])
+	if state.Values[SettingKeyDockerEnabled] != "auto" {
+		t.Fatalf("state docker_enabled=%q, want the running value auto", state.Values[SettingKeyDockerEnabled])
 	}
 	if state.Values[SettingKeyCollectIntervalSec] != "30" {
 		t.Fatalf("state collect_interval_sec=%q, want 30", state.Values[SettingKeyCollectIntervalSec])
@@ -175,8 +177,8 @@ func TestHandleAgentSettingsApplyReportsRestartRequiredAndPersistsValues(t *test
 	if got := runtime.ReportedAgentSettings()[SettingKeyCollectIntervalSec]; got != "30" {
 		t.Fatalf("runtime collect interval=%q, want 30", got)
 	}
-	if got := runtime.ReportedAgentSettings()[SettingKeyDockerEnabled]; got != "true" {
-		t.Fatalf("runtime docker_enabled=%q, want true", got)
+	if got := runtime.ReportedAgentSettings()[SettingKeyDockerEnabled]; got != "auto" {
+		t.Fatalf("runtime docker_enabled=%q, want the running value auto", got)
 	}
 	if got := runtime.ReportedAgentSettings()[SettingKeyLogLevel]; got != "debug" {
 		t.Fatalf("runtime log_level=%q, want debug", got)

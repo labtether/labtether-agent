@@ -2,6 +2,8 @@ package agentcore
 
 import (
 	"fmt"
+	"log"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -14,9 +16,15 @@ func (r *Runtime) ReportedAgentSettings() map[string]string {
 
 	r.mu.RLock()
 	cfgCopy := r.cfg
+	running := r.runningSettings
 	r.mu.RUnlock()
 
 	values := AgentSettingValuesFromConfigSnapshot(configSnapshotFromRuntimeConfig(cfgCopy))
+	// A saved value that needs a restart is not in use yet; report the one
+	// the agent runs with until then.
+	for key, value := range running {
+		values[key] = value
+	}
 	values[SettingKeyCollectIntervalSec] = strconv.Itoa(r.effectiveCollectIntervalSec())
 	values[SettingKeyHeartbeatIntervalSec] = strconv.Itoa(r.effectiveHeartbeatIntervalSec())
 	return values
@@ -99,8 +107,9 @@ func (r *Runtime) applyAgentSettings(values map[string]string) (map[string]strin
 		return applied, false, nil
 	}
 
-	restartRequired := false
 	needsPersistedConfigWrite := false
+	fileRootModeChanged := false
+	var kept []string
 
 	r.mu.Lock()
 	for key, rawValue := range values {
@@ -112,6 +121,12 @@ func (r *Runtime) applyAgentSettings(values map[string]string) (map[string]strin
 		if definition.LocalOnly {
 			r.mu.Unlock()
 			return nil, false, fmt.Errorf("setting %s is local-only", key)
+		}
+		if r.cfg.settingPinned(definition.Key) {
+			// Chosen at install time; the agent keeps its own value and
+			// reports it in agent.settings.state.
+			kept = append(kept, definition.Key)
+			continue
 		}
 		normalized, err := NormalizeAgentSettingValue(key, rawValue)
 		if err != nil {
@@ -135,141 +150,117 @@ func (r *Runtime) applyAgentSettings(values map[string]string) (map[string]strin
 		case SettingKeyDockerEnabled:
 			if !strings.EqualFold(strings.TrimSpace(r.cfg.DockerEnabled), normalized) {
 				r.cfg.DockerEnabled = normalized
-				restartRequired = true
 			}
 		case SettingKeyDockerEndpoint:
 			if strings.TrimSpace(r.cfg.DockerSocket) != normalized {
 				r.cfg.DockerSocket = normalized
-				restartRequired = true
 			}
 		case SettingKeyDockerDiscoveryIntervalSec:
 			seconds, _ := strconv.Atoi(normalized)
 			nextInterval := time.Duration(seconds) * time.Second
 			if r.cfg.DockerDiscoveryInterval != nextInterval {
 				r.cfg.DockerDiscoveryInterval = nextInterval
-				restartRequired = true
 			}
 		case SettingKeyServicesDiscoveryDockerEnabled:
 			enabled, _ := strconv.ParseBool(normalized)
 			if r.cfg.ServicesDiscoveryDockerEnabled != enabled {
 				r.cfg.ServicesDiscoveryDockerEnabled = enabled
-				restartRequired = true
 			}
 		case SettingKeyServicesDiscoveryProxyEnabled:
 			enabled, _ := strconv.ParseBool(normalized)
 			if r.cfg.ServicesDiscoveryProxyEnabled != enabled {
 				r.cfg.ServicesDiscoveryProxyEnabled = enabled
-				restartRequired = true
 			}
 		case SettingKeyServicesDiscoveryProxyTraefikEnabled:
 			enabled, _ := strconv.ParseBool(normalized)
 			if r.cfg.ServicesDiscoveryProxyTraefikEnabled != enabled {
 				r.cfg.ServicesDiscoveryProxyTraefikEnabled = enabled
-				restartRequired = true
 			}
 		case SettingKeyServicesDiscoveryProxyCaddyEnabled:
 			enabled, _ := strconv.ParseBool(normalized)
 			if r.cfg.ServicesDiscoveryProxyCaddyEnabled != enabled {
 				r.cfg.ServicesDiscoveryProxyCaddyEnabled = enabled
-				restartRequired = true
 			}
 		case SettingKeyServicesDiscoveryProxyNPMEnabled:
 			enabled, _ := strconv.ParseBool(normalized)
 			if r.cfg.ServicesDiscoveryProxyNPMEnabled != enabled {
 				r.cfg.ServicesDiscoveryProxyNPMEnabled = enabled
-				restartRequired = true
 			}
 		case SettingKeyServicesDiscoveryPortScanEnabled:
 			enabled, _ := strconv.ParseBool(normalized)
 			if r.cfg.ServicesDiscoveryPortScanEnabled != enabled {
 				r.cfg.ServicesDiscoveryPortScanEnabled = enabled
-				restartRequired = true
 			}
 		case SettingKeyServicesDiscoveryPortScanIncludeListening:
 			enabled, _ := strconv.ParseBool(normalized)
 			if r.cfg.ServicesDiscoveryPortScanIncludeListening != enabled {
 				r.cfg.ServicesDiscoveryPortScanIncludeListening = enabled
-				restartRequired = true
 			}
 		case SettingKeyServicesDiscoveryPortScanPorts:
 			if strings.TrimSpace(r.cfg.ServicesDiscoveryPortScanPorts) != normalized {
 				r.cfg.ServicesDiscoveryPortScanPorts = normalized
-				restartRequired = true
 			}
 		case SettingKeyServicesDiscoveryLANScanEnabled:
 			enabled, _ := strconv.ParseBool(normalized)
 			if r.cfg.ServicesDiscoveryLANScanEnabled != enabled {
 				r.cfg.ServicesDiscoveryLANScanEnabled = enabled
-				restartRequired = true
 			}
 		case SettingKeyServicesDiscoveryLANScanCIDRs:
 			if strings.TrimSpace(r.cfg.ServicesDiscoveryLANScanCIDRs) != normalized {
 				r.cfg.ServicesDiscoveryLANScanCIDRs = normalized
-				restartRequired = true
 			}
 		case SettingKeyServicesDiscoveryLANScanPorts:
 			if strings.TrimSpace(r.cfg.ServicesDiscoveryLANScanPorts) != normalized {
 				r.cfg.ServicesDiscoveryLANScanPorts = normalized
-				restartRequired = true
 			}
 		case SettingKeyServicesDiscoveryLANScanMaxHosts:
 			maxHosts, _ := strconv.Atoi(normalized)
 			if r.cfg.ServicesDiscoveryLANScanMaxHosts != maxHosts {
 				r.cfg.ServicesDiscoveryLANScanMaxHosts = maxHosts
-				restartRequired = true
 			}
 		case SettingKeyFilesRootMode:
 			if !strings.EqualFold(strings.TrimSpace(r.cfg.FileRootMode), normalized) {
 				r.cfg.FileRootMode = normalized
-				restartRequired = true
+				fileRootModeChanged = true
 			}
 		case SettingKeyWebRTCEnabled:
 			enabled, _ := strconv.ParseBool(normalized)
 			if r.cfg.WebRTCEnabled != enabled {
 				r.cfg.WebRTCEnabled = enabled
-				restartRequired = true
 			}
 		case SettingKeyWebRTCSTUNURL:
 			if strings.TrimSpace(r.cfg.WebRTCSTUNURL) != normalized {
 				r.cfg.WebRTCSTUNURL = normalized
-				restartRequired = true
 			}
 		case SettingKeyWebRTCTURNURL:
 			if strings.TrimSpace(r.cfg.WebRTCTURNURL) != normalized {
 				r.cfg.WebRTCTURNURL = normalized
-				restartRequired = true
 			}
 		case SettingKeyWebRTCTURNUser:
 			if strings.TrimSpace(r.cfg.WebRTCTURNUser) != normalized {
 				r.cfg.WebRTCTURNUser = normalized
-				restartRequired = true
 			}
 		case SettingKeyWebRTCTURNPass:
 			if strings.TrimSpace(r.cfg.WebRTCTURNPass) != normalized {
 				r.cfg.WebRTCTURNPass = normalized
-				restartRequired = true
 			}
 		case SettingKeyWebRTCWaylandExperimentalEnabled:
 			enabled, _ := strconv.ParseBool(normalized)
 			if r.cfg.WebRTCWaylandExperimentalEnabled != enabled {
 				r.cfg.WebRTCWaylandExperimentalEnabled = enabled
-				restartRequired = true
 			}
 		case SettingKeyWebRTCWaylandPipeWireNodeID:
 			if strings.TrimSpace(r.cfg.WebRTCWaylandPipeWireNodeID) != normalized {
 				r.cfg.WebRTCWaylandPipeWireNodeID = normalized
-				restartRequired = true
 			}
 		case SettingKeyWebRTCWaylandInputBackend:
 			if !strings.EqualFold(strings.TrimSpace(r.cfg.WebRTCWaylandInputBackend), normalized) {
 				r.cfg.WebRTCWaylandInputBackend = normalized
-				restartRequired = true
 			}
 		case SettingKeyCaptureFPS:
 			fps, _ := strconv.Atoi(normalized)
 			if r.cfg.CaptureFPS != fps {
 				r.cfg.CaptureFPS = fps
-				restartRequired = true
 			}
 		case SettingKeyAllowRemoteOverrides:
 			enabled, _ := strconv.ParseBool(normalized)
@@ -283,8 +274,19 @@ func (r *Runtime) applyAgentSettings(values map[string]string) (map[string]strin
 		applied[key] = normalized
 	}
 	cfgCopy := r.cfg
+	// Restart-only settings that differ from what the agent runs with; a
+	// later push can also bring a value back to the running one.
+	restartRequired := len(r.pendingRestartSettingsLocked()) > 0
+	applyFileRootMode := r.applyFileRootMode
 	r.mu.Unlock()
 
+	if fileRootModeChanged && applyFileRootMode != nil {
+		applyFileRootMode(cfgCopy.FileRootMode)
+	}
+	if len(kept) > 0 {
+		sort.Strings(kept)
+		log.Printf("agent settings: kept install-time values for %s; the Hub's values for these were not applied", strings.Join(kept, ", "))
+	}
 	if len(applied) == 0 {
 		return applied, restartRequired, nil
 	}

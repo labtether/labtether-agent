@@ -33,15 +33,15 @@ func TestOrderedFileWriteWorkerPreservesChunkOffsets(t *testing.T) {
 		return protocol.Message{Type: protocol.MsgFileWrite, ID: requestID, Data: raw}
 	}
 
-	messages := make(chan orderedFileWrite, 2)
-	enqueueOrderedFileWrite(context.Background(), transport, messages, encode(protocol.FileWriteData{
+	queue := newFileWriteQueue(2, time.Second)
+	queue.enqueue(context.Background(), transport, encode(protocol.FileWriteData{
 		RequestID: requestID,
 		Path:      "uploaded.txt",
 		Data:      base64.StdEncoding.EncodeToString(contents),
 		Offset:    0,
 		Done:      false,
 	}))
-	enqueueOrderedFileWrite(context.Background(), transport, messages, encode(protocol.FileWriteData{
+	queue.enqueue(context.Background(), transport, encode(protocol.FileWriteData{
 		RequestID: requestID,
 		Path:      "uploaded.txt",
 		Offset:    int64(len(contents)),
@@ -52,7 +52,7 @@ func TestOrderedFileWriteWorkerPreservesChunkOffsets(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		runOrderedFileWriteWorker(ctx, fileMgr, messages)
+		queue.run(ctx, fileMgr)
 	}()
 
 	select {
@@ -90,11 +90,12 @@ func TestOrderedFileWriteWorkerPreservesChunkOffsets(t *testing.T) {
 func TestEnqueueOrderedFileWriteRejectsOversizedPayloadBeforeQueueing(t *testing.T) {
 	transport, responses, cleanup := newAgentcoreCapturedTransport(t)
 	defer cleanup()
-	messages := make(chan orderedFileWrite, 2)
+	queue := newFileWriteQueue(2, time.Second)
+	messages := queue.messages
 	ctx := context.Background()
 
 	maximum := protocol.Message{Type: protocol.MsgFileWrite, Data: make([]byte, files.MaxFileWriteQueuedMessageSize-len(protocol.MsgFileWrite))}
-	if !enqueueOrderedFileWrite(ctx, transport, messages, maximum) {
+	if !queue.enqueue(ctx, transport, maximum) {
 		t.Fatal("maximum bounded payload stopped the receive loop")
 	}
 	if len(messages) != 1 {
@@ -103,7 +104,7 @@ func TestEnqueueOrderedFileWriteRejectsOversizedPayloadBeforeQueueing(t *testing
 	<-messages
 
 	oversized := protocol.Message{Type: protocol.MsgFileWrite, ID: "oversized", Data: make([]byte, files.MaxFileWriteQueuedMessageSize+1)}
-	if !enqueueOrderedFileWrite(ctx, transport, messages, oversized) {
+	if !queue.enqueue(ctx, transport, oversized) {
 		t.Fatal("oversized payload stopped the receive loop")
 	}
 	if len(messages) != 0 {
@@ -122,7 +123,7 @@ func TestEnqueueOrderedFileWriteRejectsOversizedPayloadBeforeQueueing(t *testing
 	}
 
 	hugeID := strings.Repeat("i", files.MaxFileWriteQueuedMessageSize+1)
-	if !enqueueOrderedFileWrite(ctx, transport, messages, protocol.Message{Type: protocol.MsgFileWrite, ID: hugeID, Data: []byte(`{}`)}) {
+	if !queue.enqueue(ctx, transport, protocol.Message{Type: protocol.MsgFileWrite, ID: hugeID, Data: []byte(`{}`)}) {
 		t.Fatal("oversized ID stopped the receive loop")
 	}
 	if len(messages) != 0 {

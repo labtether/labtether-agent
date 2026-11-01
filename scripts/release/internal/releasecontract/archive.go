@@ -278,9 +278,12 @@ func VerifyDeterministicArchive(archivePath, binaryPath, expectedName string) er
 		return fmt.Errorf("open release gzip stream: %w", err)
 	}
 	gzipReader.Multistream(false)
-	if !gzipReader.Header.ModTime.Equal(time.Unix(0, 0).UTC()) ||
-		gzipReader.Header.Name != "" || gzipReader.Header.Comment != "" ||
-		gzipReader.Header.OS != 255 {
+	// The writer stores MTIME 0 ("not set"). The reader reports that as the
+	// zero time.Time, never time.Unix(0, 0); any real timestamp is non-zero.
+	gzipHeader := gzipReader.Header
+	if !gzipHeader.ModTime.IsZero() || gzipHeader.Name != "" ||
+		gzipHeader.Comment != "" || len(gzipHeader.Extra) != 0 ||
+		gzipHeader.OS != 255 {
 		return errors.New("release gzip header is not deterministic")
 	}
 	tarReader := tar.NewReader(io.LimitReader(gzipReader, MaxRawBinaryBytes+4096))

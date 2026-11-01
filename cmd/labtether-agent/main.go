@@ -17,7 +17,13 @@ import (
 // version is injected at build time via -ldflags "-X main.version=..."
 var version string
 
+// updatePublicKey is the release signing public key, injected by release
+// builds via -ldflags "-X main.updatePublicKey=..." from
+// scripts/release/agent-release-public-key.b64. It is a public key only.
+var updatePublicKey string
+
 func main() {
+	agentcore.SetBuiltinSelfUpdatePublicKey(updatePublicKey)
 	if handled, err := x11input.Dispatch(os.Args[1:], x11input.Run); handled {
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "X11 input helper:", err)

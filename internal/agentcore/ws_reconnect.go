@@ -49,6 +49,7 @@ func (t *wsTransport) reconnectLoop(ctx context.Context, onConnect func()) {
 		// when the reconnect loop exits.
 		t.mu.Lock()
 		t.lastError = ""
+		t.lastErrorReason = ""
 		t.mu.Unlock()
 		t.markDisconnected()
 	}()
@@ -77,6 +78,7 @@ func (t *wsTransport) reconnectLoop(ctx context.Context, onConnect func()) {
 
 			t.mu.Lock()
 			t.lastError = kind.String()
+			t.lastErrorReason = classifyConnectReason(err, resp)
 			t.lastErrorAt = now
 			if t.disconnectedAt.IsZero() {
 				t.disconnectedAt = now

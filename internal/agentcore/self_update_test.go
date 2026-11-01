@@ -57,6 +57,7 @@ func TestBuildAgentReleaseCheckURL(t *testing.T) {
 }
 
 func TestCheckAndApplySelfUpdate_ReplacesExecutable(t *testing.T) {
+	stubSelfUpdateTrialRun(t)
 	t.Setenv(envAllowInsecureTransport, "true")
 	t.Setenv("LABTETHER_OUTBOUND_ALLOW_LOOPBACK", "true")
 	t.Setenv(envSelfUpdateAcceptUnsigned, "true")
@@ -163,6 +164,7 @@ func TestCheckAndApplySelfUpdate_NoopWhenChecksumMatches(t *testing.T) {
 }
 
 func TestCheckAndApplySelfUpdate_ForceWhenChecksumMatches(t *testing.T) {
+	stubSelfUpdateTrialRun(t)
 	t.Setenv(envAllowInsecureTransport, "true")
 	t.Setenv("LABTETHER_OUTBOUND_ALLOW_LOOPBACK", "true")
 	t.Setenv(envSelfUpdateAcceptUnsigned, "true")
@@ -309,6 +311,7 @@ func TestNativeWrapperSelfUpdateBlocked(t *testing.T) {
 }
 
 func TestMaybeAutoUpdateOnStartupRequestsRestart(t *testing.T) {
+	stubSelfUpdateTrialRun(t)
 	t.Setenv(envAllowInsecureTransport, "true")
 	t.Setenv("LABTETHER_OUTBOUND_ALLOW_LOOPBACK", "true")
 	t.Setenv(envSelfUpdateAcceptUnsigned, "true")

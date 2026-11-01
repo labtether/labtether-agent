@@ -7,10 +7,15 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
 )
+
+// A draft serves its assets under a temporary "untagged-<hex>" download path;
+// publishing moves them under the tag.
+var draftDownloadPathPattern = regexp.MustCompile(`^untagged-[0-9a-f]{8,64}$`)
 
 type GitHubRelease struct {
 	ID         int64                `json:"id"`
@@ -94,7 +99,7 @@ func ValidateExactRelease(
 			len(release.Assets),
 		)
 	}
-	return validateReleaseAssetSubset(manifest, release.Assets, true)
+	return validateReleaseAssetSubset(manifest, release, true)
 }
 
 func PlanDraftUpload(
@@ -104,7 +109,7 @@ func PlanDraftUpload(
 	if release.TagName != manifest.Tag || !release.Draft || release.Prerelease {
 		return nil, errors.New("existing release is not the expected draft")
 	}
-	if _, err := validateReleaseAssetSubset(manifest, release.Assets, false); err != nil {
+	if _, err := validateReleaseAssetSubset(manifest, release, false); err != nil {
 		return nil, err
 	}
 	present := make(map[string]struct{}, len(release.Assets))
@@ -226,9 +231,10 @@ func VerifyFreshInspection(
 
 func validateReleaseAssetSubset(
 	manifest Manifest,
-	assets []GitHubReleaseAsset,
+	release GitHubRelease,
 	requireExact bool,
 ) ([]InspectedAsset, error) {
+	assets := release.Assets
 	expected := make(map[string]AssetDigest, len(manifest.Assets))
 	for _, asset := range manifest.Assets {
 		expected[asset.Name] = asset
@@ -239,6 +245,7 @@ func validateReleaseAssetSubset(
 	seenNames := make(map[string]struct{}, len(assets))
 	seenIDs := make(map[int64]struct{}, len(assets))
 	var inspected []InspectedAsset
+	downloadPath := ""
 	for _, remote := range assets {
 		local, exists := expected[remote.Name]
 		if !exists {
@@ -255,12 +262,14 @@ func validateReleaseAssetSubset(
 		}
 		seenNames[remote.Name] = struct{}{}
 		seenIDs[remote.ID] = struct{}{}
-		expectedURL := "https://github.com/" + Repository + "/releases/download/" +
-			manifest.Tag + "/" + remote.Name
+		assetPath, urlOK := releaseDownloadPath(manifest.Tag, release.Draft, remote)
+		if urlOK && downloadPath == "" {
+			downloadPath = assetPath
+		}
 		expectedDigest := "sha256:" + local.SHA256
 		if remote.State != "uploaded" || remote.Size != local.SizeBytes ||
 			remote.Digest == "" || remote.Digest != expectedDigest ||
-			remote.BrowserDownloadURL != expectedURL {
+			!urlOK || assetPath != downloadPath {
 			return nil, fmt.Errorf(
 				"GitHub release asset %q failed exact state/size/digest/URL inspection",
 				remote.Name,
@@ -279,6 +288,24 @@ func validateReleaseAssetSubset(
 		return inspected[i].Name < inspected[j].Name
 	})
 	return inspected, nil
+}
+
+// releaseDownloadPath returns the download path segment of an asset URL. A
+// published release must serve every asset under its tag; a draft may instead
+// use its temporary untagged path. The caller requires one path for all assets.
+func releaseDownloadPath(tag string, draft bool, asset GitHubReleaseAsset) (string, bool) {
+	prefix := "https://github.com/" + Repository + "/releases/download/"
+	suffix := "/" + asset.Name
+	url := asset.BrowserDownloadURL
+	if !strings.HasPrefix(url, prefix) || !strings.HasSuffix(url, suffix) ||
+		len(url) <= len(prefix)+len(suffix) {
+		return "", false
+	}
+	path := url[len(prefix) : len(url)-len(suffix)]
+	if path == tag || (draft && draftDownloadPathPattern.MatchString(path)) {
+		return path, true
+	}
+	return "", false
 }
 
 func parseInspectionReceipt(path string) (InspectionReceipt, []byte, error) {

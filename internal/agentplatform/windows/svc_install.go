@@ -8,12 +8,15 @@ import (
 	"os"
 	"time"
 
+	"github.com/labtether/labtether-agent/internal/agentcore"
 	"golang.org/x/sys/windows/svc/eventlog"
 	"golang.org/x/sys/windows/svc/mgr"
 )
 
 // InstallService registers LabTetherAgent as a Windows Service with auto-start
-// and failure recovery actions (restart 3 times with 60-second delays).
+// and failure recovery actions (restart 3 times with 60-second delays). It
+// first locks the state folder and copies the binary to Program Files, so the
+// SYSTEM service never runs from, or trusts files in, a user-writable place.
 func InstallService() error {
 	exePath, err := os.Executable()
 	if err != nil {
@@ -33,7 +36,15 @@ func InstallService() error {
 		return fmt.Errorf("service %q already exists; uninstall first", serviceName)
 	}
 
-	s, err := m.CreateService(serviceName, exePath, mgr.Config{
+	if err := secureStateDirectory(agentcore.StateDirectory()); err != nil {
+		return fmt.Errorf("securing the agent state folder: %w", err)
+	}
+	servicePath, err := installServiceBinary(exePath)
+	if err != nil {
+		return fmt.Errorf("copying the agent to Program Files: %w", err)
+	}
+
+	s, err := m.CreateService(serviceName, servicePath, mgr.Config{
 		DisplayName: "LabTether Agent",
 		Description: "LabTether endpoint agent for telemetry, remote access, and automation.",
 		StartType:   mgr.StartAutomatic,
@@ -58,7 +69,7 @@ func InstallService() error {
 		log.Printf("labtether-agent: warning: failed to install event log source: %v", err)
 	}
 
-	fmt.Printf("Service %q installed successfully.\n", serviceName)
+	fmt.Printf("Service %q installed from %s.\n", serviceName, servicePath)
 	fmt.Println("Start the service with: sc start LabTetherAgent")
 	return nil
 }

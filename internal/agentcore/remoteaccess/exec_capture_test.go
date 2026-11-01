@@ -111,6 +111,69 @@ func TestHandleCommandRequestBoundsInheritedOutputDrain(t *testing.T) {
 	}
 }
 
+// Actions, scripts and fleet exec all report through command.result. A
+// command exiting 2 came back as a bare failure with "error: exit status 2"
+// mixed into its output. It must carry exit_code 2 and only its own output,
+// a clean exit must carry 0, and a timeout or start failure has no exit
+// status, so exit_code must stay absent.
+func TestHandleCommandRequestReportsRealExitCode(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	quoted := strconv.Quote(executable)
+	const missing = "labtether-missing-command"
+	t.Setenv("LABTETHER_EXEC_ALLOWED_BINARIES", filepath.Base(executable)+","+missing)
+	t.Setenv("LABTETHER_SHELL_COMMAND_ALLOWLIST_PREFIXES", quoted+","+missing)
+	helper := quoted + " -test.run=^TestRemoteCommandOutputHelper$ -- "
+	two, zero := 2, 0
+	cases := []struct {
+		name, command, status, output string
+		timeout                       int
+		exitCode                      *int
+	}{
+		{"non-zero exit", helper + "exit-2 .", "failed", "missing: no such file", 10, &two},
+		{"clean exit", helper + "exit-0 .", "succeeded", "listing", 10, &zero},
+		{"timeout", helper + "sleep .", "failed", "command timed out", 1, nil},
+		{"start failure", missing, "failed", "command could not start", 10, nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			transport := newMockTransport()
+			raw, err := json.Marshal(protocol.CommandRequestData{JobID: "exit-job", SessionID: "exit-session",
+				CommandID: "exit-command", Command: tc.command, Timeout: tc.timeout})
+			if err != nil {
+				t.Fatal(err)
+			}
+			HandleCommandRequest(transport, protocol.Message{Type: protocol.MsgCommandRequest, Data: raw}, ExecConfig{APIToken: "opaque-test-token"})
+			var message protocol.Message
+			select {
+			case message = <-transport.messages:
+			default:
+				t.Fatal("missing command result")
+			}
+			var wire map[string]json.RawMessage
+			if err := json.Unmarshal(message.Data, &wire); err != nil {
+				t.Fatal(err)
+			}
+			var result protocol.CommandResultData
+			if err := json.Unmarshal(message.Data, &result); err != nil {
+				t.Fatal(err)
+			}
+			if result.Status != tc.status || !strings.HasPrefix(result.Output, tc.output) || strings.Contains(result.Output, "exit status") {
+				t.Fatalf("status %q output %q, want %q starting %q", result.Status, result.Output, tc.status, tc.output)
+			}
+			if tc.exitCode == nil {
+				if _, present := wire["exit_code"]; present {
+					t.Fatalf("exit_code sent without a real exit status: %s", message.Data)
+				}
+			} else if result.ExitCode == nil || *result.ExitCode != *tc.exitCode {
+				t.Fatalf("exit_code missing or wrong, want %d: %s", *tc.exitCode, message.Data)
+			}
+		})
+	}
+}
+
 func TestRemoteCommandCaptureRetainsOnlyBoundedOutput(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -137,8 +200,18 @@ func TestRemoteCommandOutputHelper(t *testing.T) {
 		return
 	}
 	mode, dir := os.Args[index+1], os.Args[index+2]
-	if mode == "flood" {
+	switch mode {
+	case "flood":
 		_, _ = os.Stdout.Write([]byte(strings.Repeat("x", MaxCommandOutputBytes*3)))
+		return
+	case "exit-2":
+		fmt.Fprint(os.Stderr, "missing: no such file")
+		os.Exit(2)
+	case "exit-0":
+		fmt.Fprintln(os.Stdout, "listing")
+		return
+	case "sleep":
+		time.Sleep(30 * time.Second)
 		return
 	}
 	if mode == "held-output" {

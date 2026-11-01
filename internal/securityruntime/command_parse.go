@@ -136,6 +136,41 @@ func commandArgsHavePrefix(args, prefix []string) bool {
 	return true
 }
 
+// exactShellRulePrefix marks an allowlist rule that must match the whole
+// command: "=ipconfig" allows `ipconfig` but not `ipconfig /release`. The Hub
+// uses the same rule syntax.
+const exactShellRulePrefix = "="
+
+// shellRuleMatches reports whether one allowlist rule allows args. Every rule
+// token must match the argument in its place, ignoring case. Further
+// arguments are allowed, except for exact rules and for command interpreters,
+// whose extra arguments would run as code. The `cmd /c echo` probe is the one
+// interpreter rule that takes values, and they are checked to be plain words.
+func shellRuleMatches(args []string, rule string) (bool, error) {
+	rule = strings.TrimSpace(rule)
+	exact := strings.HasPrefix(rule, exactShellRulePrefix)
+	ruleArgs, err := ParseCommandLine(strings.TrimPrefix(rule, exactShellRulePrefix))
+	if err != nil || !commandArgsHavePrefix(args, ruleArgs) {
+		return false, nil
+	}
+	if !exact && len(ruleArgs) >= 3 && normalizeExecutableName(ruleArgs[0]) == "cmd" &&
+		strings.EqualFold(ruleArgs[1], "/c") && strings.EqualFold(ruleArgs[2], "echo") {
+		return true, validateWindowsCmdEcho(args)
+	}
+	if len(args) != len(ruleArgs) && (exact || isCommandInterpreter(ruleArgs[0])) {
+		return false, nil
+	}
+	return true, nil
+}
+
+func isCommandInterpreter(program string) bool {
+	switch normalizeExecutableName(program) {
+	case "sh", "bash", "zsh", "dash", "ash", "cmd", "powershell", "pwsh", "osascript":
+		return true
+	}
+	return false
+}
+
 func validateWindowsCmdEcho(args []string) error {
 	if len(args) < 4 || normalizeExecutableName(args[0]) != "cmd" ||
 		!strings.EqualFold(args[1], "/c") || !strings.EqualFold(args[2], "echo") {

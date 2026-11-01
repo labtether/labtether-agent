@@ -15,6 +15,9 @@ type TelemetrySample struct {
 	TempCelsius       *float64  `json:"temp_celsius,omitempty"`
 	CollectedAt       time.Time `json:"collected_at"`
 	heartbeatMetadata map[string]string
+	// pending marks the placeholder held before the first collection. Its
+	// metrics are not real readings, so it is never sent as telemetry.
+	pending bool
 }
 
 // AgentInfo is the public health/info payload served by endpoint-helpers.
@@ -81,4 +84,8 @@ type RuntimeConfig struct {
 	ServicesDiscoveryLANScanMaxHosts          int           // LABTETHER_SERVICES_DISCOVERY_LAN_SCAN_MAX_HOSTS — hard cap for LAN hosts per cycle
 	AutoUpdateEnabled                         bool          // LABTETHER_AUTO_UPDATE — auto-check and apply agent binary updates on startup
 	AutoUpdateCheckURL                        string        // LABTETHER_AUTO_UPDATE_CHECK_URL — optional release metadata override URL
+
+	// envPinnedSettings holds the Hub-managed settings chosen in the
+	// environment at start. LoadConfig sets it; it is read-only afterwards.
+	envPinnedSettings map[string]bool
 }

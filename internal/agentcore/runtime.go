@@ -29,6 +29,9 @@ type Runtime struct {
 
 	// HeartbeatCounter is incremented on every heartbeat tick; monitored by the watchdog.
 	HeartbeatCounter atomic.Int64
+	// heartbeatTickInterval is the interval the heartbeat ticker currently
+	// uses, in nanoseconds. The watchdog scales its stuck threshold from it.
+	heartbeatTickInterval atomic.Int64
 
 	// Dynamic config overrides (0 = use default from cfg).
 	collectIntervalOverride   atomic.Int64
@@ -38,6 +41,19 @@ type Runtime struct {
 
 	startedAt time.Time
 	alerts    []AlertSnapshot
+
+	// runningSettings holds the values the running components were built with
+	// for settings that need a restart. Reports show these until a restart.
+	runningSettings map[string]string
+	// applyFileRootMode switches the file manager's scope while it runs.
+	applyFileRootMode func(string)
+	// restartAgent restarts the agent through its service manager; nil when
+	// no service manager would start it again.
+	restartAgent func() error
+
+	// firstSample closes once the first collection has stored real values.
+	firstSample     chan struct{}
+	firstSampleOnce sync.Once
 
 	mu               sync.RWMutex
 	sample           TelemetrySample
@@ -70,21 +86,30 @@ func newRuntimeWithIdentity(cfg RuntimeConfig, provider TelemetryProvider, publi
 		sample: TelemetrySample{
 			AssetID:     cfg.AssetID,
 			CollectedAt: now,
+			pending:     true,
 		},
+		firstSample:     make(chan struct{}),
+		runningSettings: startupRestartSettings(cfg),
 	}
 }
 
+// Run starts telemetry collection and heartbeats, then serves the optional
+// local API until ctx ends. A local API problem is logged and never stops the
+// agent: the Hub connection, terminal and updates keep working without it.
 func (r *Runtime) Run(ctx context.Context) error {
 	bindAddress := resolveAgentLocalBindAddress()
-	localAuth, err := resolveAgentLocalAuth(r.cfg, bindAddress)
-	if err != nil {
-		return err
-	}
 	r.localBindAddress = bindAddress
-	r.localAuthEnabled = strings.TrimSpace(localAuth.token) != ""
+	localAuth, authErr := resolveAgentLocalAuth(r.cfg, bindAddress)
+	r.localAuthEnabled = authErr == nil && strings.TrimSpace(localAuth.token) != ""
 
 	go r.collectLoop(ctx)
 	go r.heartbeatLoop(ctx)
+
+	if authErr != nil {
+		log.Printf("%s: local API is off: %v", r.cfg.Name, authErr)
+		<-ctx.Done()
+		return nil
+	}
 
 	serviceConfig := servicehttp.Config{
 		Name:        r.cfg.Name,
@@ -105,7 +130,39 @@ func (r *Runtime) Run(ctx context.Context) error {
 			},
 		},
 	}
-	return servicehttp.Run(ctx, serviceConfig)
+	serveLocalAPI(ctx, serviceConfig)
+	return nil
+}
+
+const (
+	localAPIRetryInitialDelay = 30 * time.Second
+	localAPIRetryMaxDelay     = 5 * time.Minute
+)
+
+// serveLocalAPI keeps retrying the local API listener until ctx ends. Another
+// program (or any local user) holding the port must not take the agent down,
+// so a failed bind is logged and retried with a growing delay.
+func serveLocalAPI(ctx context.Context, cfg servicehttp.Config) {
+	delay := localAPIRetryInitialDelay
+	for {
+		err := servicehttp.Run(ctx, cfg)
+		if ctx.Err() != nil {
+			return
+		}
+		if err == nil {
+			err = fmt.Errorf("listener stopped")
+		}
+		log.Printf("%s: local API unavailable on %s: %v; retrying in %s. The Hub connection is not affected.",
+			cfg.Name, net.JoinHostPort(cfg.BindAddress, cfg.Port), err, delay)
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+		delay = min(delay*2, localAPIRetryMaxDelay)
+	}
 }
 
 const (
@@ -206,8 +263,12 @@ func (r *Runtime) heartbeatLoop(ctx context.Context) {
 			log.Printf("agent: panic in heartbeatLoop: %v\n%s", err, debug.Stack())
 		}
 	}()
-	r.publishOnce(ctx)
 	currentInterval := r.cfg.HeartbeatInterval
+	r.heartbeatTickInterval.Store(int64(currentInterval))
+	if !r.waitForFirstSample(ctx, firstSampleWait) {
+		return
+	}
+	r.publishOnce(ctx)
 	ticker := time.NewTicker(currentInterval)
 	defer ticker.Stop()
 
@@ -225,11 +286,21 @@ func (r *Runtime) heartbeatLoop(ctx context.Context) {
 				if newInterval != currentInterval {
 					currentInterval = newInterval
 					ticker.Reset(currentInterval)
+					r.heartbeatTickInterval.Store(int64(currentInterval))
 					log.Printf("%s: heartbeat interval updated to %v", r.cfg.Name, currentInterval)
 				}
 			}
 		}
 	}
+}
+
+// watchdogHeartbeatInterval reports the heartbeat ticker's current interval,
+// falling back to the configured value before the loop has started.
+func (r *Runtime) watchdogHeartbeatInterval() time.Duration {
+	if ticking := r.heartbeatTickInterval.Load(); ticking > 0 {
+		return time.Duration(ticking)
+	}
+	return time.Duration(r.effectiveHeartbeatIntervalSec()) * time.Second
 }
 
 func (r *Runtime) collectOnce(now time.Time) {
@@ -252,6 +323,31 @@ func (r *Runtime) collectOnce(now time.Time) {
 	r.mu.Lock()
 	r.sample = sample
 	r.mu.Unlock()
+	if r.firstSample != nil {
+		r.firstSampleOnce.Do(func() { close(r.firstSample) })
+	}
+}
+
+// firstSampleWait bounds how long the first heartbeat waits for the first
+// collection. Windows and macOS collection can take a few seconds at start.
+const firstSampleWait = 15 * time.Second
+
+// waitForFirstSample holds the first heartbeat until real values exist, so
+// the Hub never records the zeroed placeholder. It returns false when ctx ends.
+func (r *Runtime) waitForFirstSample(ctx context.Context, limit time.Duration) bool {
+	if r.firstSample == nil {
+		return ctx.Err() == nil
+	}
+	timer := time.NewTimer(limit)
+	defer timer.Stop()
+	select {
+	case <-r.firstSample:
+	case <-timer.C:
+		log.Printf("%s: first telemetry collection is still running; sending the heartbeat without metrics", r.cfg.Name)
+	case <-ctx.Done():
+		return false
+	}
+	return true
 }
 
 func (r *Runtime) publishOnce(ctx context.Context) {
@@ -262,11 +358,14 @@ func (r *Runtime) publishOnce(ctx context.Context) {
 	}
 	if err := r.publisher.Publish(ctx, heartbeatSample); err != nil {
 		r.logPublishWarning(err)
+	} else {
+		// A heartbeat reached the Hub: a freshly installed update is healthy.
+		confirmSelfUpdateHealthy()
 	}
 
 	// Live samples join the replay queue first so they cannot overtake its
 	// retained tail or disappear in a Connected-to-Send race.
-	if r.transport != nil && r.telemetryBuf != nil {
+	if r.transport != nil && r.telemetryBuf != nil && !sample.pending {
 		r.telemetryBuf.Push(sample)
 		_ = replayBufferedTelemetry(r.transport, r.telemetryBuf)
 	}

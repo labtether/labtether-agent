@@ -2,6 +2,7 @@ package agentcore
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -41,6 +42,17 @@ func TestRemoteSelfUpdateReportsMissingEndpointAsFailure(t *testing.T) {
 	}
 	if updated || summary != "" {
 		t.Fatalf("missing endpoint result = updated %v summary %q, want false and empty", updated, summary)
+	}
+}
+
+// Under a native app nothing is updated, so the Hub must not be told the
+// self-update succeeded.
+func TestRemoteSelfUpdateUnderNativeAppIsUnsupported(t *testing.T) {
+	t.Setenv(envNativeWrapperParentPID, "4242")
+	updated, _, err := remoteaccess.SelfUpdateFn(remoteaccess.ExecConfig{APIToken: "opaque-agent-token"}, false)
+	var unsupported remoteaccess.UnsupportedSelfUpdateError
+	if updated || !errors.As(err, &unsupported) {
+		t.Fatalf("native app self-update = updated %v err %v, want unsupported", updated, err)
 	}
 }
 

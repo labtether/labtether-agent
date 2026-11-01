@@ -13,8 +13,8 @@ G304	scripts/release/internal/releasecontract/archive.go	191	Archive source is v
 G304	scripts/release/internal/releasecontract/archive.go	201	Archive output path is prechecked for nonexistence and created with O_EXCL so no existing file or symlink is followed.
 G304	scripts/release/internal/releasecontract/archive.go	270	Release archive input is validated as a regular bounded file before gzip/tar verification.
 G304	scripts/release/internal/releasecontract/contract.go	194	Pinned public key path is fixed under the repository release directory and validated as a small regular non-symlink file.
-G304	scripts/release/internal/releasecontract/github.go	59	GitHub release JSON is a local inspection input validated as a small regular non-symlink file and decoded with a bounded reader.
-G304	scripts/release/internal/releasecontract/github.go	289	Draft inspection receipt is a local control file validated as a small regular non-symlink file before strict JSON decoding.
+G304	scripts/release/internal/releasecontract/github.go	64	GitHub release JSON is a local inspection input validated as a small regular non-symlink file and decoded with a bounded reader.
+G304	scripts/release/internal/releasecontract/github.go	316	Draft inspection receipt is a local control file validated as a small regular non-symlink file before strict JSON decoding.
 G304	scripts/release/internal/releasecontract/proof.go	201	Host proof file is validated as a small regular non-symlink file before strict JSON decoding and manifest binding.
 G304	scripts/release/internal/releasecontract/stage.go	88	Release asset files are validated as regular non-symlink files with bounded size and before/after SameFile checks while hashing.
 G304	scripts/release/internal/releasecontract/stage.go	133	Release control output uses a validated non-symlink parent and O_EXCL no-replace creation.

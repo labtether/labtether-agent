@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/labtether/labtether-agent/internal/assets"
-	"github.com/labtether/labtether-agent/internal/metricschema"
 	"github.com/labtether/labtether-agent/internal/platforms"
 	"github.com/labtether/labtether-agent/internal/securityruntime"
 )
@@ -62,18 +61,6 @@ func (p *apiHeartbeatPublisher) Publish(ctx context.Context, sample TelemetrySam
 		return errHeartbeatCredentialsUnavailable
 	}
 	metadata := heartbeatMetadata(p.meta, sample)
-	metadata[metricschema.HeartbeatKeyCPUPercent] = fmt.Sprintf("%.2f", sample.CPUPercent)
-	metadata[metricschema.HeartbeatKeyCPUUsedPercent] = fmt.Sprintf("%.2f", sample.CPUPercent)
-	metadata[metricschema.HeartbeatKeyMemoryPercent] = fmt.Sprintf("%.2f", sample.MemoryPercent)
-	metadata[metricschema.HeartbeatKeyMemoryUsedPercent] = fmt.Sprintf("%.2f", sample.MemoryPercent)
-	metadata[metricschema.HeartbeatKeyDiskPercent] = fmt.Sprintf("%.2f", sample.DiskPercent)
-	metadata[metricschema.HeartbeatKeyDiskUsedPercent] = fmt.Sprintf("%.2f", sample.DiskPercent)
-	metadata[metricschema.HeartbeatKeyNetworkRXBytesPerSec] = fmt.Sprintf("%.2f", sample.NetRXBytesPerSec)
-	metadata[metricschema.HeartbeatKeyNetworkTXBytesPerSec] = fmt.Sprintf("%.2f", sample.NetTXBytesPerSec)
-	if sample.TempCelsius != nil {
-		metadata[metricschema.HeartbeatKeyTempCelsius] = fmt.Sprintf("%.2f", *sample.TempCelsius)
-		metadata[metricschema.HeartbeatKeyTemperatureCelsius] = fmt.Sprintf("%.2f", *sample.TempCelsius)
-	}
 	resolvedPlatform := resolveHeartbeatPlatform(metadata)
 	if resolvedPlatform != "" {
 		metadata["platform"] = resolvedPlatform
