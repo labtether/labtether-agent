@@ -113,16 +113,23 @@ func TestFingerprintByHTTPTrueNASRedirect(t *testing.T) {
 	}
 }
 
+func noRedirectProbeClient() *http.Client {
+	return &http.Client{
+		Timeout:       2 * time.Second,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+}
+
 func TestFingerprintByAPITrueNAS(t *testing.T) {
-	// TrueNAS API returns 401 for unauthenticated requests but the endpoint exists.
+	// TrueNAS names itself in its version string; the root page has no marker here.
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/":
 			w.Header().Set("Content-Type", "text/html")
 			_, _ = w.Write([]byte(`<html><head><title>My NAS</title></head></html>`)) // no HTML marker
 		case "/api/v2.0/system/version":
-			w.WriteHeader(http.StatusUnauthorized)
-			_, _ = w.Write([]byte(`{"message":"Not authenticated"}`))
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`"TrueNAS-SCALE-24.10.2"`))
 		default:
 			http.NotFound(w, r)
 		}
@@ -130,8 +137,8 @@ func TestFingerprintByAPITrueNAS(t *testing.T) {
 	defer server.Close()
 
 	wsc := &WebServiceCollector{
-		client:         server.Client(),
-		insecureClient: server.Client(),
+		client:         noRedirectProbeClient(),
+		insecureClient: noRedirectProbeClient(),
 	}
 	svc := protocol.DiscoveredWebService{
 		Name: "Port 80", Category: CatOther, URL: server.URL, Source: "scan",
@@ -140,6 +147,66 @@ func TestFingerprintByAPITrueNAS(t *testing.T) {
 
 	if svc.ServiceKey != "truenas" {
 		t.Fatalf("serviceKey = %q, want %q (API probe should match)", svc.ServiceKey, "truenas")
+	}
+}
+
+// Apps that answer 401 or redirect for any /api/ path, like the LabTether
+// console and the Hub's HTTP port, were listed as TrueNAS.
+func TestFingerprintDoesNotTakeAPIAuthOrRedirectAsTrueNAS(t *testing.T) {
+	unauthorizedAPI := func(w http.ResponseWriter) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
+	}
+	tests := []struct {
+		name    string
+		handler http.HandlerFunc
+		want    string
+	}{
+		{"401 JSON on every api path", func(w http.ResponseWriter, r *http.Request) {
+			switch {
+			case r.URL.Path == "/":
+				_, _ = w.Write([]byte(`<html><head><title>My App</title></head></html>`))
+			case strings.HasPrefix(r.URL.Path, "/api/"):
+				unauthorizedAPI(w)
+			default:
+				http.NotFound(w, r)
+			}
+		}, ""},
+		{"LabTether console", func(w http.ResponseWriter, r *http.Request) {
+			switch {
+			case r.URL.Path == "/en/login":
+				_, _ = w.Write([]byte(`<html><head><title>LabTether Console</title></head></html>`))
+			case r.URL.Path == "/api/auth/login":
+				w.WriteHeader(http.StatusMethodNotAllowed)
+			case strings.HasPrefix(r.URL.Path, "/api/"):
+				unauthorizedAPI(w)
+			default:
+				http.Redirect(w, r, "/en"+r.URL.Path, http.StatusTemporaryRedirect)
+			}
+		}, "labtether"},
+		{"LabTether Hub HTTP port redirecting to HTTPS", func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/healthz" {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"redirect":"https on port 8443","status":"redirect_active"}`))
+				return
+			}
+			http.Redirect(w, r, "https://hub.example.test:8443"+r.URL.Path, http.StatusMovedPermanently)
+		}, "labtether"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(tt.handler)
+			defer server.Close()
+
+			wsc := &WebServiceCollector{client: noRedirectProbeClient(), insecureClient: noRedirectProbeClient()}
+			svc := protocol.DiscoveredWebService{Name: "Port 3000", Category: CatOther, URL: server.URL, Source: "scan"}
+			wsc.applyFingerprintMetadata(&svc)
+
+			if svc.ServiceKey != tt.want {
+				t.Fatalf("serviceKey = %q, want %q", svc.ServiceKey, tt.want)
+			}
+		})
 	}
 }
 

@@ -4,8 +4,9 @@ All notable changes to `labtether-agent` are documented in this file.
 
 ## [2.0.0] - unreleased
 
-Changes since v1.7.1. The agent's runtime code is the same as in 1.7.1; this
-release moves it to the LabTether 2.0 version line with Hub 2.0.
+Changes since v1.7.1. Apart from the web service scan fixes below, the
+agent's runtime code is the same as in 1.7.1; this release moves it to the
+LabTether 2.0 version line with Hub 2.0.
 
 ### Changed
 
@@ -26,6 +27,11 @@ release moves it to the LabTether 2.0 version line with Hub 2.0.
   tool writes, so a new release can be sealed and verified.
 - Release checks accept the temporary download links GitHub uses for a draft
   release's assets.
+- The web service scan no longer lists the LabTether console or the Hub's
+  HTTP port as TrueNAS. TrueNAS is named only when its API or web page says
+  TrueNAS; the console and the Hub's HTTP port are listed as LabTether.
+- The scan keeps an open port only when it answers HTTP or HTTPS, so SSH no
+  longer shows as a "Port 22" service that is always down.
 
 ## [1.7.1] - 2026-10-31
 
