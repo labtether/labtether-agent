@@ -2,7 +2,7 @@ FROM golang:1.27.3-alpine@sha256:b8c9b82affbbb82a020bbcf998dad2ba9516944ac7e8835
 
 ARG TARGETOS
 ARG TARGETARCH
-ARG VERSION=1.2.0
+ARG VERSION=dev
 WORKDIR /src
 
 COPY go.mod go.sum ./

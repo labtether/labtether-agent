@@ -2,7 +2,32 @@
 
 All notable changes to `labtether-agent` are documented in this file.
 
-## [1.7.1] - unreleased
+## [2.0.0] - unreleased
+
+Changes since v1.7.1. The agent's runtime code is the same as in 1.7.1; this
+release moves it to the LabTether 2.0 version line with Hub 2.0.
+
+### Changed
+
+- Version 2.0.0, released together with Hub 2.0.0. The agent, Hub 2.0.0 and
+  Hub 1.7.1 all use the protocol version that 1.7.1 used.
+- Release binaries are signed by a hand-started GitHub Actions workflow that
+  runs only from `main`. One job builds the four binaries from the tag
+  without access to the release key; a second job signs them and runs no
+  code from the tag.
+- A second hand-started workflow checks the exact draft release assets on
+  GitHub-hosted Linux and Windows runners before the release is published.
+- A container image built from source without a `VERSION` build argument
+  reports `dev` instead of `1.2.0`.
+
+### Fixed
+
+- Release archive checks accept the unset gzip timestamp that the release
+  tool writes, so a new release can be sealed and verified.
+- Release checks accept the temporary download links GitHub uses for a draft
+  release's assets.
+
+## [1.7.1] - 2026-10-31
 
 Changes since v1.5.1, the last public binary release. The v1.7.0 tag has no
 binary release.
