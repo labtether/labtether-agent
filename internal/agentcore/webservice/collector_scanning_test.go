@@ -3,6 +3,7 @@ package webservice
 import (
 	"context"
 	"github.com/labtether/protocol"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	neturl "net/url"
@@ -68,6 +69,7 @@ func TestDiscoverPortScannedServices(t *testing.T) {
 	wsc := &WebServiceCollector{
 		assetID: "asset-1",
 		hostIP:  "127.0.0.1",
+		client:  httpServer.Client(),
 	}
 
 	services := wsc.discoverPortScannedServices(context.Background(), nil)
@@ -89,6 +91,48 @@ func TestDiscoverPortScannedServices(t *testing.T) {
 	services = wsc.discoverPortScannedServices(context.Background(), alreadyKnown)
 	if len(services) != 0 {
 		t.Fatalf("discoverPortScannedServices() returned %d services with existing port, want 0", len(services))
+	}
+}
+
+// An open port that speaks another protocol was listed as "Port 22" and
+// probed as http://host:22, always down.
+func TestDiscoverPortScannedServicesSkipsNonHTTPPort(t *testing.T) {
+	httpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer httpServer.Close()
+	httpPort := httpServer.Listener.Addr().(*net.TCPAddr).Port
+
+	sshListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer sshListener.Close()
+	go func() {
+		for {
+			conn, acceptErr := sshListener.Accept()
+			if acceptErr != nil {
+				return
+			}
+			_, _ = conn.Write([]byte("SSH-2.0-OpenSSH_9.6\r\n"))
+			_ = conn.Close()
+		}
+	}()
+	sshPort := sshListener.Addr().(*net.TCPAddr).Port
+
+	t.Setenv("LABTETHER_WEBSVC_PORTSCAN_DISABLED", "false")
+	t.Setenv("LABTETHER_WEBSVC_PORTSCAN_PORTS", strconv.Itoa(httpPort)+","+strconv.Itoa(sshPort))
+	t.Setenv("LABTETHER_WEBSVC_PORTSCAN_INCLUDE_LISTENING", "false")
+
+	wsc := &WebServiceCollector{
+		assetID:        "asset-1",
+		hostIP:         "127.0.0.1",
+		client:         noRedirectProbeClient(),
+		insecureClient: noRedirectProbeClient(),
+	}
+	services := wsc.discoverPortScannedServices(context.Background(), nil)
+	if len(services) != 1 || services[0].Metadata["public_port"] != strconv.Itoa(httpPort) {
+		t.Fatalf("services = %+v, want only the HTTP port %d", services, httpPort)
 	}
 }
 
@@ -150,6 +194,7 @@ func TestDiscoverLANScannedServices(t *testing.T) {
 	wsc := &WebServiceCollector{
 		assetID: "asset-1",
 		hostIP:  "127.0.0.1",
+		client:  httpServer.Client(),
 		discoveryCfg: WebServiceDiscoveryConfig{
 			LANScanEnabled:  true,
 			LANScanCIDRs:    "127.0.0.1/32",

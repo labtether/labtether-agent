@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"net/http"
 	"os"
 	"sort"
 	"strconv"
@@ -66,7 +67,7 @@ func (wsc *WebServiceCollector) discoverPortScannedServicesWithConfig(ctx contex
 		go func(p int) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			if isTCPPortReachable(ctx, host, p) {
+			if isTCPPortReachable(ctx, host, p) && wsc.answersHTTP(host, p) {
 				openCh <- p
 			}
 		}(port)
@@ -201,7 +202,7 @@ func (wsc *WebServiceCollector) discoverLANScannedServicesWithConfig(ctx context
 			go func(scanHost string, scanPort int) {
 				defer wg.Done()
 				defer func() { <-sem }()
-				if isTCPPortReachable(ctx, scanHost, scanPort) {
+				if isTCPPortReachable(ctx, scanHost, scanPort) && wsc.answersHTTP(scanHost, scanPort) {
 					openCh <- endpoint{host: scanHost, port: scanPort}
 				}
 			}(host, port)
@@ -346,6 +347,21 @@ func isTCPPortReachable(ctx context.Context, host string, port int) bool {
 
 	address := net.JoinHostPort(host, strconv.Itoa(port))
 	return probeTCPPortReachable(dialCtx, address, isLikelyHTTPSPort(port))
+}
+
+// answersHTTP reports whether an open port answered an HTTP or HTTPS request.
+// A port that speaks another protocol, such as SSH, is not a web service.
+func (wsc *WebServiceCollector) answersHTTP(host string, port int) bool {
+	baseURL := buildServiceURL(host, port)
+	if _, ok := wsc.doHealthRequest(http.MethodGet, baseURL); ok {
+		return true
+	}
+	altURL := alternateSchemeURL(baseURL)
+	if altURL == "" {
+		return false
+	}
+	_, ok := wsc.doHealthRequest(http.MethodGet, altURL)
+	return ok
 }
 
 func probeTCPPortReachable(ctx context.Context, address string, preferTLSHello bool) bool {

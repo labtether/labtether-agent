@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -230,10 +231,13 @@ func matchHTMLFingerprint(body []byte) string {
 func (wsc *WebServiceCollector) fingerprintByAPIWithResponse(baseURL string) (string, bool) {
 	responded := false
 
-	// TrueNAS: unique /api/v2.0/ prefix (returns 200/401/403, never 404 on real TrueNAS).
-	if _, status, ok := wsc.fetchBody(baseURL, "/api/v2.0/system/version"); ok {
+	// TrueNAS answers /api/v2.0/system/version with a version string such as
+	// "TrueNAS-SCALE-24.10.2". The status alone is no evidence: other apps
+	// answer 401 or redirect for any /api/ path.
+	if body, status, ok := wsc.fetchBody(baseURL, "/api/v2.0/system/version"); ok {
 		responded = true
-		if status != http.StatusNotFound {
+		lower := strings.ToLower(string(body))
+		if status < http.StatusInternalServerError && (strings.Contains(lower, "truenas") || strings.Contains(lower, "freenas")) {
 			return "truenas", true
 		}
 	}
@@ -278,7 +282,7 @@ func (wsc *WebServiceCollector) isLabTetherServiceAtBase(baseURL string) (bool, 
 		responded = true
 		if status == http.StatusOK {
 			payload := make(map[string]any)
-			if err := json.Unmarshal(body, &payload); err == nil && hasLabTetherServiceField(payload) {
+			if err := json.Unmarshal(body, &payload); err == nil && (hasLabTetherServiceField(payload) || isLabTetherHTTPSRedirect(payload)) {
 				return true, true
 			}
 		}
@@ -298,7 +302,7 @@ func (wsc *WebServiceCollector) isLabTetherServiceAtBase(baseURL string) (bool, 
 		responded = true
 		payload := make(map[string]any)
 		if err := json.Unmarshal(body, &payload); err == nil && hasLabTetherFrontendHealthPayload(payload) {
-			loginMarker, loginResponded := wsc.pageContainsMarkerWithResponse(baseURL, "/login", "labtether")
+			loginMarker, loginResponded := wsc.labTetherLoginPageMarker(baseURL)
 			rootMarker, rootResponded := wsc.pageContainsMarkerWithResponse(baseURL, "/", "labtether")
 			responded = responded || loginResponded || rootResponded
 			if loginMarker || rootMarker {
@@ -307,7 +311,7 @@ func (wsc *WebServiceCollector) isLabTetherServiceAtBase(baseURL string) (bool, 
 		}
 	}
 
-	loginMarker, loginResponded := wsc.pageContainsMarkerWithResponse(baseURL, "/login", "labtether")
+	loginMarker, loginResponded := wsc.labTetherLoginPageMarker(baseURL)
 	responded = responded || loginResponded
 	if loginMarker {
 		authLogin, authResponded := wsc.hasLabTetherAuthLoginEndpointWithResponse(baseURL)
@@ -323,6 +327,15 @@ func (wsc *WebServiceCollector) isLabTetherServiceAtBase(baseURL string) (bool, 
 func hasLabTetherServiceField(payload map[string]any) bool {
 	service, _ := payload["service"].(string)
 	return strings.EqualFold(strings.TrimSpace(service), "labtether")
+}
+
+// isLabTetherHTTPSRedirect matches the Hub's HTTP port when it only redirects
+// to HTTPS: every path but /healthz redirects, and /healthz answers
+// {"status":"redirect_active","redirect":"https on port 8443"}.
+func isLabTetherHTTPSRedirect(payload map[string]any) bool {
+	status, _ := payload["status"].(string)
+	redirect, _ := payload["redirect"].(string)
+	return status == "redirect_active" && strings.HasPrefix(redirect, "https on port ")
 }
 
 func hasLabTetherFrontendHealthPayload(payload map[string]any) bool {
@@ -344,6 +357,39 @@ func (wsc *WebServiceCollector) pageContainsMarkerWithResponse(baseURL, path, ma
 		return false, false
 	}
 	return strings.Contains(strings.ToLower(string(body)), strings.ToLower(marker)), true
+}
+
+// labTetherLoginPageMarker reports whether the console login page names
+// LabTether. The console redirects /login to its locale path (/en/login) and
+// probes do not follow redirects, so read one redirect's path on this origin.
+func (wsc *WebServiceCollector) labTetherLoginPageMarker(baseURL string) (bool, bool) {
+	loginURL := strings.TrimRight(baseURL, "/") + "/login"
+	body, status, header, ok := wsc.doProbeRequest(http.MethodGet, loginURL)
+	if !ok || status >= http.StatusInternalServerError {
+		return false, false
+	}
+	if status >= 300 && status < 400 {
+		if target := sameOriginRedirectURL(loginURL, header.Get("Location")); target != "" {
+			if redirected, redirectStatus, _, redirectOK := wsc.doProbeRequest(http.MethodGet, target); redirectOK && redirectStatus < http.StatusInternalServerError {
+				body = redirected
+			}
+		}
+	}
+	return strings.Contains(strings.ToLower(string(body)), "labtether"), true
+}
+
+// sameOriginRedirectURL keeps only the path and query of a redirect target and
+// applies them to the probed origin, so a probe never moves to another host.
+func sameOriginRedirectURL(fromURL, location string) string {
+	from, err := url.Parse(fromURL)
+	if err != nil || strings.TrimSpace(location) == "" {
+		return ""
+	}
+	target, err := from.Parse(location)
+	if err != nil {
+		return ""
+	}
+	return (&url.URL{Scheme: from.Scheme, Host: from.Host, Path: target.Path, RawQuery: target.RawQuery}).String()
 }
 
 func (wsc *WebServiceCollector) hasLabTetherAuthLoginEndpointWithResponse(baseURL string) (bool, bool) {
@@ -472,13 +518,18 @@ func (wsc *WebServiceCollector) fetchBody(baseURL, path string) ([]byte, int, bo
 }
 
 func (wsc *WebServiceCollector) doBodyRequest(method, targetURL string) ([]byte, int, bool) {
+	body, status, _, ok := wsc.doProbeRequest(method, targetURL)
+	return body, status, ok
+}
+
+func (wsc *WebServiceCollector) doProbeRequest(method, targetURL string) ([]byte, int, http.Header, bool) {
 	client := wsc.probeClientForURL(targetURL)
 	if client == nil {
-		return nil, 0, false
+		return nil, 0, nil, false
 	}
 	req, err := http.NewRequest(method, targetURL, nil)
 	if err != nil {
-		return nil, 0, false
+		return nil, 0, nil, false
 	}
 	req.Header.Set("User-Agent", "LabTether-Agent/1.0")
 
@@ -493,13 +544,13 @@ func (wsc *WebServiceCollector) doBodyRequest(method, targetURL string) ([]byte,
 		}
 	}
 	if err != nil {
-		return nil, 0, false
+		return nil, 0, nil, false
 	}
 	defer resp.Body.Close()
 
 	body, readErr := io.ReadAll(io.LimitReader(resp.Body, maxFingerprintBodyBytes))
 	if readErr != nil {
-		return nil, resp.StatusCode, false
+		return nil, resp.StatusCode, resp.Header, false
 	}
-	return body, resp.StatusCode, true
+	return body, resp.StatusCode, resp.Header, true
 }
