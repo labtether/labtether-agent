@@ -12,6 +12,18 @@ import (
 	"time"
 )
 
+// desktopShellTitle names the fallback shell window. Diagnostics find the
+// shell by this title.
+const desktopShellTitle = "LabTether desktop"
+
+// The fallback display uses the 2.0 console's dark colours: the canvas behind
+// the shell window, a sheet for the window and the main text colour.
+const (
+	desktopCanvasColor = "#0A0A0C"
+	desktopSheetColor  = "#131316"
+	desktopTextColor   = "#EDEDEF"
+)
+
 func StartDesktopBootstrapShell(display, xauthPath string) (*exec.Cmd, error) {
 	display = strings.TrimSpace(display)
 	if display == "" {
@@ -28,9 +40,11 @@ func StartDesktopBootstrapShell(display, xauthPath string) (*exec.Cmd, error) {
 		"-fa", "Monospace",
 		"-fs", "11",
 		"-geometry", "120x36+40+40",
-		"-title", "LabTether Desktop",
+		"-bg", desktopSheetColor,
+		"-fg", desktopTextColor,
+		"-title", desktopShellTitle,
 		"-e", "sh", "-lc",
-		`printf '\033]0;LabTether Desktop\007'; printf 'LabTether headless desktop fallback\n\n'; printf 'This host does not have a live graphical display, so LabTether started Xvfb and opened this shell.\n'; printf 'Launch a desktop environment or GUI app here if you want a richer remote desktop.\n\n'; if [ -n "$SHELL" ] && [ -x "$SHELL" ]; then exec "$SHELL" -l; fi; if command -v bash >/dev/null 2>&1; then exec bash -l; fi; exec /bin/sh -l`,
+		`printf '\033]0;`+desktopShellTitle+`\007'; printf 'This machine has no desktop session, so LabTether started a virtual display (Xvfb) with this shell.\n'; printf 'Apps and desktops you start here show in Remote View.\n\n'; if [ -n "$SHELL" ] && [ -x "$SHELL" ]; then exec "$SHELL" -l; fi; if command -v bash >/dev/null 2>&1; then exec bash -l; fi; exec /bin/sh -l`,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build xterm bootstrap command: %w", err)
@@ -42,14 +56,14 @@ func StartDesktopBootstrapShell(display, xauthPath string) (*exec.Cmd, error) {
 	return cmd, nil
 }
 
-// setXvfbFallbackBackground sets a dark-grey root window background on the Xvfb display
-// so the user sees something other than pure black when the bootstrap shell isn't available.
+// SetXvfbFallbackBackground paints the Xvfb root window in the console's dark
+// canvas colour, so the display is not plain black when no shell is open.
 func SetXvfbFallbackBackground(display, xauthPath string) {
 	xsetroot, err := exec.LookPath("xsetroot")
 	if err != nil {
 		return
 	}
-	cmd, cmdErr := securityruntime.NewCommand(xsetroot, "-solid", "#1a1a2e", "-display", display)
+	cmd, cmdErr := securityruntime.NewCommand(xsetroot, "-solid", desktopCanvasColor, "-display", display)
 	if cmdErr != nil {
 		return
 	}
