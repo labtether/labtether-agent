@@ -21,6 +21,7 @@ func TestNewCollectsStaticMetadataAndClonesResponses(t *testing.T) {
 	oldReadMemTotalBytesFunc := readMemTotalBytesFunc
 	oldReadDiskCapacityBytesFunc := readDiskCapacityBytesFunc
 	oldReadNetworkInterfaceCountFunc := readNetworkInterfaceCountFunc
+	oldReadPrimaryMACFunc := readPrimaryMACFunc
 	oldReadTailscaleMetadataFunc := readTailscaleMetadataFunc
 	oldReadCapabilityMetadataFunc := readCapabilityMetadataFunc
 	t.Cleanup(func() {
@@ -31,6 +32,7 @@ func TestNewCollectsStaticMetadataAndClonesResponses(t *testing.T) {
 		readMemTotalBytesFunc = oldReadMemTotalBytesFunc
 		readDiskCapacityBytesFunc = oldReadDiskCapacityBytesFunc
 		readNetworkInterfaceCountFunc = oldReadNetworkInterfaceCountFunc
+		readPrimaryMACFunc = oldReadPrimaryMACFunc
 		readTailscaleMetadataFunc = oldReadTailscaleMetadataFunc
 		readCapabilityMetadataFunc = oldReadCapabilityMetadataFunc
 	})
@@ -55,6 +57,7 @@ func TestNewCollectsStaticMetadataAndClonesResponses(t *testing.T) {
 	readMemTotalBytesFunc = func() uint64 { return 32 * 1024 * 1024 * 1024 }
 	readDiskCapacityBytesFunc = func(string) (uint64, uint64) { return 512000, 128000 }
 	readNetworkInterfaceCountFunc = func() int { return 3 }
+	readPrimaryMACFunc = func() string { return "aa:bb:cc:00:00:01" }
 	readTailscaleMetadataFunc = func() map[string]string {
 		return map[string]string{
 			"tailscale_installed": "true",
@@ -96,6 +99,9 @@ func TestNewCollectsStaticMetadataAndClonesResponses(t *testing.T) {
 	}
 	if metadata["network_interface_count"] != "3" {
 		t.Fatalf("network_interface_count=%q, want 3", metadata["network_interface_count"])
+	}
+	if metadata["mac_address"] != "aa:bb:cc:00:00:01" {
+		t.Fatalf("mac_address=%q, want the primary MAC for Wake-on-LAN", metadata["mac_address"])
 	}
 	if metadata["tailscale_tailnet"] != "audit.ts.net" {
 		t.Fatalf("tailscale_tailnet=%q, want audit.ts.net", metadata["tailscale_tailnet"])

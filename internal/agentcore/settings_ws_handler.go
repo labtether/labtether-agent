@@ -2,6 +2,7 @@ package agentcore
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"strings"
 	"time"
@@ -17,8 +18,8 @@ func handleConfigUpdate(transport agentMessageSender, msg protocol.Message, runt
 		return
 	}
 
-	log.Printf("agentws: received config update: collect=%v heartbeat=%v loglevel=%v",
-		data.CollectIntervalSec, data.HeartbeatIntervalSec, data.LogLevel)
+	log.Printf("agentws: received config update: collect=%s heartbeat=%s loglevel=%s",
+		configUpdateValue(data.CollectIntervalSec), configUpdateValue(data.HeartbeatIntervalSec), configUpdateValue(data.LogLevel))
 
 	if runtime == nil {
 		return
@@ -163,4 +164,14 @@ func sendAgentSettingsApplied(transport agentMessageSender, runtime *Runtime, re
 		Type: protocol.MsgAgentSettingsApplied,
 		Data: data,
 	})
+}
+
+// configUpdateValue prints a config update field for the log: its value, or
+// "unchanged" when the Hub did not send it. Printing the pointer itself gave
+// lines like "collect=0x6f6bd1903f8".
+func configUpdateValue[T any](value *T) string {
+	if value == nil {
+		return "unchanged"
+	}
+	return fmt.Sprint(*value)
 }

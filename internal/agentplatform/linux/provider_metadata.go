@@ -14,6 +14,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/labtether/labtether-agent/internal/agentplatform/netid"
 	"github.com/labtether/labtether-agent/internal/agentplatform/tailscale"
 )
 
@@ -24,6 +25,7 @@ var (
 	readMemTotalBytesFunc         = readMemTotalBytes
 	readDiskCapacityBytesFunc     = readDiskCapacityBytes
 	readNetworkInterfaceCountFunc = readNetworkInterfaceCount
+	readPrimaryMACFunc            = netid.PrimaryMAC
 	readTailscaleMetadataFunc     = tailscale.ReadMetadata
 	readCapabilityMetadataFunc    = readCapabilityMetadata
 )
@@ -58,6 +60,9 @@ func collectHostMetadata(hostname, source string) map[string]string {
 
 	if ifaceCount := readNetworkInterfaceCountFunc(); ifaceCount > 0 {
 		metadata["network_interface_count"] = strconv.Itoa(ifaceCount)
+	}
+	if mac := readPrimaryMACFunc(); mac != "" {
+		metadata[netid.MetadataKey] = mac
 	}
 	for key, value := range readTailscaleMetadataFunc() {
 		metadata[key] = value
