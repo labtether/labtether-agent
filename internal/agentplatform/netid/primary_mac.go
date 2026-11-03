@@ -11,6 +11,10 @@ import (
 // MetadataKey is the asset metadata key the Hub reads for Wake-on-LAN.
 const MetadataKey = "mac_address"
 
+// AddressMetadataKey is the asset metadata key the console and the CLI show
+// as the device's address. Agent devices had none, so the column was empty.
+const AddressMetadataKey = "ip_address"
+
 // nic is the part of a network interface PrimaryMAC looks at.
 type nic struct {
 	name     string

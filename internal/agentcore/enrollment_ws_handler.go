@@ -140,15 +140,20 @@ func handleEnrollmentApproved(transport *wsTransport, msg protocol.Message, cfg 
 	transport.markDisconnected()
 }
 
-// handleEnrollmentRejected processes an enrollment.rejected message from the hub.
-// The agent keeps the connection open and will retry; the admin may still approve later.
-func handleEnrollmentRejected(msg protocol.Message) {
+// handleEnrollmentRejected processes an enrollment.rejected message from the
+// hub. The agent asked again within seconds and showed up in Pending again,
+// so Reject had no lasting effect. It now stops asking until it gets an
+// enrollment token (a rerun of the install command restarts it with one).
+func handleEnrollmentRejected(transport *wsTransport, msg protocol.Message) {
 	var data protocol.EnrollmentRejectedData
 	if err := json.Unmarshal(msg.Data, &data); err != nil {
 		log.Printf("agentws: invalid enrollment.rejected payload: %v", err)
 		return
 	}
-	log.Printf("agentws: enrollment REJECTED: %s", data.Reason)
-	// Do not disconnect - the admin might approve a pending request later via a different
-	// approval flow, or the operator may re-enroll with a different token.
+	reason := strings.TrimSpace(data.Reason)
+	if reason == "" {
+		reason = "An admin rejected this device in LabTether."
+	}
+	transport.markEnrollmentRejected(reason)
+	log.Printf("LabTether refused the enrollment: %s The agent waits for an enrollment token from Devices, Add device.", reason)
 }

@@ -314,8 +314,10 @@ func TestParseUserSessionsOutputParsesISOLoginTimeAndRemoteHost(t *testing.T) {
 	if len(sessions) != 1 {
 		t.Fatalf("expected 1 session, got %d", len(sessions))
 	}
-	if sessions[0].LoginTime != "2026-03-08T14:30:00Z" {
-		t.Fatalf("login_time=%q, want 2026-03-08T14:30:00Z", sessions[0].LoginTime)
+	// `who` prints the host's local time; the agent sends it as UTC.
+	want := time.Date(2026, time.March, 8, 14, 30, 0, 0, time.Local).UTC().Format(time.RFC3339)
+	if sessions[0].LoginTime != want {
+		t.Fatalf("login_time=%q, want %s", sessions[0].LoginTime, want)
 	}
 	if sessions[0].RemoteHost != "10.0.0.5" {
 		t.Fatalf("remote_host=%q, want 10.0.0.5", sessions[0].RemoteHost)

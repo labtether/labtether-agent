@@ -307,9 +307,9 @@ func receiveLoop(ctx context.Context, transport *wsTransport, cfg RuntimeConfig,
 				handleEnrollmentApproved(transport, msg, cfg)
 			})
 		case protocol.MsgEnrollmentRejected:
-			dispatch("enrollment-rejected", func() {
-				handleEnrollmentRejected(msg)
-			})
+			// In order, before the Hub's close: the reconnect loop must see
+			// the rejection before it would ask again.
+			handleEnrollmentRejected(transport, msg)
 		// Clipboard messages.
 		case protocol.MsgClipboardGet:
 			if clipMgr != nil {

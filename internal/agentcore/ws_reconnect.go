@@ -71,6 +71,15 @@ func (t *wsTransport) reconnectLoop(ctx context.Context, onConnect func()) {
 			}
 		}
 
+		if t.waitingAfterRejection() {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.after(5 * time.Second):
+				continue
+			}
+		}
+
 		resp, err := t.connectAttempt(ctx)
 		if err != nil {
 			kind := classifyConnectError(err, resp)

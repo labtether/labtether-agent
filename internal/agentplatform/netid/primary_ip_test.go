@@ -1,4 +1,4 @@
-package webservice
+package netid
 
 import (
 	"net"

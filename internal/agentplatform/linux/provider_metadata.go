@@ -26,6 +26,7 @@ var (
 	readDiskCapacityBytesFunc     = readDiskCapacityBytes
 	readNetworkInterfaceCountFunc = readNetworkInterfaceCount
 	readPrimaryMACFunc            = netid.PrimaryMAC
+	readPrimaryIPFunc             = netid.PrimaryIP
 	readTailscaleMetadataFunc     = tailscale.ReadMetadata
 	readCapabilityMetadataFunc    = readCapabilityMetadata
 )
@@ -63,6 +64,9 @@ func collectHostMetadata(hostname, source string) map[string]string {
 	}
 	if mac := readPrimaryMACFunc(); mac != "" {
 		metadata[netid.MetadataKey] = mac
+	}
+	if ip := readPrimaryIPFunc(); ip != "" {
+		metadata[netid.AddressMetadataKey] = ip
 	}
 	for key, value := range readTailscaleMetadataFunc() {
 		metadata[key] = value

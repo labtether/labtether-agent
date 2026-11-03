@@ -99,6 +99,7 @@ type wsTransport struct {
 	credentialPersistenceError string
 	credentialError            string
 	enrollmentRefusal          string // the Hub's words for the last refused enrollment
+	enrollmentRejected         bool   // an admin rejected the pending request; wait for a token
 
 	networkChanged <-chan struct{} // signaled when local IPs change
 
@@ -121,7 +122,25 @@ func (t *wsTransport) updateToken(token string) {
 	t.lastErrorReason = ""
 	t.credentialError = ""
 	t.enrollmentRefusal = ""
+	t.enrollmentRejected = false
 	t.mu.Unlock()
+}
+
+// markEnrollmentRejected stops pending enrollment requests until the agent
+// gets a token, and keeps the reason for /agent/status.
+func (t *wsTransport) markEnrollmentRejected(reason string) {
+	t.mu.Lock()
+	t.enrollmentRejected = true
+	t.enrollmentRefusal = strings.TrimSpace(reason)
+	t.mu.Unlock()
+}
+
+// waitingAfterRejection reports whether a rejected agent still has no token.
+func (t *wsTransport) waitingAfterRejection() bool {
+	t.mu.Lock()
+	rejected := t.enrollmentRejected
+	t.mu.Unlock()
+	return rejected && t.identitySource().Snapshot().BearerToken == ""
 }
 
 func (t *wsTransport) setCredentialPersistenceError(message string) {
