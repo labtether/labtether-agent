@@ -14,6 +14,7 @@ import (
 	"github.com/shirou/gopsutil/v4/net"
 
 	"github.com/labtether/labtether-agent/internal/agentcore"
+	"github.com/labtether/labtether-agent/internal/agentplatform/netid"
 	"github.com/labtether/labtether-agent/internal/agentplatform/temperature"
 )
 
@@ -202,6 +203,9 @@ func (p *Provider) buildStaticMetadata() map[string]string {
 		if nonLoopback > 0 {
 			metadata["network_interface_count"] = fmt.Sprintf("%d", nonLoopback)
 		}
+	}
+	if mac := netid.PrimaryMAC(); mac != "" {
+		metadata[netid.MetadataKey] = mac
 	}
 
 	return metadata
