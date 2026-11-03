@@ -59,8 +59,13 @@ func Run(ctx context.Context, cfg RuntimeConfig, provider TelemetryProvider) err
 	// Resolve API token: explicit env → persisted file → enrollment
 	credentialWarning := ""
 	credentialError := ""
+	enrollmentRefusal := ""
 	if err := resolveTokenWithIdentity(ctx, &cfg, identity); err != nil {
-		log.Printf("%s: token resolution failed: %v", cfg.Name, err)
+		if enrollmentRefusal = enrollmentRefusalMessage(err); enrollmentRefusal != "" {
+			log.Printf("%s: LabTether refused the enrollment: %s", cfg.Name, enrollmentRefusal)
+		} else {
+			log.Printf("%s: token resolution failed: %v", cfg.Name, err)
+		}
 		if errors.Is(err, errAgentTokenPersistence) {
 			credentialWarning = agentTokenPersistenceFailed
 		}
@@ -140,6 +145,7 @@ func Run(ctx context.Context, cfg RuntimeConfig, provider TelemetryProvider) err
 		transport = newWSTransportWithRuntimeIdentity(runtimeIdentity, platform, cfg.Version, buildTLSConfig(&cfg), cfg.TokenFilePath, identity)
 		transport.setCredentialPersistenceError(credentialWarning)
 		transport.setCredentialError(credentialError)
+		transport.setEnrollmentRefusal(enrollmentRefusal)
 
 		// Set re-enrollment callback if enrollment token is configured.
 		if cfg.EnrollmentToken != "" {

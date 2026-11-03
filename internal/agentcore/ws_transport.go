@@ -98,6 +98,7 @@ type wsTransport struct {
 	disconnectedAt             time.Time
 	credentialPersistenceError string
 	credentialError            string
+	enrollmentRefusal          string // the Hub's words for the last refused enrollment
 
 	networkChanged <-chan struct{} // signaled when local IPs change
 
@@ -119,6 +120,7 @@ func (t *wsTransport) updateToken(token string) {
 	t.lastError = ""
 	t.lastErrorReason = ""
 	t.credentialError = ""
+	t.enrollmentRefusal = ""
 	t.mu.Unlock()
 }
 
@@ -126,6 +128,20 @@ func (t *wsTransport) setCredentialPersistenceError(message string) {
 	t.mu.Lock()
 	t.credentialPersistenceError = strings.TrimSpace(message)
 	t.mu.Unlock()
+}
+
+func (t *wsTransport) setEnrollmentRefusal(message string) {
+	t.mu.Lock()
+	t.enrollmentRefusal = strings.TrimSpace(message)
+	t.mu.Unlock()
+}
+
+// EnrollmentRefusal returns the Hub's words for the last refused enrollment,
+// or "" once the agent has a working credential.
+func (t *wsTransport) EnrollmentRefusal() string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.enrollmentRefusal
 }
 
 func (t *wsTransport) setCredentialError(message string) {
