@@ -29,14 +29,6 @@ import (
 
 const maxEnrollmentResponseBytes = 1024 * 1024
 
-type enrollmentHTTPStatusError struct {
-	statusCode int
-}
-
-func (e *enrollmentHTTPStatusError) Error() string {
-	return fmt.Sprintf("enroll returned status %d", e.statusCode)
-}
-
 func isEnrollmentCredentialRejected(err error) bool {
 	var statusErr *enrollmentHTTPStatusError
 	if !errors.As(err, &statusErr) {
@@ -326,7 +318,7 @@ func enrollWithHubWithIdentityProof(ctx context.Context, cfg *RuntimeConfig, ide
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, &enrollmentHTTPStatusError{statusCode: resp.StatusCode}
+		return nil, newEnrollmentRefusal(resp.StatusCode, resp.Body)
 	}
 
 	responseBody, err := io.ReadAll(io.LimitReader(resp.Body, maxEnrollmentResponseBytes+1))

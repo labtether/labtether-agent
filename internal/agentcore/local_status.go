@@ -25,6 +25,7 @@ type StatusResponse struct {
 	DisconnectedAt     *time.Time      `json:"disconnected_at,omitempty"`
 	LastError          string          `json:"last_error,omitempty"`
 	LastErrorReason    string          `json:"last_error_reason,omitempty"` // fixed code, see ws_connect_reason.go
+	EnrollmentError    string          `json:"enrollment_error,omitempty"`  // the Hub's words for a refused enrollment
 	Uptime             string          `json:"uptime,omitempty"`
 	StartedAt          time.Time       `json:"started_at"`
 	Metrics            TelemetrySample `json:"metrics"`
@@ -56,13 +57,16 @@ func (r *Runtime) statusHandler() http.HandlerFunc {
 		sample := r.current()
 		connected := r.transport != nil && r.transport.Connected()
 
-		var connState, lastErr, lastErrReason string
+		var connState, lastErr, lastErrReason, enrollmentError string
 		var disconnectedAt *time.Time
 		if r.transport != nil {
 			state, errStr, discAt := r.transport.ConnectionState()
 			connState = state
 			lastErr = errStr
 			lastErrReason = r.transport.ConnectionErrorReason()
+			if !connected {
+				enrollmentError = r.transport.EnrollmentRefusal()
+			}
 			if !discAt.IsZero() {
 				disconnectedAt = &discAt
 			}
@@ -85,6 +89,7 @@ func (r *Runtime) statusHandler() http.HandlerFunc {
 			DisconnectedAt:    disconnectedAt,
 			LastError:         lastErr,
 			LastErrorReason:   lastErrReason,
+			EnrollmentError:   enrollmentError,
 			Uptime:            uptime,
 			StartedAt:         r.startedAt,
 			Metrics:           sample,

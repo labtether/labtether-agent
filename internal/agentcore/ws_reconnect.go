@@ -109,6 +109,9 @@ func (t *wsTransport) reconnectLoop(ctx context.Context, onConnect func()) {
 							continue
 						} else {
 							log.Printf("agentws: re-enrollment failed: %v", reErr)
+							if refusal := enrollmentRefusalMessage(reErr); refusal != "" {
+								t.setEnrollmentRefusal(refusal)
+							}
 							t.mu.Lock()
 							t.lastReEnrollAt = t.currentTime().UTC()
 							t.mu.Unlock()
