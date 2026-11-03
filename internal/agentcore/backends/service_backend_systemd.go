@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -46,6 +47,7 @@ func (LinuxServiceBackend) ListServices() ([]protocol.ServiceInfo, error) {
 	}
 
 	var services []protocol.ServiceInfo
+	listed := make(map[string]bool)
 	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
@@ -76,9 +78,41 @@ func (LinuxServiceBackend) ListServices() ([]protocol.ServiceInfo, error) {
 			Enabled:     enabledMap[unit],
 			LoadState:   loadState,
 		})
+		listed[unit] = true
 	}
 
-	return services, nil
+	return append(services, unloadedServiceUnits(enabledMap, listed)...), nil
+}
+
+// unloadedServiceUnits returns installed services that list-units leaves out
+// because systemd has not loaded them since boot: a disabled service that has
+// not run is one. Without them a stopped, disabled service could not be found
+// to start or enable again. Static, masked, alias and template units are left
+// out, as nothing can enable or start them by name.
+func unloadedServiceUnits(enabledMap map[string]string, listed map[string]bool) []protocol.ServiceInfo {
+	units := make([]string, 0, len(enabledMap))
+	for unit, state := range enabledMap {
+		switch state {
+		case "enabled", "enabled-runtime", "disabled", "indirect", "linked", "linked-runtime":
+		default:
+			continue
+		}
+		if listed[unit] || !strings.HasSuffix(unit, ".service") || strings.Contains(unit, "@.") {
+			continue
+		}
+		units = append(units, unit)
+	}
+	sort.Strings(units)
+	out := make([]protocol.ServiceInfo, 0, len(units))
+	for _, unit := range units {
+		out = append(out, protocol.ServiceInfo{
+			Name:        strings.TrimSuffix(unit, ".service"),
+			ActiveState: "inactive",
+			SubState:    "dead",
+			Enabled:     enabledMap[unit],
+		})
+	}
+	return out
 }
 
 // PerformAction performs a systemctl action on a named service.

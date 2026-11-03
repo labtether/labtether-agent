@@ -147,6 +147,37 @@ func TestLinuxServiceBackendListServicesParsesSystemctlOutput(t *testing.T) {
 	}
 }
 
+// systemctl list-units leaves out a service systemd has not loaded since
+// boot, such as a disabled one that has not run, so it could not be found to
+// start or enable. Installed services from list-unit-files are listed too.
+func TestLinuxServiceBackendListServicesIncludesUnloadedInstalledServices(t *testing.T) {
+	originalRunCommand := backends.RunLinuxServiceCommand
+	t.Cleanup(func() {
+		backends.RunLinuxServiceCommand = originalRunCommand
+	})
+	backends.RunLinuxServiceCommand = func(_ context.Context, _ string, args ...string) ([]byte, error) {
+		if args[0] == "list-unit-files" {
+			return []byte(strings.Join([]string{
+				"sshd.service enabled", "nginx.service disabled", "apt-daily.service static",
+				"getty@.service enabled", "old.service masked", "dbus-org.example.service alias",
+			}, "\n")), nil
+		}
+		return []byte("sshd.service loaded active running OpenSSH Daemon\n"), nil
+	}
+
+	services, err := backends.LinuxServiceBackend{}.ListServices()
+	if err != nil {
+		t.Fatalf("ListServices returned error: %v", err)
+	}
+	var names []string
+	for _, svc := range services {
+		names = append(names, svc.Name+"="+svc.ActiveState+"/"+svc.Enabled)
+	}
+	if got, want := strings.Join(names, " "), "sshd=active/enabled nginx=inactive/disabled"; got != want {
+		t.Fatalf("services = %q, want %q", got, want)
+	}
+}
+
 func TestLinuxServiceBackendListServicesReportsNonSystemdFailure(t *testing.T) {
 	originalRunCommand := backends.RunLinuxServiceCommand
 	t.Cleanup(func() {
