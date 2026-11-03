@@ -22,6 +22,7 @@ func TestNewCollectsStaticMetadataAndClonesResponses(t *testing.T) {
 	oldReadDiskCapacityBytesFunc := readDiskCapacityBytesFunc
 	oldReadNetworkInterfaceCountFunc := readNetworkInterfaceCountFunc
 	oldReadPrimaryMACFunc := readPrimaryMACFunc
+	oldReadPrimaryIPFunc := readPrimaryIPFunc
 	oldReadTailscaleMetadataFunc := readTailscaleMetadataFunc
 	oldReadCapabilityMetadataFunc := readCapabilityMetadataFunc
 	t.Cleanup(func() {
@@ -33,6 +34,7 @@ func TestNewCollectsStaticMetadataAndClonesResponses(t *testing.T) {
 		readDiskCapacityBytesFunc = oldReadDiskCapacityBytesFunc
 		readNetworkInterfaceCountFunc = oldReadNetworkInterfaceCountFunc
 		readPrimaryMACFunc = oldReadPrimaryMACFunc
+		readPrimaryIPFunc = oldReadPrimaryIPFunc
 		readTailscaleMetadataFunc = oldReadTailscaleMetadataFunc
 		readCapabilityMetadataFunc = oldReadCapabilityMetadataFunc
 	})
@@ -58,6 +60,7 @@ func TestNewCollectsStaticMetadataAndClonesResponses(t *testing.T) {
 	readDiskCapacityBytesFunc = func(string) (uint64, uint64) { return 512000, 128000 }
 	readNetworkInterfaceCountFunc = func() int { return 3 }
 	readPrimaryMACFunc = func() string { return "aa:bb:cc:00:00:01" }
+	readPrimaryIPFunc = func() string { return "192.0.2.10" }
 	readTailscaleMetadataFunc = func() map[string]string {
 		return map[string]string{
 			"tailscale_installed": "true",
@@ -82,6 +85,9 @@ func TestNewCollectsStaticMetadataAndClonesResponses(t *testing.T) {
 	}
 
 	metadata := provider.StaticMetadata()
+	if metadata["ip_address"] != "192.0.2.10" {
+		t.Fatalf("ip_address=%q, want the primary LAN address 192.0.2.10", metadata["ip_address"])
+	}
 	if metadata["hostname"] != "audit-host" {
 		t.Fatalf("hostname metadata=%q, want audit-host", metadata["hostname"])
 	}

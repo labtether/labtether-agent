@@ -88,6 +88,9 @@ func collectUserSessionsWho() ([]protocol.UserSession, error) {
 	return ParseUserSessionsOutput(out), nil
 }
 
+// whoLocation is the zone `who` prints login times in: the host's own.
+var whoLocation = time.Local
+
 // ParseUserSessionsOutput parses `who` command output into user sessions.
 func ParseUserSessionsOutput(out []byte) []protocol.UserSession {
 	var sessions []protocol.UserSession
@@ -116,11 +119,13 @@ func ParseUserSessionsOutput(out []byte) []protocol.UserSession {
 			}
 		}
 
-		// Try to parse ISO-style login times first.
+		// Try to parse ISO-style login times first. `who` prints the host's
+		// local time; reading it as UTC put logins hours off on any host
+		// not set to UTC.
 		if len(loginFields) >= 2 {
 			dateStr := loginFields[0] + " " + loginFields[1]
-			if t, parseErr := time.Parse("2006-01-02 15:04", dateStr); parseErr == nil {
-				session.LoginTime = t.Format(time.RFC3339)
+			if t, parseErr := time.ParseInLocation("2006-01-02 15:04", dateStr, whoLocation); parseErr == nil {
+				session.LoginTime = t.UTC().Format(time.RFC3339)
 			} else {
 				session.LoginTime = strings.Join(loginFields, " ")
 			}

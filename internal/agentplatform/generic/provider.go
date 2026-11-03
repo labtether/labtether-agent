@@ -208,6 +208,9 @@ func (p *Provider) buildStaticMetadata() map[string]string {
 	if mac := netid.PrimaryMAC(); mac != "" {
 		metadata[netid.MetadataKey] = mac
 	}
+	if ip := netid.PrimaryIP(); ip != "" {
+		metadata[netid.AddressMetadataKey] = ip
+	}
 
 	return metadata
 }
