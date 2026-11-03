@@ -46,6 +46,7 @@ type Provider struct {
 	staticMetadata map[string]string
 
 	readTemperature func() (*float64, error)
+	tempReport      temperature.ReportOnce
 }
 
 func New(assetID, source string) *Provider {
@@ -129,6 +130,7 @@ func (p *Provider) Collect(now time.Time) (agentcore.TelemetrySample, error) {
 	var tempErr error
 	if p.lastTempAt.IsZero() || now.Sub(p.lastTempAt) >= tempSampleInterval {
 		temp, tempErr = p.readTemperature()
+		tempErr = p.tempReport.Filter(tempErr)
 		p.lastTempAt = now
 		if temp != nil {
 			p.lastTemp = cloneFloat64Ptr(temp)
