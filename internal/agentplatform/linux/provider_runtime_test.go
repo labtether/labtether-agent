@@ -247,6 +247,7 @@ func TestCollectRetainsLastTemperatureOnRefreshError(t *testing.T) {
 
 	tempCalls := 0
 	lastGood := 44.0
+	errSensorOffline := errors.New("sensor offline")
 	provider := &Provider{
 		assetID: "asset-123",
 		readTemperature: func() (*float64, error) {
@@ -254,7 +255,7 @@ func TestCollectRetainsLastTemperatureOnRefreshError(t *testing.T) {
 			if tempCalls == 1 {
 				return &lastGood, nil
 			}
-			return nil, errors.New("sensor offline")
+			return nil, errSensorOffline
 		},
 	}
 
@@ -271,7 +272,7 @@ func TestCollectRetainsLastTemperatureOnRefreshError(t *testing.T) {
 	writeFixture(t, procNetDev, networkFixture(40, 70))
 
 	second, err := provider.Collect(start.Add(tempSampleInterval + time.Second))
-	if err == nil || err.Error() != "sensor offline" {
+	if !errors.Is(err, errSensorOffline) {
 		t.Fatalf("second collect error=%v, want sensor offline", err)
 	}
 	if second.TempCelsius == nil || *second.TempCelsius != 44 {
@@ -279,6 +280,11 @@ func TestCollectRetainsLastTemperatureOnRefreshError(t *testing.T) {
 	}
 	if tempCalls != 2 {
 		t.Fatalf("temperature reads=%d, want 2", tempCalls)
+	}
+
+	// The same failure again is not reported a second time.
+	if _, err := provider.Collect(start.Add(2*tempSampleInterval + 2*time.Second)); err != nil {
+		t.Fatalf("third collect error=%v, want the repeated sensor failure held back", err)
 	}
 }
 

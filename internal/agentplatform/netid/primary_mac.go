@@ -25,7 +25,7 @@ type nic struct {
 // interface that is up, else "". The Hub needs it before the host is off: a
 // device that is off cannot report it, so Wake-on-LAN had nothing to send.
 func PrimaryMAC() string {
-	return choosePrimaryMAC(listNICs(), defaultRouteIP())
+	return choosePrimaryMAC(listNICs(), DefaultRouteIP())
 }
 
 func listNICs() []nic {
@@ -49,9 +49,9 @@ func listNICs() []nic {
 	return out
 }
 
-// defaultRouteIP asks the kernel which local address it would use to reach
+// DefaultRouteIP asks the kernel which local address it would use to reach
 // a documentation address (TEST-NET-1). A UDP dial sends no packet.
-func defaultRouteIP() net.IP {
+func DefaultRouteIP() net.IP {
 	conn, err := net.Dial("udp4", "192.0.2.1:9")
 	if err != nil {
 		return nil

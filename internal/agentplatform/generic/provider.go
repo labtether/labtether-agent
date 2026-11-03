@@ -30,6 +30,7 @@ type Provider struct {
 	prevNetAt time.Time
 
 	staticMetadata map[string]string
+	tempReport     temperature.ReportOnce
 }
 
 func New(assetID, source, mode string) *Provider {
@@ -89,7 +90,7 @@ func (p *Provider) Collect(now time.Time) (agentcore.TelemetrySample, error) {
 		TempCelsius:      temp,
 		CollectedAt:      now.UTC(),
 	}
-	return sample, tempErr
+	return sample, p.tempReport.Filter(tempErr)
 }
 
 func (p *Provider) computeNetworkRates(now time.Time, netRX, netTX float64) (float64, float64) {
