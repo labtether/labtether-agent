@@ -10,7 +10,7 @@ func TestCollectUserSessionsWindows(t *testing.T) {
 		t.Fatalf("collectUserSessionsWindows: %v", err)
 	}
 	for _, session := range sessions {
-		if session.Username == "" || session.Terminal == "" || session.SessionType == "" {
+		if session.Username == "" || session.Terminal == "" || session.SessionType == "" || session.LoginTime == "" {
 			t.Fatalf("incomplete Windows session: %+v", session)
 		}
 	}

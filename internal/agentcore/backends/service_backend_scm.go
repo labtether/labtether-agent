@@ -34,7 +34,9 @@ func (WindowsServiceBackend) ListServices() ([]protocol.ServiceInfo, error) {
 		return nil, fmt.Errorf("sc.exe query: %w", err)
 	}
 
-	return parseSCQueryOutput(string(out)), nil
+	services := parseSCQueryOutput(string(out))
+	applyServiceStartTypes(services, windowsServiceStartTypes)
+	return services, nil
 }
 
 // PerformAction performs a service action using sc.exe.
@@ -60,6 +62,7 @@ func (WindowsServiceBackend) PerformAction(action, service string) (string, erro
 		out, err := RunWindowsServiceCommand(startCtx, "sc.exe", "start", service)
 		output := strings.TrimSpace(string(out))
 		if err != nil {
+			output = scErrorText(output)
 			if startCtx.Err() == context.DeadlineExceeded {
 				return output, fmt.Errorf("sc.exe start timed out during restart")
 			}
@@ -77,6 +80,7 @@ func (WindowsServiceBackend) PerformAction(action, service string) (string, erro
 	out, err := RunWindowsServiceCommand(ctx, "sc.exe", args...)
 	output := strings.TrimSpace(string(out))
 	if err != nil {
+		output = scErrorText(output)
 		if ctx.Err() == context.DeadlineExceeded {
 			return output, fmt.Errorf("sc.exe %s timed out", action)
 		}
