@@ -52,6 +52,7 @@ type RuntimeConfig struct {
 	DeviceFingerprintPath                     string        // LABTETHER_DEVICE_FINGERPRINT_FILE — human-visible device fingerprint
 	TLSCAFile                                 string        // LABTETHER_TLS_CA_FILE — custom CA cert for self-signed hub
 	TLSSkipVerify                             bool          // LABTETHER_TLS_SKIP_VERIFY — skip cert verification (dev only)
+	TLSCAOnly                                 bool          // LABTETHER_TLS_CA_ONLY — the CA file is the only root for Hub connections
 	Version                                   string        // Agent version string (set at build time or from module info)
 	DockerSocket                              string        // LABTETHER_DOCKER_SOCKET — Docker socket path for auto-detection
 	DockerEnabled                             string        // LABTETHER_DOCKER_ENABLED — auto|true|false

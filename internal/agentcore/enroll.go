@@ -147,8 +147,10 @@ func resolveTokenWithIdentity(ctx context.Context, cfg *RuntimeConfig, identity 
 
 	// Preserve an operator-supplied CA for a TLS proxy in front of the Hub.
 	// The Hub's returned internal CA may not trust that public endpoint.
+	// With LABTETHER_TLS_CA_ONLY on, the CA file is the pinned root: an
+	// enrollment answer never replaces it.
 	caPath := filepath.Join(filepath.Dir(cfg.TokenFilePath), "ca.crt")
-	if resp.CACertPEM != "" && cfg.TokenFilePath != "" &&
+	if resp.CACertPEM != "" && cfg.TokenFilePath != "" && !cfg.TLSCAOnly &&
 		(cfg.TLSCAFile == "" || filepath.Clean(cfg.TLSCAFile) == filepath.Clean(caPath)) {
 		if err := validateCACertPEM(resp.CACertPEM); err != nil {
 			log.Printf("agent: warning: hub returned invalid CA certificate: %v (ignoring)", err)

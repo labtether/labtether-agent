@@ -100,6 +100,7 @@ type wsTransport struct {
 	credentialError            string
 	enrollmentRefusal          string // the Hub's words for the last refused enrollment
 	enrollmentRejected         bool   // an admin rejected the pending request; wait for a token
+	tlsCAOnly                  bool   // LABTETHER_TLS_CA_ONLY: only the CA file is trusted
 
 	networkChanged <-chan struct{} // signaled when local IPs change
 

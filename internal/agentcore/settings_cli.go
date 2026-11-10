@@ -151,6 +151,7 @@ func printSettingsHelp(cfg RuntimeConfig) {
 	fmt.Println("  LABTETHER_LOG_STREAM_ENABLED               Enable system log streaming (default: true)")
 	fmt.Println("  LABTETHER_TLS_CA_FILE                      Custom CA cert for hub TLS verification")
 	fmt.Println("  LABTETHER_TLS_SKIP_VERIFY                  Skip TLS cert verification (default: false)")
+	fmt.Println("  LABTETHER_TLS_CA_ONLY                      Trust only LABTETHER_TLS_CA_FILE for the hub, not the system roots (default: false)")
 	fmt.Println("  LABTETHER_ALLOW_INSECURE_TRANSPORT         Allow HTTP/WS instead of HTTPS/WSS (default: false)")
 	fmt.Println("  LABTETHER_AUTO_UPDATE                      Enable auto-update on startup (default: true)")
 	fmt.Println("  LABTETHER_AUTO_UPDATE_CHECK_URL             Custom update check endpoint")

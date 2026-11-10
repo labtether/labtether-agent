@@ -91,6 +91,12 @@ restart is needed.
 For a private Hub CA or TLS proxy, set `LABTETHER_TLS_CA_FILE` to the trusted
 CA file. The agent keeps that explicit trust setting after enrollment.
 
+By default the agent trusts that CA file and the system's public roots. Set
+`LABTETHER_TLS_CA_ONLY=true` to trust only the CA file for the Hub: a server
+with a publicly trusted certificate for the Hub's host name is then refused.
+With it on and no usable CA file, the agent stops at start and says so.
+Update downloads from other hosts keep the system roots.
+
 For systemd service setup and full configuration, see the [agent setup guide](https://labtether.com/docs/guides/managing-nodes).
 
 ## Windows

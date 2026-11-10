@@ -45,6 +45,15 @@ func Run(ctx context.Context, cfg RuntimeConfig, provider TelemetryProvider) err
 		go watchSelfUpdateHealth(ctx)
 	}
 
+	// Before any connection to the Hub: with LABTETHER_TLS_CA_ONLY on, the
+	// CA file must be usable, or the agent would have nothing to trust.
+	if err := validateTLSCAOnly(cfg); err != nil {
+		return err
+	}
+	if cfg.TLSCAOnly {
+		log.Printf("%s: Hub connections trust only the CA in %s (%s=true)", cfg.Name, strings.TrimSpace(cfg.TLSCAFile), envTLSCAOnly)
+	}
+
 	identity, identityErr := ensureDeviceIdentity(cfg)
 	if identityErr != nil {
 		log.Printf("%s: device identity initialization failed: %v", cfg.Name, identityErr)
@@ -146,6 +155,7 @@ func Run(ctx context.Context, cfg RuntimeConfig, provider TelemetryProvider) err
 		transport.setCredentialPersistenceError(credentialWarning)
 		transport.setCredentialError(credentialError)
 		transport.setEnrollmentRefusal(enrollmentRefusal)
+		transport.tlsCAOnly = cfg.TLSCAOnly
 
 		// Set re-enrollment callback if enrollment token is configured.
 		if cfg.EnrollmentToken != "" {

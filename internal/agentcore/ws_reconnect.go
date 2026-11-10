@@ -140,7 +140,11 @@ func (t *wsTransport) reconnectLoop(ctx context.Context, onConnect func()) {
 				wait = backoff + jitter
 				log.Printf("agentws: connect failed, retrying in %s: %v", wait, err)
 				if backoff == time.Second && isTLSTrustError(err) {
-					log.Printf("agentws: TLS certificate trust failed. Configure LABTETHER_TLS_CA_FILE with the hub CA, or temporarily set LABTETHER_TLS_SKIP_VERIFY=true for bootstrap only.")
+					if t.tlsCAOnly {
+						log.Printf("agentws: the Hub's certificate is not signed by the CA in LABTETHER_TLS_CA_FILE, and %s=true trusts nothing else. If the Hub has a new CA, put it in that file.", envTLSCAOnly)
+					} else {
+						log.Printf("agentws: TLS certificate trust failed. Configure LABTETHER_TLS_CA_FILE with the hub CA, or temporarily set LABTETHER_TLS_SKIP_VERIFY=true for bootstrap only.")
+					}
 				}
 				backoff = time.Duration(math.Min(float64(backoff*2), float64(maxBackoff)))
 			}
