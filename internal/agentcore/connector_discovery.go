@@ -28,7 +28,7 @@ var connectorDiscoveryConfig struct {
 }
 
 func init() {
-	setConnectorDiscoveryDockerConfig("auto", "/var/run/docker.sock")
+	setConnectorDiscoveryDockerConfig("auto", defaultDockerEndpoint())
 }
 
 func setConnectorDiscoveryDockerConfig(mode, endpoint string) {
@@ -38,7 +38,7 @@ func setConnectorDiscoveryDockerConfig(mode, endpoint string) {
 	}
 	normalizedEndpoint := strings.TrimSpace(endpoint)
 	if normalizedEndpoint == "" {
-		normalizedEndpoint = "/var/run/docker.sock"
+		normalizedEndpoint = defaultDockerEndpoint()
 	}
 
 	connectorDiscoveryConfig.mu.Lock()
@@ -78,7 +78,7 @@ func discoverConnectors() []protocol.ConnectorInfo {
 	if dockerMode != "false" {
 		endpoint := strings.TrimSpace(dockerEndpoint)
 		if endpoint == "" {
-			endpoint = "/var/run/docker.sock"
+			endpoint = defaultDockerEndpoint()
 		}
 		reachable := dockerEndpointReachable(endpoint)
 		if reachable || dockerMode == "true" {
@@ -120,7 +120,7 @@ func discoverConnectors() []protocol.ConnectorInfo {
 func connectorDockerEndpointForMetadata(endpoint string) string {
 	trimmed := strings.TrimSpace(endpoint)
 	if trimmed == "" {
-		return "unix:///var/run/docker.sock"
+		trimmed = defaultDockerEndpoint()
 	}
 	if strings.HasPrefix(trimmed, "/") {
 		return "unix://" + trimmed

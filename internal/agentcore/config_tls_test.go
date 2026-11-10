@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -127,8 +128,12 @@ func TestLoadConfigFallsBackDefaultDockerSocketOnInvalidValue(t *testing.T) {
 	t.Setenv("LABTETHER_AGENT_SETTINGS_FILE", filepath.Join(dir, "agent-config.json"))
 	t.Setenv("LABTETHER_DOCKER_SOCKET", "not-a-valid-endpoint")
 
+	want := "/var/run/docker.sock"
+	if runtime.GOOS == "windows" {
+		want = "npipe:////./pipe/docker_engine"
+	}
 	cfg := LoadConfig("test-agent", "8090", "test")
-	if cfg.DockerSocket != "/var/run/docker.sock" {
-		t.Fatalf("DockerSocket = %q, want /var/run/docker.sock", cfg.DockerSocket)
+	if cfg.DockerSocket != want {
+		t.Fatalf("DockerSocket = %q, want %s", cfg.DockerSocket, want)
 	}
 }

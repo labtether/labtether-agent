@@ -64,6 +64,7 @@ var AgentSettingDefinitions = sysconfig.AgentSettingDefinitions
 var AgentSettingDefinitionByKey = sysconfig.AgentSettingDefinitionByKey
 var NormalizeAgentSettingValue = sysconfig.NormalizeAgentSettingValue
 var DefaultAgentSettingValues = sysconfig.DefaultAgentSettingValues
+var defaultDockerEndpoint = sysconfig.DefaultDockerEndpoint
 var normalizeDiscoveryPortListValue = sysconfig.NormalizeDiscoveryPortListValue
 var normalizeDiscoveryCIDRListValue = sysconfig.NormalizeDiscoveryCIDRListValue
 

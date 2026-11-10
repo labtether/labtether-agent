@@ -153,7 +153,7 @@ func LoadConfig(defaultName, defaultPort, defaultSource string) RuntimeConfig {
 		TLSCAFile:                            strings.TrimSpace(envOrDefault("LABTETHER_TLS_CA_FILE", "")),
 		TLSSkipVerify:                        parseBoolEnv("LABTETHER_TLS_SKIP_VERIFY", false),
 		Version:                              agentVersion(),
-		DockerSocket:                         strings.TrimSpace(envOrDefault("LABTETHER_DOCKER_SOCKET", "/var/run/docker.sock")),
+		DockerSocket:                         strings.TrimSpace(envOrDefault("LABTETHER_DOCKER_SOCKET", defaultDockerEndpoint())),
 		DockerEnabled:                        strings.TrimSpace(strings.ToLower(envOrDefault("LABTETHER_DOCKER_ENABLED", "auto"))),
 		DockerDiscoveryInterval:              parseDurationOrDefault(os.Getenv("LABTETHER_DOCKER_DISCOVERY_INTERVAL"), dockerDiscoveryIntervalDefault, 5*time.Second, time.Hour),
 		FileRootMode:                         strings.TrimSpace(strings.ToLower(envOrDefault("LABTETHER_FILES_ROOT_MODE", "home"))),
@@ -427,7 +427,7 @@ func LoadConfig(defaultName, defaultPort, defaultSource string) RuntimeConfig {
 	if normalized, err := NormalizeAgentSettingValue(SettingKeyDockerEndpoint, cfg.DockerSocket); err == nil {
 		cfg.DockerSocket = normalized
 	} else {
-		cfg.DockerSocket = "/var/run/docker.sock"
+		cfg.DockerSocket = defaultDockerEndpoint()
 	}
 
 	// Auto-load CA from enrollment if not explicitly configured

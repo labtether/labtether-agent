@@ -97,7 +97,7 @@ var agentSettingDefinitions = []AgentSettingDefinition{
 		Label:           "Docker Endpoint",
 		Description:     "Docker endpoint path or URL.",
 		Type:            AgentSettingTypeString,
-		DefaultValue:    "/var/run/docker.sock",
+		DefaultValue:    DefaultDockerEndpoint(),
 		HubManaged:      true,
 		RestartRequired: true,
 	},

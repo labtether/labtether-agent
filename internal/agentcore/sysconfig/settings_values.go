@@ -57,7 +57,7 @@ func AgentSettingValuesFromConfig(cfg ConfigSnapshot) map[string]string {
 
 	dockerEndpoint := strings.TrimSpace(cfg.DockerSocket)
 	if dockerEndpoint == "" {
-		dockerEndpoint = "/var/run/docker.sock"
+		dockerEndpoint = DefaultDockerEndpoint()
 	}
 	values[SettingKeyDockerEndpoint] = dockerEndpoint
 
