@@ -168,6 +168,10 @@ func readBoundedFileEntries(dir fileListDirReader, showHidden bool, requestID, p
 			if infoErr != nil {
 				continue
 			}
+			mode, hidden := listEntryMode(info)
+			if hidden && !showHidden {
+				continue
+			}
 			if len(entries) >= maxFileListEntries {
 				return nil, fmt.Errorf("%w: more than %d visible entries", errFileListLimitExceeded, maxFileListEntries)
 			}
@@ -175,7 +179,7 @@ func readBoundedFileEntries(dir fileListDirReader, showHidden bool, requestID, p
 			fileEntry := protocol.FileEntry{
 				Name:    entry.Name(),
 				Size:    info.Size(),
-				Mode:    info.Mode().String(),
+				Mode:    mode,
 				ModTime: info.ModTime().UTC().Format(time.RFC3339),
 				IsDir:   entry.IsDir(),
 			}
@@ -486,11 +490,12 @@ func (fm *Manager) HandleFileSearch(transport MessageSender, msg protocol.Messag
 		}
 
 		displayPath := filepath.Join(searchRoot.base, filepath.FromSlash(relPath))
+		mode, _ := listEntryMode(info)
 		matches = append(matches, protocol.FileEntry{
 			Name:    d.Name(),
 			Path:    displayPath,
 			Size:    info.Size(),
-			Mode:    info.Mode().String(),
+			Mode:    mode,
 			ModTime: info.ModTime().UTC().Format(time.RFC3339),
 			IsDir:   d.IsDir(),
 		})
