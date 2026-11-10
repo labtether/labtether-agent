@@ -135,15 +135,12 @@ func (tm *TerminalManager) startTerminal(transport MessageSender, req protocol.T
 		Cols: ClampUint16(cols),
 		Rows: ClampUint16(rows),
 	})
-	var input io.WriteCloser
-	var output io.ReadCloser
-	var pipeProcessDone <-chan error
+	var native *nativeTerminal
 	if errors.Is(err, pty.ErrUnsupported) {
-		// creack/pty deliberately reports unsupported on Windows. Keep the
-		// terminal usable with a bounded stdin/stdout pipe bridge until a native
-		// ConPTY backend is available; process execution and input still pass
-		// through the same allowlist and authenticated agent channel.
-		input, output, pipeProcessDone, err = startPipeBackedTerminal(cmd)
+		// creack/pty has no Windows backend. Windows gets a pseudo console
+		// (ConPTY), or a stdin/stdout pipe bridge where the system has none.
+		// Either way the shell passes the same allowlist and agent channel.
+		native, err = startNativeTerminal(pending.ctx, cmd, ClampUint16(cols), ClampUint16(rows))
 	}
 	if err != nil {
 		log.Printf("terminal: failed to start PTY for session %s: %v", req.SessionID, err)
@@ -155,31 +152,27 @@ func (tm *TerminalManager) startTerminal(transport MessageSender, req protocol.T
 		sessionID:  req.SessionID,
 		cancel:     pending.cancel,
 		Ptmx:       ptmx,
-		input:      input,
-		output:     output,
 		cmd:        cmd,
 		done:       make(chan struct{}),
 		outputDone: make(chan struct{}),
 	}
 
-	inputStream := input
-	if ptmx != nil {
-		inputStream = ptmx
+	var inputStream io.WriteCloser = ptmx
+	var nativeDone <-chan error
+	if native != nil {
+		sess.input, sess.output = native.input, native.output
+		sess.resize, sess.stop = native.resize, native.stop
+		inputStream, nativeDone = native.input, native.done
 	}
-	sess.inputWriter = streaminput.New(inputStream, func(error) {
-		sess.close()
-		if sess.cmd != nil && sess.cmd.Process != nil {
-			_ = sess.cmd.Process.Kill()
-		}
-	})
+	sess.inputWriter = streaminput.New(inputStream, func(error) { sess.terminate() })
 
 	tm.Mu.Lock()
 	if tm.pending[req.SessionID] != pending || pending.ctx.Err() != nil {
 		tm.Mu.Unlock()
-		sess.close()
+		sess.terminate()
 		pending.cancel()
-		if pipeProcessDone != nil {
-			<-pipeProcessDone
+		if nativeDone != nil {
+			<-nativeDone
 		} else {
 			_ = cmd.Wait()
 		}
@@ -208,8 +201,8 @@ func (tm *TerminalManager) startTerminal(transport MessageSender, req protocol.T
 	// Wait for process exit, preserving normal final output before bounding
 	// a descendant that keeps the terminal open after its shell has exited.
 	go func() {
-		if pipeProcessDone != nil {
-			_ = <-pipeProcessDone
+		if nativeDone != nil {
+			<-nativeDone
 		} else {
 			_ = cmd.Wait()
 		}

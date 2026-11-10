@@ -77,7 +77,7 @@ func (s fileScope) expand(rawPath string) (string, error) {
 	if rawPath == "" {
 		rawPath = s.base
 	}
-	if strings.HasPrefix(rawPath, "~/") || rawPath == "~" {
+	if isHomeRelative(rawPath) {
 		home := s.home
 		if home == "" {
 			home = ResolveAgentFileHomeDir()
@@ -91,6 +91,14 @@ func (s fileScope) expand(rawPath string) (string, error) {
 		rawPath = filepath.Join(s.base, rawPath)
 	}
 	return filepath.Clean(rawPath), nil
+}
+
+// isHomeRelative reports whether path is "~" or starts with "~" and a path
+// separator. Windows takes both separators, so "~\folder" is the home folder's
+// "folder" there, not a folder named "~". Elsewhere a backslash is part of a
+// file name.
+func isHomeRelative(path string) bool {
+	return path == "~" || (len(path) > 1 && path[0] == '~' && os.IsPathSeparator(path[1]))
 }
 
 // rootFor returns the allowed root that holds path, and path relative to it.

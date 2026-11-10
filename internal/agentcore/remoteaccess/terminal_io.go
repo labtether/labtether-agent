@@ -66,8 +66,13 @@ func (tm *TerminalManager) cleanupSession(sess *TerminalSession) bool {
 	return current
 }
 
+// terminate closes the session's streams and ends its shell. A Windows console
+// also ends every program the shell started; elsewhere only the shell is killed.
 func (s *TerminalSession) terminate() {
 	s.close()
+	if s.stop != nil {
+		s.stop()
+	}
 	if s.cmd != nil && s.cmd.Process != nil {
 		_ = s.cmd.Process.Kill()
 	}
