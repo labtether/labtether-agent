@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
@@ -17,69 +16,6 @@ import (
 
 	"github.com/labtether/protocol"
 )
-
-// CleanupOrphanedTempFiles removes .lt-upload-* temp files older than 5 minutes
-// that were left behind by interrupted uploads.
-func (fm *Manager) CleanupOrphanedTempFiles() {
-	for _, root := range fm.scope().roots {
-		fm.cleanupOrphanedTempFiles(root)
-	}
-}
-
-func (fm *Manager) cleanupOrphanedTempFiles(baseDir string) {
-	if strings.TrimSpace(baseDir) == "" {
-		return
-	}
-
-	cutoff := time.Now().Add(-5 * time.Minute)
-	startedAt := time.Now()
-	visited := 0
-	budgetExceeded := false
-	root, err := os.OpenRoot(baseDir)
-	if err != nil {
-		log.Printf("file: orphan temp cleanup skipped for %s: %v", baseDir, err)
-		return
-	}
-	defer root.Close()
-
-	_ = fs.WalkDir(root.FS(), ".", func(relPath string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil // skip inaccessible dirs
-		}
-		visited++
-		if visited > orphanCleanupMaxEntries || time.Since(startedAt) > orphanCleanupScanBudget {
-			budgetExceeded = true
-			return filepath.SkipAll
-		}
-		if d.IsDir() {
-			return nil
-		}
-		if !strings.HasPrefix(d.Name(), ".lt-upload-") {
-			return nil
-		}
-		info, infoErr := d.Info()
-		if infoErr != nil {
-			return nil
-		}
-		if info.ModTime().Before(cutoff) {
-			displayPath := filepath.Join(baseDir, filepath.FromSlash(relPath))
-			if rmErr := root.Remove(relPath); rmErr != nil && !errors.Is(rmErr, os.ErrNotExist) {
-				log.Printf("file: failed to clean orphaned temp file %s: %v", displayPath, rmErr)
-			} else {
-				log.Printf("file: cleaned up orphaned temp file: %s", displayPath)
-			}
-		}
-		return nil
-	})
-	if budgetExceeded {
-		log.Printf(
-			"file: orphan temp cleanup scan truncated (base=%s visited=%d budget=%s)",
-			baseDir,
-			visited,
-			orphanCleanupScanBudget,
-		)
-	}
-}
 
 // HandleFileWrite handles a file write (upload) request from the hub.
 func (fm *Manager) HandleFileWrite(transport MessageSender, msg protocol.Message) {
@@ -190,12 +126,14 @@ func (fm *Manager) WriteChunkContext(ctx context.Context, req protocol.FileWrite
 			_ = requestRoot.Close()
 			return 0, tmpErr
 		}
+		tmpPath := filepath.Join(target.base, tmpRelPath)
+		fm.recordUploadTemp(tmpPath)
 		pw = &PendingWrite{
 			File:         tmpFile,
 			Root:         requestRoot,
 			Path:         filePath,
 			RelPath:      relPath,
-			TmpPath:      filepath.Join(target.base, tmpRelPath),
+			TmpPath:      tmpPath,
 			TmpRelPath:   tmpRelPath,
 			lastActivity: fm.pendingWriteTime(),
 		}
@@ -280,6 +218,7 @@ func (fm *Manager) WriteChunkContext(ctx context.Context, req protocol.FileWrite
 			pw.mu.Unlock()
 			return written, err
 		}
+		fm.forgetUploadTemp(pw.TmpPath)
 		fm.stopPendingWriteTimerLocked(pw)
 		pw.Closed = true
 		_ = pw.Root.Close()
@@ -297,7 +236,7 @@ func createTempInRoot(root *os.Root, dirRel string) (*os.File, string, error) {
 		if _, err := rand.Read(random[:]); err != nil {
 			return nil, "", err
 		}
-		name := ".lt-upload-" + hex.EncodeToString(random[:])
+		name := uploadTempPrefix + hex.EncodeToString(random[:])
 		rel := filepath.Join(dirRel, name)
 		file, err := root.OpenFile(rel, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0o600)
 		if err == nil {
@@ -458,7 +397,10 @@ func (fm *Manager) cleanupWriteLocked(requestID string, pw *PendingWrite) {
 		log.Printf("file: pending upload %s is missing its file root", requestID)
 	} else {
 		if rmErr := pw.Root.Remove(pw.TmpRelPath); rmErr != nil && !errors.Is(rmErr, os.ErrNotExist) {
+			// The record stays, so the next start removes the file.
 			log.Printf("file: failed to remove temp upload for %s: %v", requestID, rmErr)
+		} else {
+			fm.forgetUploadTemp(pw.TmpPath)
 		}
 		_ = pw.Root.Close()
 		pw.Root = nil

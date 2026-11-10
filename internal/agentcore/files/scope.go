@@ -142,7 +142,10 @@ func sameRoot(left, right string) bool {
 // openScopedPath opens the allowed root that holds rawPath. Every access goes
 // through the returned os.Root, so a symlink cannot lead outside that root.
 func (fm *Manager) openScopedPath(rawPath string) (scopedPath, error) {
-	scope := fm.scope()
+	return fm.scope().open(rawPath)
+}
+
+func (scope fileScope) open(rawPath string) (scopedPath, error) {
 	display, err := scope.expand(rawPath)
 	if err != nil {
 		return scopedPath{}, err
