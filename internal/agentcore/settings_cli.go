@@ -134,7 +134,7 @@ func printSettingsHelp(cfg RuntimeConfig) {
 	fmt.Println("  LABTETHER_ENROLLMENT_TOKEN_FILE            File-based enrollment token source")
 	fmt.Printf("  LABTETHER_TOKEN_FILE                       Persisted token file path (default: %s)\n", defaultTokenFile)
 	fmt.Printf("  LABTETHER_AGENT_SETTINGS_FILE              Settings file path (default: %s)\n", defaultSettingsFile)
-	fmt.Println("  LABTETHER_DOCKER_SOCKET                    Docker socket path (default: /var/run/docker.sock)")
+	fmt.Printf("  LABTETHER_DOCKER_SOCKET                    Docker socket path (default: %s)\n", defaultDockerEndpoint())
 	fmt.Println("  LABTETHER_DOCKER_ENABLED                   Docker collector mode: auto|true|false (default: auto)")
 	fmt.Println("  LABTETHER_DOCKER_DISCOVERY_INTERVAL        Docker discovery interval (default: 30s)")
 	fmt.Println("  LABTETHER_FILES_ROOT_MODE                  File browser scope: home|full (default: home)")
@@ -322,7 +322,7 @@ func runSettingsWizard(cfg RuntimeConfig) int {
 	mode := promptWithDefault(reader, "Docker mode (auto|true|false)", current[SettingKeyDockerEnabled])
 	endpoint := current[SettingKeyDockerEndpoint]
 	if strings.EqualFold(strings.TrimSpace(mode), "true") || strings.EqualFold(strings.TrimSpace(mode), "auto") {
-		endpoint = promptWithDefault(reader, "Docker endpoint (/var/run/docker.sock, unix://..., https://...)", endpoint)
+		endpoint = promptWithDefault(reader, "Docker endpoint ("+defaultDockerEndpoint()+", unix://..., https://...)", endpoint)
 	}
 	filesRootMode := promptWithDefault(reader, "File access scope (home|full)", current[SettingKeyFilesRootMode])
 	allowRemote := promptWithDefault(reader, "Allow remote hub overrides (true|false)", current[SettingKeyAllowRemoteOverrides])
