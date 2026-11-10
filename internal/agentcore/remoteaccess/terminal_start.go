@@ -91,14 +91,14 @@ func (tm *TerminalManager) startTerminal(transport MessageSender, req protocol.T
 	}
 
 	// Determine command to run: tmux session or plain shell.
+	startDir := terminalStartDir()
 	tmuxAttached := false
 	var cmd *exec.Cmd
 	var err error
 	if req.UseTmux && req.TmuxSession != "" {
 		tmuxPath, lookErr := exec.LookPath("tmux")
 		if lookErr == nil && tmuxPath != "" {
-			// tmux new-session -A -s <name> creates or attaches to an existing session.
-			cmd, err = securityruntime.NewCommandContext(pending.ctx, tmuxPath, "new-session", "-A", "-s", req.TmuxSession)
+			cmd, err = securityruntime.NewCommandContext(pending.ctx, tmuxPath, tmuxStartArgs(req.TmuxSession, startDir)...)
 			if err != nil {
 				log.Printf("terminal: tmux command blocked by runtime policy for session %s: %v", req.SessionID, err)
 				tm.sendPendingTerminalFailure(transport, req.SessionID, pending, "failed to start tmux: "+err.Error())
@@ -123,6 +123,9 @@ func (tm *TerminalManager) startTerminal(transport MessageSender, req protocol.T
 		}
 	}
 	cmd.Env = append(securityruntime.SanitizedChildEnv(), "TERM=xterm-256color")
+	if startDir != "" {
+		cmd.Dir = startDir
+	}
 
 	startPTY := tm.startPTY
 	if startPTY == nil {

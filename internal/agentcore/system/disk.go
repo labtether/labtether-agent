@@ -87,6 +87,10 @@ var VirtualFSTypes = map[string]bool{
 	"efivarfs":    true,
 	"fusectl":     true,
 	"fuse.lnk":    true,
+	// Desktop session helpers under /run/user/<uid>. They are not disks, and
+	// the document portal refuses statfs from another account.
+	"fuse.portal":     true,
+	"fuse.gvfsd-fuse": true,
 }
 
 // CollectMounts collects mount/disk information from the system.
