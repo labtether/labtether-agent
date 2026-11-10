@@ -237,6 +237,7 @@ func (b WindowsLogBackend) queryChannel(req protocol.JournalQueryData, channel s
 
 	args := BuildWevtutilQueryArgs(overrideReq, channel)
 	out, err := RunWevtutilCommand(ctx, "wevtutil", args...)
+	out = decodeWevtutilOutput(out)
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
 			return nil, fmt.Errorf("wevtutil query timed out for channel %s", channel)
@@ -259,6 +260,7 @@ func BuildWevtutilQueryArgs(req protocol.JournalQueryData, channel string) []str
 		"/f:RenderedXml",
 		"/rd:true",
 		"/c:" + strconv.Itoa(limit),
+		wevtutilUnicodeArg,
 	}
 	var conditions []string
 	if since := strings.TrimSpace(req.Since); since != "" {

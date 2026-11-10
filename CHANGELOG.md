@@ -37,6 +37,13 @@ moves it to the LabTether 2.0 version line with Hub 2.0.
   TrueNAS; the console and the Hub's HTTP port are listed as LabTether.
 - The scan keeps an open port only when it answers HTTP or HTTPS, so SSH no
   longer shows as a "Port 22" service that is always down.
+- Windows Event Log text keeps characters outside the console code page.
+  Accents, other scripts and the marks Windows puts around dates no longer
+  reach the Hub as "?".
+- Windows services report whether they start with Windows (enabled, manual
+  or disabled) instead of "unknown", and a failed start or stop shows the
+  reason Windows gives, not only its error code.
+- Windows sessions in the Users list report when the user signed in.
 
 ## [1.7.1] - 2026-10-31
 
