@@ -6,11 +6,11 @@ import (
 )
 
 func TestUnsupportedPlatformDisplaysReturnsHonestUnavailableState(t *testing.T) {
-	displays, err := unsupportedPlatformDisplays("freebsd")
+	displays, err := unsupportedPlatformDisplays("plan9")
 	if err == nil {
 		t.Fatal("expected unsupported display enumeration to return an error")
 	}
-	if !strings.Contains(err.Error(), "freebsd") {
+	if !strings.Contains(err.Error(), "plan9") {
 		t.Fatalf("error %q does not name the unsupported platform", err)
 	}
 	if len(displays) != 0 {

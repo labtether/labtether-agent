@@ -133,7 +133,7 @@ func (nm *NetworkManager) SendNetworkResult(transport MessageSender, result prot
 
 // collectNetInterfaces enumerates host network interfaces using the standard
 // library. Per-interface counters are collected through one platform batch;
-// Windows and FreeBSD take a single gopsutil snapshot per list operation.
+// Windows takes a single gopsutil snapshot per list operation.
 func collectNetInterfaces() ([]protocol.NetInterface, error) {
 	raw, err := net.Interfaces()
 	if err != nil {

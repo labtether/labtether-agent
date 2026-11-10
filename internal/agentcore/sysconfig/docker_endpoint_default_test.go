@@ -11,7 +11,6 @@ func TestDefaultDockerEndpointPerOS(t *testing.T) {
 		"windows": "npipe:////./pipe/docker_engine",
 		"linux":   "/var/run/docker.sock",
 		"darwin":  "/var/run/docker.sock",
-		"freebsd": "/var/run/docker.sock",
 	} {
 		got := defaultDockerEndpointForOS(goos)
 		if got != want {

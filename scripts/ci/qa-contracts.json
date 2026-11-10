@@ -2,7 +2,7 @@
   "schema_version": 1,
   "contracts": {
     "agent-cross-platform": {
-      "reason": "Linux, macOS, Windows, and FreeBSD source portability"
+      "reason": "Linux, macOS, and Windows source portability"
     },
     "agent-hub-transport": {
       "reason": "Agent identity, enrollment, authorization, and Hub connection behavior"

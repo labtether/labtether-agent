@@ -47,7 +47,6 @@ To download and check a release yourself, or to run the agent in Docker, see
 | Linux | amd64, arm64, container image | Supported |
 | Windows | amd64, arm64 | Partial: metrics and terminal work; more is in progress |
 | macOS | none on its own | Ships inside the [menu bar app](https://github.com/labtether/labtether-mac) |
-| FreeBSD | none | Planned |
 
 ## Build from source
 
