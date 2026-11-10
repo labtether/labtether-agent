@@ -61,3 +61,36 @@ func TestFullModeReachesEveryDriveRoot(t *testing.T) {
 		t.Fatal("deleting a drive root was allowed")
 	}
 }
+
+// Fault: on Windows "~\folder" was taken as a relative name, so new folders,
+// uploads and renames went into a folder literally named "~". Elsewhere a
+// backslash is an ordinary file-name character and the path stays relative.
+func TestHomePathAcceptsThePlatformSeparators(t *testing.T) {
+	base := t.TempDir()
+	home := filepath.Join(base, "home")
+	if err := os.Mkdir(home, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	fm := &Manager{writers: make(map[string]*PendingWrite), BaseDir: base, HomeDir: home}
+
+	cases := map[string]string{
+		"~":         home,
+		"~/notes/a": filepath.Join(home, "notes", "a"),
+		`~\notes\a`: filepath.Join(base, `~\notes\a`),
+		"~notes":    filepath.Join(base, "~notes"),
+	}
+	if filepath.Separator == '\\' {
+		cases[`~\notes\a`] = filepath.Join(home, "notes", "a")
+	}
+	for request, want := range cases {
+		root, _, display, err := fm.OpenRootPath(request)
+		if err != nil {
+			t.Errorf("%q: %v", request, err)
+			continue
+		}
+		_ = root.Close()
+		if display != want {
+			t.Errorf("%q opened %q, want %q", request, display, want)
+		}
+	}
+}
