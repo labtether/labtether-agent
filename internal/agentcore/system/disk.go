@@ -159,7 +159,7 @@ func collectMountsLinux() ([]protocol.MountInfo, error) {
 }
 
 // collectMountsDF parses POSIX `df -kP` output to collect mount/disk information.
-// This works on Linux, macOS, and FreeBSD.
+// This works on Linux and macOS.
 //
 // df -kP column layout:
 //

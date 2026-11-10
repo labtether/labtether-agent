@@ -4,9 +4,14 @@ All notable changes to `labtether-agent` are documented in this file.
 
 ## [2.0.0] - unreleased
 
-Changes since v1.7.1. Apart from the web service scan fixes below, the
-agent's runtime code is the same as in 1.7.1; this release moves it to the
-LabTether 2.0 version line with Hub 2.0.
+Changes since v1.7.1. Apart from the web service scan fixes and the FreeBSD
+removal below, the agent's runtime code is the same as in 1.7.1; this release
+moves it to the LabTether 2.0 version line with Hub 2.0.
+
+### Removed
+
+- FreeBSD. The agent no longer builds for FreeBSD, and its FreeBSD-only code
+  is gone. No release ever shipped a FreeBSD binary.
 
 ### Changed
 

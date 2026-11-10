@@ -93,12 +93,6 @@ func powerCommandForPlatform(goos, systemRoot string, action powerAction) (power
 			flag = "-h"
 		}
 		return powerCommandSpec{executable: "/sbin/shutdown", args: []string{flag, "now"}}, nil
-	case "freebsd":
-		flag := "-r"
-		if action == powerActionShutdown {
-			flag = "-p"
-		}
-		return powerCommandSpec{executable: "/sbin/shutdown", args: []string{flag, "now"}}, nil
 	case "windows":
 		executable, err := windowsShutdownExecutable(systemRoot)
 		if err != nil {

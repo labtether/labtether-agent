@@ -37,7 +37,7 @@ func StartVNCServer(display, quality, vncPassword string) (*exec.Cmd, *exec.Cmd,
 	var vncAuthFile string
 	alreadyReady := false
 	switch runtime.GOOS {
-	case "linux", "freebsd":
+	case "linux":
 		if err := validateX11VNCPassword(strings.TrimSpace(vncPassword)); err != nil {
 			return nil, nil, nil, 0, "", err
 		}
@@ -57,7 +57,7 @@ func StartVNCServer(display, quality, vncPassword string) (*exec.Cmd, *exec.Cmd,
 		return nil, nil, nil, 0, "", err
 	}
 
-	// Wait for VNC server to be ready (Linux/FreeBSD path already verified).
+	// Wait for VNC server to be ready (the Linux path already verified it).
 	if !alreadyReady {
 		if waitErr := WaitForVNC(port, 10*time.Second); waitErr != nil {
 			TerminateProcess(cmd)
@@ -251,7 +251,7 @@ func IsDisplayStartupError(err error, logTail string) bool {
 	return IsDisplayError(fmt.Errorf("%s", logTail))
 }
 
-// startX11VNC launches x11vnc for Linux/FreeBSD.
+// StartX11VNC launches x11vnc for Linux.
 func StartX11VNC(display string, port int, quality, vncPassword, xauthPath string) (*exec.Cmd, string, string, error) {
 	return startX11VNC(display, port, quality, vncPassword, xauthPath, "")
 }

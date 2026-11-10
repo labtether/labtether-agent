@@ -221,8 +221,6 @@ func TestPowerCommandAllowlistForAllSupportedPlatforms(t *testing.T) {
 		{"linux shutdown", "linux", "", powerActionShutdown, "/usr/bin/systemctl", []string{"poweroff", "--no-wall"}},
 		{"mac reboot", "darwin", "", powerActionReboot, "/sbin/shutdown", []string{"-r", "now"}},
 		{"mac shutdown", "darwin", "", powerActionShutdown, "/sbin/shutdown", []string{"-h", "now"}},
-		{"freebsd reboot", "freebsd", "", powerActionReboot, "/sbin/shutdown", []string{"-r", "now"}},
-		{"freebsd shutdown", "freebsd", "", powerActionShutdown, "/sbin/shutdown", []string{"-p", "now"}},
 		{"windows reboot", "windows", `D:\Windows`, powerActionReboot, `D:\Windows\System32\shutdown.exe`, []string{"/r", "/t", "5", "/d", "p:4:1", "/c", "LabTether requested reboot"}},
 		{"windows shutdown", "windows", `C:\Windows`, powerActionShutdown, `C:\Windows\System32\shutdown.exe`, []string{"/s", "/t", "5", "/d", "p:4:1", "/c", "LabTether requested shutdown"}},
 	}

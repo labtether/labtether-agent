@@ -14,7 +14,7 @@ func TestNewPackageBackend(t *testing.T) {
 		{name: "linux", goos: "linux", want: "linux"},
 		{name: "darwin", goos: "darwin", want: "darwin"},
 		{name: "windows", goos: "windows", want: "windows"},
-		{name: "unsupported", goos: "freebsd", want: "unsupported"},
+		{name: "unsupported", goos: "plan9", want: "unsupported"},
 	}
 
 	for _, tc := range tests {
