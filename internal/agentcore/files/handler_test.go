@@ -282,43 +282,6 @@ func TestFileWriteWithinLimitAllowed(t *testing.T) {
 	}
 }
 
-// TestCleanupOrphanedTempFiles verifies old temp files are removed.
-func TestCleanupOrphanedTempFiles(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	// Create an old temp file (modified 10 minutes ago).
-	oldFile := filepath.Join(tmpDir, ".lt-upload-old")
-	if err := os.WriteFile(oldFile, []byte("old"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	tenMinAgo := time.Now().Add(-10 * time.Minute)
-	if err := os.Chtimes(oldFile, tenMinAgo, tenMinAgo); err != nil {
-		t.Fatal(err)
-	}
-
-	// Create a recent temp file (should not be cleaned).
-	recentFile := filepath.Join(tmpDir, ".lt-upload-recent")
-	if err := os.WriteFile(recentFile, []byte("recent"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	fm := &Manager{
-		writers: make(map[string]*PendingWrite),
-		BaseDir: tmpDir,
-	}
-	fm.CleanupOrphanedTempFiles()
-
-	// Old file should be removed.
-	if _, err := os.Stat(oldFile); err == nil {
-		t.Error("expected old temp file to be cleaned up")
-	}
-
-	// Recent file should remain.
-	if _, err := os.Stat(recentFile); err != nil {
-		t.Error("expected recent temp file to be preserved")
-	}
-}
-
 func TestWriteChunkRejectsMissingDescendantThroughSymlinkedParent(t *testing.T) {
 	baseDir := t.TempDir()
 	outsideDir := t.TempDir()

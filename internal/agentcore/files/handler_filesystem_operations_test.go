@@ -4,9 +4,35 @@ import (
 	"github.com/labtether/protocol"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
+
+// Fault: deleting a path that is not there answered ok. The Hub answers 404
+// "file not found: <path>" only when the agent's text holds one of the
+// system's own "not found" phrases, so the text is part of the contract.
+func TestHandleFileDeleteReportsAMissingPath(t *testing.T) {
+	fm := &Manager{writers: make(map[string]*PendingWrite), BaseDir: t.TempDir()}
+	transport := &testFileTransport{}
+	fm.HandleFileDelete(transport, protocol.Message{Data: marshalTestMessage(t, protocol.FileDeleteData{
+		RequestID: "delete-missing", Path: "gone.txt",
+	})})
+
+	result := lastFileResult(t, transport)
+	if result.OK {
+		t.Fatal("deleting a missing path answered ok")
+	}
+	if runtime.GOOS == "windows" {
+		if !strings.Contains(strings.ToLower(result.Error), "cannot find the file") {
+			t.Fatalf("error = %q, want the system's file-not-found words", result.Error)
+		}
+		return
+	}
+	if want := "statat gone.txt: no such file or directory"; result.Error != want {
+		t.Fatalf("error = %q, want %q", result.Error, want)
+	}
+}
 
 func TestHandleFileDeleteRemovesSymlinkWithoutTouchingTarget(t *testing.T) {
 	baseDir := t.TempDir()
