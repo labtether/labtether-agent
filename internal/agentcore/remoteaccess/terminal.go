@@ -29,6 +29,8 @@ type TerminalSession struct {
 	input       io.WriteCloser
 	inputWriter *streaminput.Writer
 	output      io.ReadCloser
+	resize      func(cols, rows uint16) // set by a Windows console; a PTY is resized through Ptmx
+	stop        func()                  // ends everything a Windows console started
 	cmd         *exec.Cmd
 	cancel      context.CancelFunc
 	done        chan struct{}
@@ -108,11 +110,15 @@ func (tm *TerminalManager) HandleTerminalResize(msg protocol.Message) {
 		return
 	}
 
-	if sess.Ptmx != nil && req.Cols > 0 && req.Rows > 0 {
-		_ = pty.Setsize(sess.Ptmx, &pty.Winsize{
-			Cols: ClampUint16(req.Cols),
-			Rows: ClampUint16(req.Rows),
-		})
+	if req.Cols <= 0 || req.Rows <= 0 {
+		return
+	}
+	cols, rows := ClampUint16(req.Cols), ClampUint16(req.Rows)
+	switch {
+	case sess.Ptmx != nil:
+		_ = pty.Setsize(sess.Ptmx, &pty.Winsize{Cols: cols, Rows: rows})
+	case sess.resize != nil:
+		sess.resize(cols, rows)
 	}
 }
 
@@ -144,11 +150,8 @@ func (tm *TerminalManager) HandleTerminalClose(msg protocol.Message) {
 		return
 	}
 
-	// Close terminal I/O — this will cause the shell process to exit.
-	sess.close()
-	if sess.cmd != nil && sess.cmd.Process != nil {
-		_ = sess.cmd.Process.Kill()
-	}
+	// Close terminal I/O and end the shell with everything it started.
+	sess.terminate()
 }
 
 func (tm *TerminalManager) HandleTerminalTmuxKill(transport MessageSender, msg protocol.Message) {
