@@ -307,13 +307,9 @@ func sha256Hex(payload []byte) string {
 }
 
 func newSelfUpdateHTTPClient(cfg RuntimeConfig) *http.Client {
-	transport := &http.Transport{}
-	if tlsCfg := buildTLSConfig(&cfg); tlsCfg != nil {
-		transport.TLSClientConfig = tlsCfg
-	}
 	return &http.Client{
 		Timeout:   selfUpdateTimeout,
-		Transport: transport,
+		Transport: newSelfUpdateTransport(cfg),
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) >= 10 {
 				return fmt.Errorf("stopped after 10 redirects")

@@ -10,12 +10,21 @@ import (
 
 var loadSystemCertPool = x509.SystemCertPool
 
-// buildTLSConfig creates a *tls.Config from agent TLS settings.
-// Returns nil when no TLS options are configured (plain HTTP mode).
+// buildTLSConfig creates the *tls.Config for connections to the Hub.
+// Returns nil when no TLS options are configured (the system roots apply).
+// With LABTETHER_TLS_CA_ONLY on, the configured CA file is the only root.
 func buildTLSConfig(cfg *RuntimeConfig) *tls.Config {
 	if cfg == nil {
 		return nil
 	}
+	if cfg.TLSCAOnly {
+		return hubCAOnlyTLSConfig(cfg)
+	}
+	return systemRootsTLSConfig(cfg)
+}
+
+// systemRootsTLSConfig trusts the system roots plus the configured CA file.
+func systemRootsTLSConfig(cfg *RuntimeConfig) *tls.Config {
 	caFile := strings.TrimSpace(cfg.TLSCAFile)
 	if caFile == "" && !cfg.TLSSkipVerify {
 		return nil

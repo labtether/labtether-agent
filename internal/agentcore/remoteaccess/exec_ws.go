@@ -34,6 +34,7 @@ type ExecConfig struct {
 	AutoUpdateCheckURL string
 	TLSCAFile          string
 	TLSSkipVerify      bool
+	TLSCAOnly          bool
 	Version            string
 }
 

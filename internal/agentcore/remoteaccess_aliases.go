@@ -164,6 +164,7 @@ func execConfigFromRuntimeConfig(cfg RuntimeConfig) remoteaccess.ExecConfig {
 		AutoUpdateCheckURL: cfg.AutoUpdateCheckURL,
 		TLSCAFile:          cfg.TLSCAFile,
 		TLSSkipVerify:      cfg.TLSSkipVerify,
+		TLSCAOnly:          cfg.TLSCAOnly,
 		Version:            cfg.Version,
 	}
 }
@@ -176,6 +177,7 @@ func runtimeConfigFromExecConfig(cfg remoteaccess.ExecConfig) RuntimeConfig {
 		AutoUpdateCheckURL: cfg.AutoUpdateCheckURL,
 		TLSCAFile:          cfg.TLSCAFile,
 		TLSSkipVerify:      cfg.TLSSkipVerify,
+		TLSCAOnly:          cfg.TLSCAOnly,
 		Version:            cfg.Version,
 	}
 }

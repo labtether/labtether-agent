@@ -350,13 +350,29 @@ func secureOutboundHTTPClient(base *http.Client, scheme string) *http.Client {
 }
 
 func secureOutboundRoundTripper(base http.RoundTripper, scheme string) http.RoundTripper {
-	var transport *http.Transport
+	if routed, ok := base.(*HostRoutedTransport); ok && routed != nil {
+		return &HostRoutedTransport{
+			Match:   routed.Match,
+			Matched: secureOutboundTransport(routed.Matched, scheme),
+			Other:   secureOutboundTransport(routed.Other, scheme),
+		}
+	}
 	if t, ok := base.(*http.Transport); ok && t != nil {
-		transport = t.Clone()
+		return secureOutboundTransport(t, scheme)
 	} else if base == nil {
-		transport = http.DefaultTransport.(*http.Transport).Clone()
+		return secureOutboundTransport(nil, scheme)
+	}
+	return outboundValidatingRoundTripper{base: base}
+}
+
+// secureOutboundTransport copies base (the default transport when nil) and
+// makes every connection pass the outbound dial checks.
+func secureOutboundTransport(base *http.Transport, scheme string) *http.Transport {
+	var transport *http.Transport
+	if base != nil {
+		transport = base.Clone()
 	} else {
-		return outboundValidatingRoundTripper{base: base}
+		transport = http.DefaultTransport.(*http.Transport).Clone()
 	}
 	transport.Proxy = nil
 	transport.DialTLSContext = nil

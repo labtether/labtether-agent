@@ -152,6 +152,7 @@ func LoadConfig(defaultName, defaultPort, defaultSource string) RuntimeConfig {
 		DeviceFingerprintPath:                deviceFingerprintFile,
 		TLSCAFile:                            strings.TrimSpace(envOrDefault("LABTETHER_TLS_CA_FILE", "")),
 		TLSSkipVerify:                        parseBoolEnv("LABTETHER_TLS_SKIP_VERIFY", false),
+		TLSCAOnly:                            parseTLSCAOnlyEnv(),
 		Version:                              agentVersion(),
 		DockerSocket:                         strings.TrimSpace(envOrDefault("LABTETHER_DOCKER_SOCKET", defaultDockerEndpoint())),
 		DockerEnabled:                        strings.TrimSpace(strings.ToLower(envOrDefault("LABTETHER_DOCKER_ENABLED", "auto"))),
