@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode"
 )
 
 // fileScope is the set of directories that file requests may reach.
@@ -134,6 +135,18 @@ func (s fileScope) containsResolved(resolved string) bool {
 	return false
 }
 
+// quotePath puts a path in double quotes exactly as it is written. %q would
+// double every backslash of a Windows path. A character that cannot be
+// printed is replaced, so a path cannot break the message it is quoted in.
+func quotePath(path string) string {
+	return `"` + strings.Map(func(r rune) rune {
+		if unicode.IsPrint(r) {
+			return r
+		}
+		return unicode.ReplacementChar
+	}, path) + `"`
+}
+
 func sameRoot(left, right string) bool {
 	rel, err := filepath.Rel(filepath.Clean(left), filepath.Clean(right))
 	return err == nil && rel == "."
@@ -142,14 +155,17 @@ func sameRoot(left, right string) bool {
 // openScopedPath opens the allowed root that holds rawPath. Every access goes
 // through the returned os.Root, so a symlink cannot lead outside that root.
 func (fm *Manager) openScopedPath(rawPath string) (scopedPath, error) {
-	scope := fm.scope()
+	return fm.scope().open(rawPath)
+}
+
+func (scope fileScope) open(rawPath string) (scopedPath, error) {
 	display, err := scope.expand(rawPath)
 	if err != nil {
 		return scopedPath{}, err
 	}
 	base, rel, ok := scope.rootFor(display)
 	if !ok {
-		return scopedPath{}, fmt.Errorf("path %q is outside the allowed base directory", display)
+		return scopedPath{}, fmt.Errorf("path %s is outside the allowed base directory", quotePath(display))
 	}
 	root, err := os.OpenRoot(base)
 	if err != nil {

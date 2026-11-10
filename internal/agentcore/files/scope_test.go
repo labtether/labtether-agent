@@ -3,6 +3,7 @@ package files
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -92,5 +93,23 @@ func TestHomePathAcceptsThePlatformSeparators(t *testing.T) {
 		if display != want {
 			t.Errorf("%q opened %q, want %q", request, display, want)
 		}
+	}
+}
+
+// Fault: a refusal was printed with %q, so the Hub showed a Windows path with
+// every backslash doubled ("C:\\Windows"). The console also reads the path
+// back out of this exact sentence.
+func TestRefusalShowsThePathAsWritten(t *testing.T) {
+	base := t.TempDir()
+	fm := &Manager{writers: make(map[string]*PendingWrite), BaseDir: base, HomeDir: base}
+	request := `/srv\backup\a`
+	if runtime.GOOS == "windows" {
+		request = `C:\Windows\System32\drivers`
+	}
+
+	_, _, _, err := fm.OpenRootPath(request)
+	want := `path "` + request + `" is outside the allowed base directory`
+	if err == nil || err.Error() != want {
+		t.Fatalf("refusal = %v, want %s", err, want)
 	}
 }
