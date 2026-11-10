@@ -304,6 +304,13 @@ func (fm *Manager) HandleFileDelete(transport MessageSender, msg protocol.Messag
 		fm.SendFileResult(transport, req.RequestID, false, "cannot delete base directory")
 		return
 	}
+	// RemoveAll is silent about a path that is not there. Answer with the
+	// system's own "not found" words, as rename and read do; the Hub turns
+	// them into "file not found: <path>".
+	if _, err := target.root.Lstat(target.rel); err != nil {
+		fm.SendFileResult(transport, req.RequestID, false, err.Error())
+		return
+	}
 	if err := target.root.RemoveAll(target.rel); err != nil {
 		fm.SendFileResult(transport, req.RequestID, false, err.Error())
 		return
