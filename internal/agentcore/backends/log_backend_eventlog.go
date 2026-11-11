@@ -21,9 +21,12 @@ import (
 
 const (
 	wevtutilQueryCommandTimeout = 20 * time.Second
-	wevtutilStreamPollInterval  = 5 * time.Second
 	wevtutilDefaultChannels     = "System,Application"
 )
+
+// wevtutilStreamPollInterval is how often the stream asks for new events.
+// A variable so tests can shorten it.
+var wevtutilStreamPollInterval = 5 * time.Second
 
 var windowsRelativeLogTimePattern = regexp.MustCompile(`(?i)^([0-9]+)\s*([smhdw])(?:\s+ago)?$`)
 
@@ -52,9 +55,10 @@ func (b WindowsLogBackend) QueryEntries(req protocol.JournalQueryData) ([]protoc
 
 	limit := NormalizedJournalLimit(req.Limit)
 	perChannel := limit
-	if len(channels) > 1 {
-		// Distribute the limit across channels; we will sort and trim after merging.
-		perChannel = limit
+	if sourceFilter != "" || strings.TrimSpace(req.Search) != "" {
+		// Source and text filters run on the events read here, so read as
+		// many as a query may; the level filter is part of the query itself.
+		perChannel = NormalizedJournalLimit(maxJournalQueryLimit)
 	}
 
 	var all []protocol.LogStreamData
@@ -172,43 +176,6 @@ func resolveWindowsLogUnitFilter(channels []string, raw string) (channel, source
 	return "", unit
 }
 
-// StreamEntries polls wevtutil periodically to simulate streaming (Event Log has no follow mode).
-func (b WindowsLogBackend) StreamEntries(ctx context.Context, emit func(protocol.LogStreamData)) error {
-	channels := b.resolvedChannels()
-
-	// Track the latest timestamp seen per channel to use as a pagination cursor.
-	cursors := make(map[string]string, len(channels))
-	for _, ch := range channels {
-		cursors[ch] = time.Now().UTC().Format(time.RFC3339)
-	}
-
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-time.After(wevtutilStreamPollInterval):
-		}
-
-		for _, ch := range channels {
-			since := cursors[ch]
-			req := protocol.JournalQueryData{
-				Limit: 100,
-				Since: since,
-			}
-			entries, err := b.queryChannel(req, ch, 100)
-			if err != nil {
-				continue
-			}
-			for _, e := range entries {
-				emit(e)
-				if e.Timestamp > cursors[ch] {
-					cursors[ch] = e.Timestamp
-				}
-			}
-		}
-	}
-}
-
 func (b WindowsLogBackend) resolvedChannels() []string {
 	raw := strings.TrimSpace(b.Channels)
 	if raw == "" {
@@ -262,17 +229,43 @@ func BuildWevtutilQueryArgs(req protocol.JournalQueryData, channel string) []str
 		"/c:" + strconv.Itoa(limit),
 		wevtutilUnicodeArg,
 	}
-	var conditions []string
+	var times []string
 	if since := strings.TrimSpace(req.Since); since != "" {
-		conditions = append(conditions, "@SystemTime>='"+since+"'")
+		times = append(times, "@SystemTime>='"+since+"'")
 	}
 	if until := strings.TrimSpace(req.Until); until != "" {
-		conditions = append(conditions, "@SystemTime<='"+until+"'")
+		times = append(times, "@SystemTime<='"+until+"'")
+	}
+	var conditions []string
+	if levels := wevtutilLevelCondition(req.Priority); levels != "" {
+		conditions = append(conditions, levels)
+	}
+	if len(times) > 0 {
+		conditions = append(conditions, "TimeCreated["+strings.Join(times, " and ")+"]")
 	}
 	if len(conditions) > 0 {
-		args = append(args, "/q:*[System[TimeCreated["+strings.Join(conditions, " and ")+"]]]")
+		args = append(args, "/q:*[System["+strings.Join(conditions, " and ")+"]]")
 	}
 	return args
+}
+
+// maxJournalQueryLimit is the most events one query returns.
+const maxJournalQueryLimit = 1000
+
+// wevtutilLevelCondition turns a journal priority into Event Log levels
+// (1 critical, 2 error, 3 warning), so "errors only" searches the whole log
+// instead of filtering the newest events read. Priorities that include
+// information events need no condition.
+func wevtutilLevelCondition(priority string) string {
+	maxRank, ok := priorityMaxRank(strings.ToLower(strings.TrimSpace(priority)))
+	switch {
+	case !ok || maxRank >= 6:
+		return ""
+	case maxRank <= 3:
+		return "(Level=1 or Level=2)"
+	default:
+		return "(Level=1 or Level=2 or Level=3)"
+	}
 }
 
 // wevtutilEvent is retained for compatibility with older fixtures and custom
@@ -300,8 +293,9 @@ type wevtutilXMLEvent struct {
 		Provider struct {
 			Name string `xml:"Name,attr"`
 		} `xml:"Provider"`
-		Level       string `xml:"Level"`
-		TimeCreated struct {
+		EventRecordID uint64 `xml:"EventRecordID"`
+		Level         string `xml:"Level"`
+		TimeCreated   struct {
 			SystemTime string `xml:"SystemTime,attr"`
 		} `xml:"TimeCreated"`
 	} `xml:"System"`
@@ -373,16 +367,37 @@ func parseWevtutilJSON(raw []byte) ([]protocol.LogStreamData, error) {
 }
 
 func parseWevtutilRenderedXML(raw []byte) ([]protocol.LogStreamData, error) {
+	records, err := parseWevtutilRenderedXMLRecords(raw)
+	entries := make([]protocol.LogStreamData, 0, len(records))
+	for _, record := range records {
+		if record.entry.Message != "" {
+			entries = append(entries, record.entry)
+		}
+	}
+	if err != nil {
+		return entries, err
+	}
+	return entries, nil
+}
+
+// wevtutilRecord is one event with its record number in its channel. Events
+// without a message are kept here (their record number still moves the
+// stream on) and left out of query results.
+type wevtutilRecord struct {
+	entry    protocol.LogStreamData
+	recordID uint64
+}
+
+func parseWevtutilRenderedXMLRecords(raw []byte) ([]wevtutilRecord, error) {
 	decoder := xml.NewDecoder(bytes.NewReader(raw))
-	var entries []protocol.LogStreamData
-	decodedEvents := 0
+	var records []wevtutilRecord
 	for {
 		token, err := decoder.Token()
 		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
-			return entries, fmt.Errorf("failed to parse wevtutil RenderedXml output: %w", err)
+			return records, fmt.Errorf("failed to parse wevtutil RenderedXml output: %w", err)
 		}
 		start, ok := token.(xml.StartElement)
 		if !ok || start.Name.Local != "Event" {
@@ -391,28 +406,26 @@ func parseWevtutilRenderedXML(raw []byte) ([]protocol.LogStreamData, error) {
 
 		var event wevtutilXMLEvent
 		if err := decoder.DecodeElement(&event, &start); err != nil {
-			return entries, fmt.Errorf("failed to decode wevtutil Event element: %w", err)
-		}
-		decodedEvents++
-		message := strings.TrimSpace(event.RenderingInfo.Message)
-		if message == "" {
-			continue
+			return records, fmt.Errorf("failed to decode wevtutil Event element: %w", err)
 		}
 		source := strings.TrimSpace(event.System.Provider.Name)
 		if source == "" {
 			source = "eventlog"
 		}
-		entries = append(entries, protocol.LogStreamData{
-			Timestamp: wevtutilSystemTimeToRFC3339(event.System.TimeCreated.SystemTime),
-			Level:     wevtutilLevelToString(parseWevtutilLevelNum(event.System.Level)),
-			Message:   message,
-			Source:    source,
+		records = append(records, wevtutilRecord{
+			recordID: event.System.EventRecordID,
+			entry: protocol.LogStreamData{
+				Timestamp: wevtutilSystemTimeToRFC3339(event.System.TimeCreated.SystemTime),
+				Level:     wevtutilLevelToString(parseWevtutilLevelNum(event.System.Level)),
+				Message:   strings.TrimSpace(event.RenderingInfo.Message),
+				Source:    source,
+			},
 		})
 	}
-	if decodedEvents == 0 {
+	if len(records) == 0 {
 		return nil, errors.New("wevtutil RenderedXml output contained no usable Event elements")
 	}
-	return entries, nil
+	return records, nil
 }
 
 // parseWevtutilLevelNum converts the Level string from wevtutil JSON to an integer.

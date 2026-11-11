@@ -232,6 +232,18 @@ func TestBuildWevtutilQueryArgs(t *testing.T) {
 			},
 		},
 		{
+			name:     "errors-only",
+			req:      protocol.JournalQueryData{Limit: 20, Priority: "err"},
+			channel:  "System",
+			wantArgs: []string{"qe", "System", "/f:RenderedXml", "/rd:true", "/c:20", "/uni:true", "/q:*[System[(Level=1 or Level=2)]]"},
+		},
+		{
+			name:     "warnings-since",
+			req:      protocol.JournalQueryData{Limit: 20, Priority: "warning", Since: "2026-03-21T00:00:00Z"},
+			channel:  "System",
+			wantArgs: []string{"qe", "System", "/f:RenderedXml", "/rd:true", "/c:20", "/uni:true", "/q:*[System[(Level=1 or Level=2 or Level=3) and TimeCreated[@SystemTime>='2026-03-21T00:00:00Z']]]"},
+		},
+		{
 			name:     "default-limit",
 			req:      protocol.JournalQueryData{Limit: 0},
 			channel:  "System",
