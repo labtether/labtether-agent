@@ -140,11 +140,17 @@ func (c *dockerClient) doDelete(ctx context.Context, path string) error {
 		return err
 	}
 	defer resp.Body.Close()
+	// Keep Docker's reply ({"message":"No such image: x"}) so the Hub can show
+	// what Docker said; the rest of the body is drained.
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+	if err != nil {
+		return err
+	}
 	if _, copyErr := io.Copy(io.Discard, resp.Body); copyErr != nil {
 		return copyErr
 	}
 	if resp.StatusCode >= 300 {
-		return fmt.Errorf("docker API DELETE %s returned %d", path, resp.StatusCode)
+		return fmt.Errorf("docker API DELETE %s returned %d: %s", path, resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 	return nil
 }

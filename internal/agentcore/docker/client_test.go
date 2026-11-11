@@ -341,3 +341,17 @@ func TestDockerClientErrorHandling(t *testing.T) {
 		t.Error("expected error for 500 response")
 	}
 }
+
+// A failed DELETE dropped Docker's reply, so the Hub could only show the
+// route and status code ("docker API DELETE /images/x returned 404").
+func TestDockerClientDeleteKeepsDockersReply(t *testing.T) {
+	_, client := newSecureDockerClientFixture(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"message":"No such image: app:0"}`))
+	}))
+	err := client.doDelete(context.Background(), "/images/app:0")
+	if err == nil || !strings.Contains(err.Error(), "No such image: app:0") {
+		t.Fatalf("doDelete error = %v, want Docker's reply in it", err)
+	}
+}
