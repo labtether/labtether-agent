@@ -28,6 +28,14 @@ moves it to the LabTether 2.0 version line with Hub 2.0.
 
 ### Fixed
 
+- With remote overrides off ("Let the Hub change settings" or "Allow Hub
+  overrides" off in the Windows and Mac apps), the metrics and heartbeat
+  intervals the Hub sent earlier no longer come back at the next start; the
+  agent runs its own values. The agent keeps those Hub values in
+  `applied-config.json` in its own state folder, beside its token, instead of
+  the user's home folder, which every agent of that user shared. An upgraded
+  agent with overrides on moves the old `~/.labtether/applied-config.json`
+  there once.
 - Terminal scroll-back works. On a device with tmux 3.2 or newer the agent
   relays the shell's own output, so the console can scroll back, search and
   copy everything printed in the session (up to 10,000 lines after a re-open).
