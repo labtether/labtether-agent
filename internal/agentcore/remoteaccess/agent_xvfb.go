@@ -1,13 +1,20 @@
 package remoteaccess
 
 import (
+	"errors"
+	"fmt"
 	"os/exec"
 	"strings"
 	"sync"
 )
 
+// ErrSeveralAgentXvfbs refuses the clipboard while the agent runs more than
+// one Xvfb: the clipboard request does not say which Remote View session it
+// is for, so it could reach another viewer's display.
+var ErrSeveralAgentXvfbs = errors.New("Clipboard is off while more than one Remote View session runs on this device.")
+
 // agentXvfbs records the Xvfb displays this agent started, each with its own
-// Xauthority file, newest last. X clients that serve the Remote View user,
+// Xauthority file. X clients that serve the Remote View user,
 // such as the clipboard, use only these on a device without a desktop
 // session. They never scan for a display: another local user can run their
 // own X server, and the agent must not send the viewer's clipboard there.
@@ -50,18 +57,40 @@ func ForgetAgentXvfb(cmd *exec.Cmd) {
 	agentXvfbs.entries = kept
 }
 
-// AgentXvfbDisplay returns the newest Xvfb the agent started and still runs,
-// with its Xauthority path ("none" when it has none).
-func AgentXvfbDisplay() (display, xauthPath string, ok bool) {
+// AgentXvfbDisplay returns the one Xvfb the agent started and still runs,
+// with its Xauthority path ("none" when it has none). It returns an empty
+// display when there is none and ErrSeveralAgentXvfbs when there are several.
+// An entry counts only while its process has not exited and the display's
+// lock file still names that process; anything else is dropped, so a server
+// another user starts on the same number after a crash is never used.
+func AgentXvfbDisplay() (display, xauthPath string, err error) {
 	agentXvfbs.mu.Lock()
 	defer agentXvfbs.mu.Unlock()
-	if len(agentXvfbs.entries) == 0 {
-		return "", "", false
+	live := agentXvfbs.entries[:0]
+	for _, entry := range agentXvfbs.entries {
+		if agentXvfbAlive(entry) {
+			live = append(live, entry)
+		}
 	}
-	newest := agentXvfbs.entries[len(agentXvfbs.entries)-1]
-	xauthPath = newest.xauthPath
-	if xauthPath == "" {
-		xauthPath = "none"
+	agentXvfbs.entries = live
+	switch len(live) {
+	case 0:
+		return "", "", nil
+	case 1:
+		xauthPath = live[0].xauthPath
+		if xauthPath == "" {
+			xauthPath = "none"
+		}
+		return live[0].display, xauthPath, nil
+	default:
+		return "", "", ErrSeveralAgentXvfbs
 	}
-	return newest.display, xauthPath, true
+}
+
+func agentXvfbAlive(entry agentXvfb) bool {
+	if entry.cmd == nil || entry.cmd.Process == nil || entry.cmd.ProcessState != nil {
+		return false
+	}
+	lock := fmt.Sprintf("%s/.X%s-lock", x11LockDir, strings.TrimPrefix(x11ServerIdentity(entry.display), ":"))
+	return x11LockOwnedBy(lock, entry.cmd.Process.Pid)
 }

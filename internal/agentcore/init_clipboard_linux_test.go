@@ -11,11 +11,10 @@ import (
 	"github.com/labtether/labtether-agent/internal/agentcore/sysconfig"
 )
 
-// On a device without a desktop, Remote View runs the agent's own Xvfb (:99,
-// with its -auth file), and the clipboard went to :0 and failed. It must use
-// that Xvfb with its cookie, and never another X server a display scan finds:
-// a local user could run one on :1 to read the viewer's pasted text or plant
-// what the viewer copies.
+// With no desktop session the clipboard must use only the agent's own Xvfb
+// (remoteaccess tests cover that path with a live stand-in), never another X
+// server a display scan finds: a local user could run one on :1 to read the
+// viewer's pasted text or plant what the viewer copies.
 func TestHeadlessClipboardUsesOnlyTheAgentsOwnXvfb(t *testing.T) {
 	originalDetect := detectDesktopSessionFn
 	originalActive := appendDetectedActiveDisplays
@@ -58,15 +57,11 @@ func TestHeadlessClipboardUsesOnlyTheAgentsOwnXvfb(t *testing.T) {
 		return text
 	}
 
-	xvfb := &exec.Cmd{}
-	remoteaccess.RegisterAgentXvfb(xvfb, ":99", "/tmp/labtether-xauth-99.xauth")
-	t.Cleanup(func() { remoteaccess.ForgetAgentXvfb(xvfb) })
-	if got := read(); got != ":99 /tmp/labtether-xauth-99.xauth" {
-		t.Fatalf("with the agent's Xvfb running the clipboard used %q, want :99 with its Xauthority", got)
-	}
-
-	remoteaccess.ForgetAgentXvfb(xvfb)
+	// A recorded Xvfb whose process is gone is not the agent's display.
+	dead := &exec.Cmd{}
+	remoteaccess.RegisterAgentXvfb(dead, ":99", "/tmp/labtether-xauth-99.xauth")
+	t.Cleanup(func() { remoteaccess.ForgetAgentXvfb(dead) })
 	if got := read(); got != ":0 " {
-		t.Fatalf("with no agent Xvfb the clipboard used %q, want :0 and never the scanned :1", got)
+		t.Fatalf("with no live agent Xvfb the clipboard used %q, want :0 and never the scanned :1", got)
 	}
 }

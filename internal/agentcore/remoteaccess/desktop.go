@@ -171,6 +171,7 @@ func (dm *DesktopManager) watchXvfbExit(transport MessageSender, sess *DesktopSe
 		return
 	}
 	_ = sess.xvfbCmd.Wait()
+	ForgetAgentXvfb(sess.xvfbCmd)
 	// Check if session is still active (not already cleaned up).
 	dm.Mu.Lock()
 	current, stillActive := dm.Sessions[sess.sessionID]
