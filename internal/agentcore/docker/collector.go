@@ -68,6 +68,23 @@ type DockerCollector struct {
 	lastRunningSetHash string
 	lastStatsPublish   time.Time
 	statsCursor        string // last scheduled ID; rotate so hot containers cannot starve later IDs
+
+	composeMemory *composeMemory // Compose projects seen with containers; nil until SetComposeStateDir
+}
+
+// SetComposeStateDir loads the Compose project memory from the agent's state
+// folder (see composeMemory). Call it before Run.
+func (dc *DockerCollector) SetComposeStateDir(stateDir string) {
+	if dc == nil {
+		return
+	}
+	dc.composeMemory = newComposeMemory(stateDir)
+}
+
+// composeStacks lists the host's Compose projects: those with containers, and
+// remembered ones that are down but whose compose files still exist.
+func (dc *DockerCollector) composeStacks(containers []DockerContainer, incomplete bool) []protocol.DockerComposeStack {
+	return dc.composeMemory.merge(inferCompleteComposeStacks(containers, incomplete), incomplete)
 }
 
 // SetAssetIDProvider installs the authoritative runtime asset-ID reader. The
@@ -345,7 +362,7 @@ func (dc *DockerCollector) refreshAndPublishContainerDelta(ctx context.Context) 
 		rawContainers = rawContainers[:maxContainersPerHost]
 	}
 	nextContainers, runningIDs := buildContainerInfoMap(rawContainers)
-	nextCompose := inferCompleteComposeStacks(rawContainers, incomplete)
+	nextCompose := dc.composeStacks(rawContainers, incomplete)
 
 	upserts, removals := diffContainerInfoMap(previousContainers, nextContainers)
 	composeChanged := !composeStacksEqual(previousCompose, nextCompose)
@@ -483,7 +500,7 @@ func (dc *DockerCollector) collectFullDiscovery(ctx context.Context) (protocol.D
 	var runningIDs map[string]struct{}
 	snapshot.Containers, runningIDs = buildContainerInfoMap(rawContainers)
 	result.Containers = containerInfoMapToSlice(snapshot.Containers)
-	result.ComposeStacks = inferCompleteComposeStacks(rawContainers, incomplete)
+	result.ComposeStacks = dc.composeStacks(rawContainers, incomplete)
 	snapshot.ComposeStacks = cloneComposeStacks(result.ComposeStacks)
 
 	if images, err := dc.client.listImages(ctx); err == nil {
