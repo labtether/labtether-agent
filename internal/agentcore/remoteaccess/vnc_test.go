@@ -218,7 +218,7 @@ func requireNoStandaloneArg(t *testing.T, args []string, flag string) {
 func TestWaitForXvfbReadySucceedsWhenLockFileExists(t *testing.T) {
 	display := 88
 	lockFile := fmt.Sprintf("/tmp/.X%d-lock", display)
-	if err := os.WriteFile(lockFile, []byte("12345\n"), 0o644); err != nil {
+	if err := os.WriteFile(lockFile, []byte(fmt.Sprintf("%d\n", os.Getpid())), 0o644); err != nil {
 		t.Fatalf("failed to create mock lock file: %v", err)
 	}
 	defer os.Remove(lockFile)
@@ -282,7 +282,7 @@ func TestIsDisplayAvailableUsesLockFile(t *testing.T) {
 	system.CollectUserSessionsFn = func() ([]protocol.UserSession, error) { return nil, nil }
 
 	lockFile := "/tmp/.X86-lock"
-	if err := os.WriteFile(lockFile, []byte("12345\n"), 0o644); err != nil {
+	if err := os.WriteFile(lockFile, []byte(fmt.Sprintf("%d\n", os.Getpid())), 0o644); err != nil {
 		t.Fatalf("failed to create lock file: %v", err)
 	}
 	defer os.Remove(lockFile)
