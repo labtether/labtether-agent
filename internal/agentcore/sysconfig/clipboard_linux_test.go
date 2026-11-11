@@ -14,13 +14,13 @@ import (
 func preserveLinuxClipboardHooks(t *testing.T) {
 	t.Helper()
 	originalDetectSession := DetectLinuxDesktopSessionFn
-	originalAppendDisplays := AppendDetectedActiveDisplaysFn
+	originalAgentXvfb := AgentXvfbDisplayFn
 	originalLookPath := ClipboardLookPath
 	originalNewCommand := ClipboardNewCommand
 	originalBuildX11Env := BuildX11ClientEnvFn
 	t.Cleanup(func() {
 		DetectLinuxDesktopSessionFn = originalDetectSession
-		AppendDetectedActiveDisplaysFn = originalAppendDisplays
+		AgentXvfbDisplayFn = originalAgentXvfb
 		ClipboardLookPath = originalLookPath
 		ClipboardNewCommand = originalNewCommand
 		BuildX11ClientEnvFn = originalBuildX11Env

@@ -28,8 +28,10 @@ type LinuxDesktopSessionInfo struct {
 // Injectable function variables for desktop session detection.
 // The parent agentcore package wires these at init time.
 var (
-	DetectLinuxDesktopSessionFn    func() LinuxDesktopSessionInfo
-	AppendDetectedActiveDisplaysFn func(dst []string) []string
+	DetectLinuxDesktopSessionFn func() LinuxDesktopSessionInfo
+	// AgentXvfbDisplayFn returns the Xvfb the agent started for Remote View
+	// and its Xauthority path ("none" without one).
+	AgentXvfbDisplayFn func() (display, xauthPath string, ok bool)
 )
 
 var ClipboardLookPath = exec.LookPath
@@ -67,18 +69,19 @@ func buildLinuxClipboardEnvForSession(session LinuxDesktopSessionInfo) []string 
 		return filtered
 	}
 
-	display := session.Display
-	if display == "" {
-		if AppendDetectedActiveDisplaysFn != nil {
-			if detected := AppendDetectedActiveDisplaysFn(nil); len(detected) > 0 {
-				display = detected[0]
-			}
+	display, xauthPath := session.Display, ""
+	// No desktop session: use the Xvfb the agent started for Remote View,
+	// with its own cookie. Never a display found by scanning, which another
+	// local user could run to read or plant the viewer's clipboard.
+	if display == "" && AgentXvfbDisplayFn != nil {
+		if agentDisplay, agentXauth, ok := AgentXvfbDisplayFn(); ok {
+			display, xauthPath = agentDisplay, agentXauth
 		}
 	}
 	if display == "" {
 		display = ":0"
 	}
-	return buildX11ClipboardEnv(display, "")
+	return buildX11ClipboardEnv(display, xauthPath)
 }
 
 func buildX11ClipboardEnv(display, xauthPath string) []string {
@@ -95,7 +98,7 @@ func buildX11ClipboardEnv(display, xauthPath string) []string {
 		result = append(result, entry)
 	}
 	result = append(result, "DISPLAY="+display)
-	if xauthPath != "" {
+	if xauthPath != "" && xauthPath != "none" {
 		result = append(result, "XAUTHORITY="+xauthPath)
 	}
 	return result

@@ -236,6 +236,7 @@ func TerminateProcess(cmd *exec.Cmd) {
 	if cmd == nil || cmd.Process == nil {
 		return
 	}
+	ForgetAgentXvfb(cmd)
 	_ = cmd.Process.Kill()
 	done := make(chan struct{})
 	go func() {
