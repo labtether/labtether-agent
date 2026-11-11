@@ -226,6 +226,7 @@ func Run(ctx context.Context, cfg RuntimeConfig, provider TelemetryProvider) err
 		} else {
 			dockerCollector = dockerpkg.NewDockerCollector(cfg.DockerSocket, transport, cfg.AssetID, cfg.DockerDiscoveryInterval)
 			dockerCollector.SetAssetIDProvider(runtimeIdentity.AssetID)
+			dockerCollector.SetComposeStateDir(stateDirFor(cfg.TokenFilePath))
 			if dockerCollector.IsAvailable() {
 				execMgr = dockerCollector.NewExecManager()
 				dockerLogMgr = dockerCollector.NewLogManager()

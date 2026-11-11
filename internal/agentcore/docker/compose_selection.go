@@ -3,6 +3,7 @@ package docker
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -24,6 +25,10 @@ const (
 )
 
 var composeProjectName = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
+
+// errComposeProjectHasNoContainers: Docker lists no container for the project
+// (it is down, or it never existed).
+var errComposeProjectHasNoContainers = errors.New("Compose selection inventory is missing or incomplete")
 
 type composeSelection struct {
 	Name  string
@@ -145,7 +150,10 @@ func (c *dockerClient) composeProjectContainers(ctx context.Context, project str
 	if err := json.Unmarshal(data, &rows); err != nil {
 		return nil, err
 	}
-	if len(rows) == 0 || len(rows) > maxContainersPerHost {
+	if len(rows) == 0 {
+		return nil, errComposeProjectHasNoContainers
+	}
+	if len(rows) > maxContainersPerHost {
 		return nil, fmt.Errorf("Compose selection inventory is missing or incomplete")
 	}
 	for _, row := range rows {
@@ -161,6 +169,19 @@ func (dc *DockerCollector) resolveComposeSelection(ctx context.Context, req prot
 		return composeSelection{}, fmt.Errorf("invalid native Compose project name")
 	}
 	rows, err := dc.client.composeProjectContainers(ctx, req.StackName)
+	if errors.Is(err, errComposeProjectHasNoContainers) && (req.Action == "up" || req.Action == "pull") {
+		// A project that is down has no containers to read its labels from; use
+		// the selection remembered while it had them.
+		if remembered, ok := dc.composeMemory.lookup(req.StackName); ok {
+			if remembered.Dir != req.ConfigDir || (versioned && !stringSlicesEqual(remembered.Files, req.ConfigFiles)) {
+				return composeSelection{}, fmt.Errorf("Compose selection changed; refresh and resubmit the action")
+			}
+			if err := validateComposeFiles(remembered); err != nil {
+				return composeSelection{}, err
+			}
+			return remembered, nil
+		}
+	}
 	if err != nil {
 		return composeSelection{}, err
 	}
