@@ -55,7 +55,7 @@ func (r tmuxReply) first(block int) string {
 
 type tmuxPendingReply struct {
 	want  int
-	bytes int
+	bytes int // of the block being read
 	reply tmuxReply
 	then  func(tmuxReply)
 }
@@ -64,9 +64,10 @@ type tmuxPendingReply struct {
 // stdin and are answered in order; everything else on stdout is a
 // notification, handed to notify on the reader goroutine.
 type tmuxControlClient struct {
-	cmd   *exec.Cmd
-	stdin io.WriteCloser
-	done  chan struct{} // closed once the process has ended
+	cmd    *exec.Cmd
+	stdin  io.WriteCloser
+	stdout *os.File
+	done   chan struct{} // closed once the process has ended
 
 	writeMu sync.Mutex // one command line and its reply slot at a time
 	mu      sync.Mutex
@@ -96,7 +97,7 @@ func startTmuxControlClient(cmd *exec.Cmd, notify func(line []byte), ended func(
 		_ = stdout.Close()
 		return nil, err
 	}
-	client := &tmuxControlClient{cmd: cmd, stdin: stdin, done: make(chan struct{})}
+	client := &tmuxControlClient{cmd: cmd, stdin: stdin, stdout: stdout, done: make(chan struct{})}
 	go client.read(stdout, notify, ended)
 	return client, nil
 }
@@ -143,6 +144,9 @@ func (c *tmuxControlClient) kill() {
 	if c.cmd.Process != nil {
 		_ = c.cmd.Process.Kill()
 	}
+	// The tmux server holds the other end of this pipe too. Closing it here
+	// ends the reader even when that server is stopped or stalled.
+	_ = c.stdout.Close()
 }
 
 func (c *tmuxControlClient) read(stdout *os.File, notify func([]byte), ended func()) {
@@ -167,6 +171,9 @@ func (c *tmuxControlClient) read(stdout *os.File, notify func([]byte), ended fun
 				pending = nil
 				if own {
 					pending = c.head()
+				}
+				if pending != nil {
+					pending.bytes = 0 // the limit is for each block
 				}
 				continue
 			}

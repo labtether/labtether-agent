@@ -3,6 +3,7 @@ package remoteaccess
 import (
 	"bytes"
 	"fmt"
+	"log"
 	"sync"
 	"time"
 )
@@ -40,8 +41,9 @@ var tmuxOwnTermKeys = map[string]string{
 // sending, and a moment later the screen and its history are read back from
 // tmux and sent in place of what was skipped.
 type tmuxControlTerminal struct {
-	client *tmuxControlClient
-	out    *tmuxOutputQueue
+	client  *tmuxControlClient
+	out     *tmuxOutputQueue
+	session string // the session's tmux ID ("$3")
 
 	// Reader goroutine only.
 	pane    string // the pane relayed; other panes of the session are ignored
@@ -109,6 +111,13 @@ func (t *tmuxControlTerminal) notify(line []byte) {
 	case "%pause":
 		if t.live && string(rest) == t.pane {
 			t.hold(false)
+		}
+	case "%session-changed":
+		// With detach-on-destroy off, tmux moves the client to another of the
+		// person's sessions when this one ends. Typed input must not follow
+		// it there: end the terminal, as when the session ends.
+		if id, _, _ := bytes.Cut(rest, []byte(" ")); t.session != "" && string(id) != t.session {
+			t.client.kill()
 		}
 	case "%layout-change", "%window-close", "%unlinked-window-close", "%window-pane-changed":
 		t.mu.Lock()
@@ -271,7 +280,9 @@ func (t *tmuxControlTerminal) work(now time.Time) time.Duration {
 	}
 	if seed {
 		_ = t.client.send(tmuxSeedCommand(pane, cols, rows), tmuxSeedCommands, func(reply tmuxReply) {
-			_ = t.seeded(reply, cols, rows)
+			if err := t.seeded(reply, cols, rows); err != nil && !reply.lost {
+				log.Printf("terminal: tmux screen redraw failed, trying again: %v", err)
+			}
 		})
 	}
 	if nudge {

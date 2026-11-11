@@ -419,3 +419,21 @@ func TestTmuxSupportsControlFromVersionText(t *testing.T) {
 		}
 	}
 }
+
+// With detach-on-destroy off, tmux moves a client to another session when
+// its own ends. The terminal stayed open and typed input went to that other
+// session. It must end, as it does when tmux detaches the client.
+func TestTmuxControlEndsWhenTmuxMovesItToAnotherSession(t *testing.T) {
+	h := newTmuxHarness(t)
+	h.tmux("new-session", "-d", "-s", "someone-elses")
+	h.tmux("set-option", "-g", "detach-on-destroy", "off")
+	id := h.open("lt-moved", 80, 24)
+	h.ready(id)
+	h.typeLine(id, "exit")
+	if reason := h.waitClosed(id); reason != terminalShellExitedReason {
+		t.Fatalf("close reason %q, want %q", reason, terminalShellExitedReason)
+	}
+	if out := h.tmux("has-session", "-t", "=someone-elses"); out != "" {
+		t.Fatalf("the other session did not survive: %s", out)
+	}
+}

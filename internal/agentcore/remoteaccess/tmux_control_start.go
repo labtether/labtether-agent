@@ -44,8 +44,8 @@ var errTmuxControlUnsupported = errors.New("this tmux is older than 3.2")
 // PTY attach path.
 func startTmuxControlTerminal(ctx context.Context, tmuxPath, session, dir string, cols, rows uint16, extraEnv []string) (*nativeTerminal, *exec.Cmd, error) {
 	env := append(append(securityruntime.SanitizedChildEnv(), "TERM="+tmuxInnerTerm), extraEnv...)
-	run := func(args ...string) (string, error) {
-		runCtx, cancel := context.WithTimeout(ctx, tmuxCommandTimeout)
+	runIn := func(base context.Context, args ...string) (string, error) {
+		runCtx, cancel := context.WithTimeout(base, tmuxCommandTimeout)
 		defer cancel()
 		cmd, err := securityruntime.NewCommandContext(runCtx, tmuxPath, args...)
 		if err != nil {
@@ -55,6 +55,7 @@ func startTmuxControlTerminal(ctx context.Context, tmuxPath, session, dir string
 		out, err := securityruntime.CaptureCombinedOutput(cmd, 64<<10)
 		return strings.TrimSpace(string(out)), err
 	}
+	run := func(args ...string) (string, error) { return runIn(ctx, args...) }
 	if version, err := run("-V"); err != nil || !tmuxSupportsControl(version) {
 		return nil, nil, errTmuxControlUnsupported
 	}
@@ -67,9 +68,12 @@ func startTmuxControlTerminal(ctx context.Context, tmuxPath, session, dir string
 		return nil, nil, err
 	}
 	created := placeholder != ""
+	// A start is often given up because its context was cancelled, and the
+	// session made for it must still go: left behind, the next terminal of
+	// this name would attach to the placeholder.
 	abandon := func() {
 		if created {
-			_, _ = run("kill-session", "-t", sessionID)
+			_, _ = runIn(context.WithoutCancel(ctx), "kill-session", "-t", sessionID)
 		}
 	}
 
@@ -80,6 +84,7 @@ func startTmuxControlTerminal(ctx context.Context, tmuxPath, session, dir string
 	}
 	cmd.Env, cmd.Dir = env, dir
 	terminal := newTmuxControlTerminal(int(cols), int(rows))
+	terminal.session = sessionID
 	client, err := startTmuxControlClient(cmd, terminal.notify, terminal.out.end)
 	if err != nil {
 		abandon()
@@ -114,6 +119,8 @@ func startTmuxControlTerminal(ctx context.Context, tmuxPath, session, dir string
 		done:        done,
 		resize:      terminal.resize,
 		outputChunk: tmuxOutputChunkBytes,
+		// What is queued when the shell exits leaves at the paced rate.
+		drainTimeout: tmuxOutputDrainTimeout,
 	}, cmd, nil
 }
 
@@ -143,6 +150,7 @@ func tmuxCreateSession(run func(...string) (string, error), session, dir string,
 	if err == nil {
 		fields := strings.Fields(out)
 		if len(fields) != 2 || !strings.HasPrefix(fields[0], "$") || !strings.HasPrefix(fields[1], "@") {
+			_, _ = run("kill-session", "-t", "="+session)
 			return "", "", fmt.Errorf("unexpected tmux new-session output %q", out)
 		}
 		return fields[0], fields[1], nil

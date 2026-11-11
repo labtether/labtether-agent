@@ -171,7 +171,9 @@ func (tm *TerminalManager) startTerminal(transport MessageSender, req protocol.T
 
 	var inputStream io.WriteCloser = ptmx
 	var nativeDone <-chan error
+	drainTimeout := terminalOutputDrainTimeout
 	if native != nil {
+		drainTimeout = max(drainTimeout, native.drainTimeout)
 		sess.input, sess.output = native.input, native.output
 		sess.resize, sess.stop, sess.outputChunk = native.resize, native.stop, native.outputChunk
 		inputStream, nativeDone = native.input, native.done
@@ -225,7 +227,7 @@ func (tm *TerminalManager) startTerminal(transport MessageSender, req protocol.T
 		close(sess.done)
 		select {
 		case <-sess.outputDone:
-		case <-time.After(terminalOutputDrainTimeout):
+		case <-time.After(drainTimeout):
 			// Give normal output time to drain, then release the orphaned stream.
 			sess.close()
 		}

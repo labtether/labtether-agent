@@ -15,10 +15,16 @@ const (
 	// browser eight seconds before that queue fills.
 	tmuxOutputBurstMessages  = 32
 	tmuxOutputMessagesPerSec = 32
+	// The longest a full queue (shell output and one redrawn screen) takes to
+	// leave at that rate, with room to spare.
+	tmuxOutputDrainTimeout = 10 * time.Second
 	// tmuxLiveQueueBytes is how much shell output may wait here. A program
 	// that prints faster than it can be sent fills it; the terminal then skips
 	// ahead (see tmuxControlTerminal.hold) instead of keeping more.
 	tmuxLiveQueueBytes = 4 << 20
+	// Read bytes are cut off the front of the buffer once this many have
+	// gathered, so a queue that never quite empties does not keep them.
+	tmuxQueueCompactBytes = 1 << 20
 )
 
 // tmuxOutputQueue holds terminal bytes between the tmux reader and the loop
@@ -28,6 +34,7 @@ type tmuxOutputQueue struct {
 	mu       sync.Mutex
 	buf      []byte
 	off      int
+	screen   int  // buf up to here holds a redrawn screen: not shell output
 	ended    bool // nothing more will be added; Read drains, then EOF
 	closed   bool
 	tokens   float64
@@ -52,7 +59,7 @@ func newTmuxOutputQueue() *tmuxOutputQueue {
 // queue is full.
 func (q *tmuxOutputQueue) addLive(data []byte) bool {
 	q.mu.Lock()
-	if len(q.buf)-q.off+len(data) > tmuxLiveQueueBytes {
+	if len(q.buf)-max(q.off, q.screen)+len(data) > tmuxLiveQueueBytes {
 		q.mu.Unlock()
 		return false
 	}
@@ -62,20 +69,32 @@ func (q *tmuxOutputQueue) addLive(data []byte) bool {
 	return true
 }
 
-// addScreen queues a redrawn screen. It is bounded by its maker, not here.
+// addScreen queues a redrawn screen. It is bounded by its maker, not here,
+// and does not use up the room for shell output.
 func (q *tmuxOutputQueue) addScreen(data []byte) {
 	q.mu.Lock()
 	q.buf = append(q.buf, data...)
+	q.screen = len(q.buf)
 	q.mu.Unlock()
 	q.signal(q.wake)
 }
 
-// discard drops what has not been read yet.
+// discard drops the shell output that has not been read yet. A redrawn
+// screen that is still waiting stays: dropping it would leave the terminal
+// without the screen the next redraw builds on, or never let it finish.
 func (q *tmuxOutputQueue) discard() {
 	q.mu.Lock()
-	q.buf, q.off = nil, 0
+	if keep := max(q.off, q.screen); keep < len(q.buf) {
+		q.buf = q.buf[:keep]
+	}
+	empty := q.off >= len(q.buf)
+	if empty {
+		q.buf, q.off, q.screen = nil, 0, 0
+	}
 	q.mu.Unlock()
-	q.signal(q.drained)
+	if empty {
+		q.signal(q.drained)
+	}
 }
 
 func (q *tmuxOutputQueue) pending() int {
@@ -98,7 +117,7 @@ func (q *tmuxOutputQueue) Close() error {
 		q.closed = true
 		close(q.stop)
 	}
-	q.buf, q.off = nil, 0
+	q.buf, q.off, q.screen = nil, 0, 0
 	q.mu.Unlock()
 	return nil
 }
@@ -122,13 +141,18 @@ func (q *tmuxOutputQueue) Read(p []byte) (int, error) {
 			n := copy(p, q.buf[q.off:])
 			q.off += n
 			empty := q.off == len(q.buf)
-			if empty {
-				q.off = 0
+			switch {
+			case empty:
+				q.off, q.screen = 0, 0
 				if cap(q.buf) > tmuxLiveQueueBytes/4 {
 					q.buf = nil
 				} else {
 					q.buf = q.buf[:0]
 				}
+			case q.off >= tmuxQueueCompactBytes:
+				q.screen = max(q.screen-q.off, 0)
+				q.buf = append(make([]byte, 0, len(q.buf)-q.off), q.buf[q.off:]...)
+				q.off = 0
 			}
 			q.mu.Unlock()
 			if empty {

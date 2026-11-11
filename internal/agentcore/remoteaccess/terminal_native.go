@@ -3,6 +3,7 @@ package remoteaccess
 import (
 	"io"
 	"os/exec"
+	"time"
 )
 
 // nativeTerminal is a shell on a platform without a Unix PTY: a Windows
@@ -16,6 +17,9 @@ type nativeTerminal struct {
 	// outputChunk is the most output read into one message; zero means the
 	// default.
 	outputChunk int
+	// drainTimeout is how long output may keep leaving after the shell has
+	// exited; zero means terminalOutputDrainTimeout.
+	drainTimeout time.Duration
 	// stop ends the shell and every program it started. It is nil for plain
 	// pipes: there the command's context ends the shell alone.
 	stop func()
