@@ -44,6 +44,8 @@ moves it to the LabTether 2.0 version line with Hub 2.0.
   or disabled) instead of "unknown", and a failed start or stop shows the
   reason Windows gives, not only its error code.
 - Windows sessions in the Users list report when the user signed in.
+- macOS launchd jobs report whether they are enabled or disabled instead of
+  "unknown", from launchd's own overrides.
 
 ## [1.7.1] - 2026-10-31
 

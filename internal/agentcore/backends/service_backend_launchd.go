@@ -37,6 +37,7 @@ func (DarwinServiceBackend) ListServices() ([]protocol.ServiceInfo, error) {
 	}
 
 	services := ParseLaunchctlListOutput(string(out))
+	applyLaunchdEnabled(ctx, services)
 	sort.Slice(services, func(i, j int) bool {
 		return services[i].Name < services[j].Name
 	})
