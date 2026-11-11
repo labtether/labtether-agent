@@ -161,18 +161,29 @@ func ParseUserSessionsOutput(out []byte) []protocol.UserSession {
 			session.LoginTime = loginFields[0]
 		}
 
-		// Remote host is in parentheses at end of line, if present.
-		if idx := strings.LastIndex(line, "("); idx >= 0 {
-			if endIdx := strings.LastIndex(line, ")"); endIdx > idx {
-				host := line[idx+1 : endIdx]
-				if host != "" {
-					session.RemoteHost = host
-				}
-			}
-		}
+		session.RemoteHost = whoRemoteHost(fields)
 
 		sessions = append(sessions, session)
 	}
 
 	return sessions
+}
+
+// whoRemoteHost reads the comment `who` prints in parentheses at the end of a
+// line: the address a login came from, or ":0" for a local display. A shell
+// inside tmux reads "(tmux(4649).%0)": that is a tmux pane on this machine,
+// not a remote host, so it gives "". Nested parentheses are kept whole.
+func whoRemoteHost(fields []string) string {
+	if len(fields) == 0 {
+		return ""
+	}
+	last := fields[len(fields)-1]
+	if len(last) < 3 || !strings.HasPrefix(last, "(") || !strings.HasSuffix(last, ")") {
+		return ""
+	}
+	comment := last[1 : len(last)-1]
+	if strings.HasPrefix(comment, "tmux(") {
+		return ""
+	}
+	return comment
 }

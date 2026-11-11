@@ -42,3 +42,22 @@ func TestWhoLoginTimesInMacOSFormats(t *testing.T) {
 		t.Fatalf("December session = %+v", sessions)
 	}
 }
+
+// A shell in LabTether's own terminal runs inside tmux, so `who` prints
+// "(tmux(4649).%0)". The Users page showed "4649).%0" as where it came from.
+func TestWhoRemoteHostOfTmuxPanesAndAddresses(t *testing.T) {
+	out := "root     pts/1        2026-11-11 03:19 (tmux(4649).%0)\n" +
+		"demo     pts/3        2026-11-11 03:36 (192.0.2.10)\n" +
+		"demo     tty7         2026-11-11 03:00 (:0)\n" +
+		"demo     tty1         2026-11-11 02:00\n"
+	sessions := ParseUserSessionsOutput([]byte(out))
+	want := []string{"", "192.0.2.10", ":0", ""}
+	if len(sessions) != len(want) {
+		t.Fatalf("got %d sessions, want %d: %#v", len(sessions), len(want), sessions)
+	}
+	for i, w := range want {
+		if sessions[i].RemoteHost != w {
+			t.Fatalf("session %d remote host = %q, want %q", i, sessions[i].RemoteHost, w)
+		}
+	}
+}

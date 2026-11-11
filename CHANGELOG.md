@@ -28,6 +28,10 @@ moves it to the LabTether 2.0 version line with Hub 2.0.
 
 ### Fixed
 
+- Users: a shell inside tmux (every LabTether terminal) no longer lists a
+  broken remote host such as "4649).%0"; the comment `who` prints is read as
+  one field, and a tmux pane has no remote host.
+
 - Release archive checks accept the unset gzip timestamp that the release
   tool writes, so a new release can be sealed and verified.
 - Release checks accept the temporary download links GitHub uses for a draft
