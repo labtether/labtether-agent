@@ -34,7 +34,7 @@ func TestHeadlessClipboardUsesOnlyTheAgentsOwnXvfb(t *testing.T) {
 	appendDetectedActiveDisplays = func(dst []string) []string { return append(dst, ":1") }
 	remoteaccess.DiscoverDisplayXAuthorityFn = func(display string) string {
 		if display == ":1" {
-			return "/home/other/.Xauthority"
+			return "/home/demo/.Xauthority"
 		}
 		return ""
 	}
