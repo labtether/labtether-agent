@@ -363,8 +363,7 @@ func IsDisplayError(err error) bool {
 // display whose lock file does not exist.
 func FindFreeDisplay() int {
 	for d := 99; d >= 90; d-- {
-		lockFile := fmt.Sprintf("/tmp/.X%d-lock", d)
-		if _, err := os.Stat(lockFile); os.IsNotExist(err) {
+		if !x11LockHeld(fmt.Sprintf("%s/.X%d-lock", x11LockDir, d)) {
 			return d
 		}
 	}
