@@ -1,4 +1,4 @@
-//go:build linux || darwin || freebsd
+//go:build linux || darwin
 
 package system
 
@@ -20,16 +20,8 @@ func StatfsMountPoint(device, mountPoint, fsType string) (protocol.MountInfo, er
 		blockSize = uint64(stat.Bsize)
 	}
 
-	// FreeBSD exposes Bavail as a signed value because reserved filesystem
-	// blocks can make the value negative. Guard it before converting to uint64;
-	// a direct cast would turn a small negative value into a huge capacity.
-	availableBlocks := uint64(0)
-	if stat.Bavail > 0 {
-		availableBlocks = uint64(stat.Bavail)
-	}
-
 	total := saturatingBlockBytes(uint64(stat.Blocks), blockSize)
-	available := saturatingBlockBytes(availableBlocks, blockSize)
+	available := saturatingBlockBytes(uint64(stat.Bavail), blockSize)
 	free := saturatingBlockBytes(uint64(stat.Bfree), blockSize)
 	used := uint64(0)
 	if total > free {

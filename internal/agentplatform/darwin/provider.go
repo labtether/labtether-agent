@@ -1,6 +1,7 @@
 package darwin
 
 import (
+	"strings"
 	"time"
 
 	"github.com/labtether/labtether-agent/internal/agentcore"
@@ -21,6 +22,7 @@ func New(assetID, source string) *Provider {
 	for key, value := range readCapabilityMetadata() {
 		metadata[key] = value
 	}
+	applyMacOSName(metadata)
 
 	return &Provider{
 		base:           base,
@@ -42,4 +44,15 @@ func (p *Provider) StaticMetadata() map[string]string {
 
 func (p *Provider) Collect(now time.Time) (agentcore.TelemetrySample, error) {
 	return p.base.Collect(now)
+}
+
+// applyMacOSName names the system "macOS" where gopsutil reports the kernel's
+// "darwin", so device pages read "macOS 27.2" as Windows ones read "Microsoft
+// Windows 11 Pro". The platform key stays "darwin".
+func applyMacOSName(metadata map[string]string) {
+	if !strings.EqualFold(strings.TrimSpace(metadata["os_name"]), "darwin") {
+		return
+	}
+	metadata["os_name"] = "macOS"
+	metadata["os_pretty_name"] = strings.TrimSpace("macOS " + strings.TrimSpace(metadata["os_version"]))
 }

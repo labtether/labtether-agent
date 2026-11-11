@@ -14,8 +14,21 @@ const (
 	wtsUserName                     = 5
 	wtsDomainName                   = 7
 	wtsClientName                   = 10
+	wtsSessionInfo                  = 24
 	wtsCurrentServer windows.Handle = 0
 )
+
+// wtsInfo is WTSINFOW from wtsapi32.h; only LogonTime is read.
+type wtsInfo struct {
+	State, SessionID, IncomingBytes, OutgoingBytes   uint32
+	IncomingFrames, OutgoingFrames                   uint32
+	IncomingCompressedBytes, OutgoingCompressedBytes uint32
+	WinStationName                                   [32]uint16
+	Domain                                           [17]uint16
+	UserName                                         [21]uint16
+	ConnectTime, DisconnectTime, LastInputTime       int64
+	LogonTime, CurrentTime                           int64
+}
 
 var (
 	wtsapi32DLL                    = windows.NewLazySystemDLL("wtsapi32.dll")
@@ -57,6 +70,7 @@ func collectUserSessionsWindows() ([]protocol.UserSession, error) {
 			RemoteHost:  strings.TrimSpace(wtsSessionString(item.SessionID, wtsClientName)),
 			SessionType: windowsSessionType(terminal),
 			Display:     terminal,
+			LoginTime:   wtsSessionLogonTime(item.SessionID),
 		})
 	}
 	return sessions, nil
@@ -93,4 +107,26 @@ func wtsSessionString(sessionID uint32, infoClass uintptr) string {
 	}
 	defer windows.WTSFreeMemory(uintptr(unsafe.Pointer(buffer)))
 	return windows.UTF16ToString(unsafe.Slice(buffer, int(size/2)))
+}
+
+// wtsSessionLogonTime returns the session's logon time, or "" when Windows
+// does not report one.
+func wtsSessionLogonTime(sessionID uint32) string {
+	var buffer *wtsInfo
+	var size uint32
+	result, _, _ := wtsQuerySessionInformationProc.Call(
+		uintptr(wtsCurrentServer),
+		uintptr(sessionID),
+		wtsSessionInfo,
+		uintptr(unsafe.Pointer(&buffer)),
+		uintptr(unsafe.Pointer(&size)),
+	)
+	if result == 0 || buffer == nil {
+		return ""
+	}
+	defer windows.WTSFreeMemory(uintptr(unsafe.Pointer(buffer)))
+	if size < uint32(unsafe.Sizeof(wtsInfo{})) {
+		return ""
+	}
+	return windowsLogonTime(buffer.LogonTime)
 }

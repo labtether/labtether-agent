@@ -4,9 +4,14 @@ All notable changes to `labtether-agent` are documented in this file.
 
 ## [2.0.0] - unreleased
 
-Changes since v1.7.1. Apart from the web service scan fixes below, the
-agent's runtime code is the same as in 1.7.1; this release moves it to the
-LabTether 2.0 version line with Hub 2.0.
+Changes since v1.7.1. Apart from the web service scan fixes and the FreeBSD
+removal below, the agent's runtime code is the same as in 1.7.1; this release
+moves it to the LabTether 2.0 version line with Hub 2.0.
+
+### Removed
+
+- FreeBSD. The agent no longer builds for FreeBSD, and its FreeBSD-only code
+  is gone. No release ever shipped a FreeBSD binary.
 
 ### Changed
 
@@ -23,6 +28,15 @@ LabTether 2.0 version line with Hub 2.0.
 
 ### Fixed
 
+- Remote View on a Linux device without a desktop works again after the first
+  session. The agent stops its Xvfb hard, which left the display's lock file;
+  the next session took the dead display for a live one and failed with "VNC
+  server not ready". A lock whose process is gone no longer counts.
+
+- Users: a shell inside tmux (every LabTether terminal) no longer lists a
+  broken remote host such as "4649).%0"; the comment `who` prints is read as
+  one field, and a tmux pane has no remote host.
+
 - Release archive checks accept the unset gzip timestamp that the release
   tool writes, so a new release can be sealed and verified.
 - Release checks accept the temporary download links GitHub uses for a draft
@@ -32,6 +46,36 @@ LabTether 2.0 version line with Hub 2.0.
   TrueNAS; the console and the Hub's HTTP port are listed as LabTether.
 - The scan keeps an open port only when it answers HTTP or HTTPS, so SSH no
   longer shows as a "Port 22" service that is always down.
+- Windows Event Log text keeps characters outside the console code page.
+  Accents, other scripts and the marks Windows puts around dates no longer
+  reach the Hub as "?".
+- Windows services report whether they start with Windows (enabled, manual
+  or disabled) instead of "unknown", and a failed start or stop shows the
+  reason Windows gives, not only its error code.
+- Windows sessions in the Users list report when the user signed in.
+- The Windows Event Log stream sends each new event once. It used to send
+  the newest events again every 5 seconds, so one event could reach the
+  Hub's log store more than a hundred times.
+- Windows log searches for errors or warnings search the whole log, not
+  only the newest events read; filtering by source or text reads up to
+  1,000 events per channel before filtering.
+- macOS launchd jobs report whether they are enabled or disabled instead of
+  "unknown", from launchd's own overrides.
+- macOS devices read "macOS 27.2" instead of "darwin".
+- macOS process names keep their spaces ("Google Chrome", not "Google").
+- The macOS Cron / Timers list works: it reads the user's crontab with
+  `crontab -l` and shows launchd jobs even when a crontab or plist cannot be
+  read. It used to fail on every Mac with "no configured crontab source is
+  readable".
+- macOS login times in Users are dates, not raw `who` text.
+- macOS Disks leaves out the system's own APFS volumes (VM, Preboot, Update,
+  Recovery), as Finder does.
+- The macOS System Log query shows the newest lines. It used to read the
+  oldest part of the last hour, so lines were an hour old, and level, unit
+  and text filters are now part of the `log show` query.
+- The agent no longer streams the macOS unified log to the Hub unless
+  `LABTETHER_LOG_STREAM_ENABLED=true`; at its default level it wrote about
+  19,000 rows a minute into the Hub. The Mac app already turned it off.
 
 ## [1.7.1] - 2026-10-31
 

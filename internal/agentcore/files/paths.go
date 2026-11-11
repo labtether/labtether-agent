@@ -151,7 +151,7 @@ func (fm *Manager) ValidatePath(rawPath string) (string, error) {
 		// where the final path component points outside the allowed roots.
 		resolvedTarget, evalErr := filepath.EvalSymlinks(cleaned)
 		if evalErr != nil {
-			return "", fmt.Errorf("resolve path %q: %w", cleaned, evalErr)
+			return "", fmt.Errorf("resolve path %s: %w", quotePath(cleaned), evalErr)
 		}
 		resolved = resolvedTarget
 	} else if statErr == nil {
@@ -167,11 +167,11 @@ func (fm *Manager) ValidatePath(rawPath string) (string, error) {
 		}
 		resolved = filepath.Join(resolvedParent, filepath.Base(cleaned))
 	} else {
-		return "", fmt.Errorf("stat path %q: %w", cleaned, statErr)
+		return "", fmt.Errorf("stat path %s: %w", quotePath(cleaned), statErr)
 	}
 
 	if !scope.containsResolved(resolved) {
-		return "", fmt.Errorf("path %q is outside the allowed base directory", cleaned)
+		return "", fmt.Errorf("path %s is outside the allowed base directory", quotePath(cleaned))
 	}
 
 	return resolved, nil
@@ -197,11 +197,11 @@ func (fm *Manager) ValidatePathNoFollowFinal(rawPath string) (string, error) {
 	}
 	containmentPath := filepath.Join(resolvedParent, filepath.Base(cleaned))
 	if _, statErr := os.Lstat(cleaned); statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
-		return "", fmt.Errorf("stat path %q: %w", cleaned, statErr)
+		return "", fmt.Errorf("stat path %s: %w", quotePath(cleaned), statErr)
 	}
 
 	if !scope.containsResolved(containmentPath) {
-		return "", fmt.Errorf("path %q is outside the allowed base directory", cleaned)
+		return "", fmt.Errorf("path %s is outside the allowed base directory", quotePath(cleaned))
 	}
 	return cleaned, nil
 }
@@ -241,14 +241,14 @@ func resolveExistingPathForContainment(path string) (string, error) {
 		if _, err := os.Lstat(current); err == nil {
 			resolved, evalErr := filepath.EvalSymlinks(current)
 			if evalErr != nil {
-				return "", fmt.Errorf("resolve path %q: %w", current, evalErr)
+				return "", fmt.Errorf("resolve path %s: %w", quotePath(current), evalErr)
 			}
 			for i := len(missing) - 1; i >= 0; i-- {
 				resolved = filepath.Join(resolved, missing[i])
 			}
 			return resolved, nil
 		} else if !errors.Is(err, os.ErrNotExist) {
-			return "", fmt.Errorf("stat path %q: %w", current, err)
+			return "", fmt.Errorf("stat path %s: %w", quotePath(current), err)
 		}
 
 		parent := filepath.Dir(current)

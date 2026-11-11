@@ -10,13 +10,10 @@ import (
 )
 
 // defaultComposeStacksRoot is a persistent, root-owned state folder for a root
-// agent (/var/lib/labtether/stacks, or /var/db on FreeBSD). Other accounts use
+// agent (/var/lib/labtether/stacks). Other accounts use
 // their own configuration folder.
 func defaultComposeStacksRoot() string {
 	if os.Geteuid() == 0 && runtime.GOOS != "darwin" {
-		if runtime.GOOS == "freebsd" {
-			return "/var/db/labtether/stacks"
-		}
 		return "/var/lib/labtether/stacks"
 	}
 	if dir, err := os.UserConfigDir(); err == nil && dir != "" {

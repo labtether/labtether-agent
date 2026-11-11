@@ -4,8 +4,8 @@ package sysconfig
 
 import gopsutilnet "github.com/shirou/gopsutil/v4/net"
 
-// ReadIfaceStats reads real per-interface counters through gopsutil on Windows,
-// FreeBSD, and other platforms without the Linux sysfs or Darwin netstat
+// ReadIfaceStats reads real per-interface counters through gopsutil on Windows
+// and other platforms without the Linux sysfs or Darwin netstat
 // implementations. The legacy signature cannot expose collection errors, so an
 // unavailable counter source remains a bounded zero-value fallback.
 func ReadIfaceStats(name string) (rxBytes, txBytes, rxPackets, txPackets uint64) {

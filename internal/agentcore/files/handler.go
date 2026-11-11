@@ -28,8 +28,6 @@ const (
 	maxWritePending               = 64
 	maxFileWriteRequestIDLen      = 256
 	pendingWriteIdleTTL           = 5 * time.Minute
-	orphanCleanupScanBudget       = 2 * time.Second
-	orphanCleanupMaxEntries       = 20000
 )
 
 var (
@@ -61,6 +59,9 @@ type Manager struct {
 	// in full mode on Windows. Nil means BaseDir only.
 	extraRoots func() []string
 	rootMode   string
+	// uploadRecordDir is where unfinished uploads are recorded. Empty means
+	// no records. It never changes after NewManager.
+	uploadRecordDir string
 	// scopeMu guards BaseDir, HomeDir, extraRoots and rootMode once the
 	// manager is in use, because SetRootMode can change them at any time.
 	scopeMu sync.RWMutex
@@ -81,8 +82,12 @@ type PendingWrite struct {
 	idleTimer    *time.Timer
 }
 
-// NewManager creates a new file Manager with the given file root mode.
-func NewManager(fileRootMode string) *Manager {
+// NewManager creates a file Manager for the given file root mode. stateDir is
+// the agent's own state folder: unfinished uploads are recorded there, and
+// the temporary files that an earlier run recorded and left behind are
+// removed now. With an empty stateDir, or one the agent cannot write, nothing
+// is recorded and nothing is removed.
+func NewManager(fileRootMode, stateDir string) *Manager {
 	homeDir := ResolveAgentFileHomeDir()
 	fm := &Manager{
 		writers:    make(map[string]*PendingWrite),
@@ -91,14 +96,15 @@ func NewManager(fileRootMode string) *Manager {
 		extraRoots: rootsForMode(fileRootMode),
 		rootMode:   strings.TrimSpace(strings.ToLower(fileRootMode)),
 	}
-	// Evaluate the startup roots before launching cleanup so callers that
-	// replace BaseDir for an isolated test/session cannot race the goroutine.
-	roots := fm.scope().roots
-	go func() {
-		for _, root := range roots {
-			fm.cleanupOrphanedTempFiles(root)
-		}
-	}()
+	if strings.TrimSpace(stateDir) != "" {
+		fm.uploadRecordDir = filepath.Join(stateDir, uploadRecordDirName)
+	}
+	// Read the scope and the earlier records before returning. The cleanup
+	// then cannot race a caller that replaces BaseDir for an isolated test,
+	// and cannot reach an upload this run starts.
+	if ids := fm.uploadRecordIDs(); len(ids) > 0 {
+		go fm.removeRecordedUploadLeftovers(fm.scope(), ids)
+	}
 	return fm
 }
 
@@ -162,6 +168,10 @@ func readBoundedFileEntries(dir fileListDirReader, showHidden bool, requestID, p
 			if infoErr != nil {
 				continue
 			}
+			mode, hidden := listEntryMode(info)
+			if hidden && !showHidden {
+				continue
+			}
 			if len(entries) >= maxFileListEntries {
 				return nil, fmt.Errorf("%w: more than %d visible entries", errFileListLimitExceeded, maxFileListEntries)
 			}
@@ -169,7 +179,7 @@ func readBoundedFileEntries(dir fileListDirReader, showHidden bool, requestID, p
 			fileEntry := protocol.FileEntry{
 				Name:    entry.Name(),
 				Size:    info.Size(),
-				Mode:    info.Mode().String(),
+				Mode:    mode,
 				ModTime: info.ModTime().UTC().Format(time.RFC3339),
 				IsDir:   entry.IsDir(),
 			}
@@ -296,6 +306,13 @@ func (fm *Manager) HandleFileDelete(transport MessageSender, msg protocol.Messag
 	// Safety: don't allow deleting the base directory or a drive root.
 	if target.rel == "." {
 		fm.SendFileResult(transport, req.RequestID, false, "cannot delete base directory")
+		return
+	}
+	// RemoveAll is silent about a path that is not there. Answer with the
+	// system's own "not found" words, as rename and read do; the Hub turns
+	// them into "file not found: <path>".
+	if _, err := target.root.Lstat(target.rel); err != nil {
+		fm.SendFileResult(transport, req.RequestID, false, err.Error())
 		return
 	}
 	if err := target.root.RemoveAll(target.rel); err != nil {
@@ -473,11 +490,12 @@ func (fm *Manager) HandleFileSearch(transport MessageSender, msg protocol.Messag
 		}
 
 		displayPath := filepath.Join(searchRoot.base, filepath.FromSlash(relPath))
+		mode, _ := listEntryMode(info)
 		matches = append(matches, protocol.FileEntry{
 			Name:    d.Name(),
 			Path:    displayPath,
 			Size:    info.Size(),
-			Mode:    info.Mode().String(),
+			Mode:    mode,
 			ModTime: info.ModTime().UTC().Format(time.RFC3339),
 			IsDir:   d.IsDir(),
 		})

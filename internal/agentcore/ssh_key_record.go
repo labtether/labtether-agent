@@ -75,6 +75,15 @@ func StateDirectory() string {
 	return filepath.Dir(TokenFilePath())
 }
 
+// stateDirFor returns the folder that holds the given token file and the
+// agent's other state files, or "" when there is no token file.
+func stateDirFor(tokenFilePath string) string {
+	if strings.TrimSpace(tokenFilePath) == "" {
+		return ""
+	}
+	return filepath.Dir(tokenFilePath)
+}
+
 // hubSSHKeyComment is the comment the Hub puts on its key line.
 const hubSSHKeyComment = "labtether-hub"
 

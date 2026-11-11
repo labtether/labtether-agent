@@ -214,34 +214,46 @@ func TestBuildWevtutilQueryArgs(t *testing.T) {
 			name:     "basic-system-channel",
 			req:      protocol.JournalQueryData{Limit: 50},
 			channel:  "System",
-			wantArgs: []string{"qe", "System", "/f:RenderedXml", "/rd:true", "/c:50"},
+			wantArgs: []string{"qe", "System", "/f:RenderedXml", "/rd:true", "/c:50", "/uni:true"},
 		},
 		{
 			name:     "with-since",
 			req:      protocol.JournalQueryData{Limit: 10, Since: "2026-03-21T00:00:00Z"},
 			channel:  "Application",
-			wantArgs: []string{"qe", "Application", "/f:RenderedXml", "/rd:true", "/c:10", "/q:*[System[TimeCreated[@SystemTime>='2026-03-21T00:00:00Z']]]"},
+			wantArgs: []string{"qe", "Application", "/f:RenderedXml", "/rd:true", "/c:10", "/uni:true", "/q:*[System[TimeCreated[@SystemTime>='2026-03-21T00:00:00Z']]]"},
 		},
 		{
 			name:    "with-time-range",
 			req:     protocol.JournalQueryData{Limit: 10, Since: "2026-03-21T00:00:00Z", Until: "2026-03-21T01:00:00Z"},
 			channel: "System",
 			wantArgs: []string{
-				"qe", "System", "/f:RenderedXml", "/rd:true", "/c:10",
+				"qe", "System", "/f:RenderedXml", "/rd:true", "/c:10", "/uni:true",
 				"/q:*[System[TimeCreated[@SystemTime>='2026-03-21T00:00:00Z' and @SystemTime<='2026-03-21T01:00:00Z']]]",
 			},
+		},
+		{
+			name:     "errors-only",
+			req:      protocol.JournalQueryData{Limit: 20, Priority: "err"},
+			channel:  "System",
+			wantArgs: []string{"qe", "System", "/f:RenderedXml", "/rd:true", "/c:20", "/uni:true", "/q:*[System[(Level=1 or Level=2)]]"},
+		},
+		{
+			name:     "warnings-since",
+			req:      protocol.JournalQueryData{Limit: 20, Priority: "warning", Since: "2026-03-21T00:00:00Z"},
+			channel:  "System",
+			wantArgs: []string{"qe", "System", "/f:RenderedXml", "/rd:true", "/c:20", "/uni:true", "/q:*[System[(Level=1 or Level=2 or Level=3) and TimeCreated[@SystemTime>='2026-03-21T00:00:00Z']]]"},
 		},
 		{
 			name:     "default-limit",
 			req:      protocol.JournalQueryData{Limit: 0},
 			channel:  "System",
-			wantArgs: []string{"qe", "System", "/f:RenderedXml", "/rd:true", "/c:200"},
+			wantArgs: []string{"qe", "System", "/f:RenderedXml", "/rd:true", "/c:200", "/uni:true"},
 		},
 		{
 			name:     "clamped-limit",
 			req:      protocol.JournalQueryData{Limit: 9999},
 			channel:  "System",
-			wantArgs: []string{"qe", "System", "/f:RenderedXml", "/rd:true", "/c:1000"},
+			wantArgs: []string{"qe", "System", "/f:RenderedXml", "/rd:true", "/c:1000", "/uni:true"},
 		},
 	}
 

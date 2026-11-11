@@ -91,6 +91,32 @@ func collectUserSessionsWho() ([]protocol.UserSession, error) {
 // whoLocation is the zone `who` prints login times in: the host's own.
 var whoLocation = time.Local
 
+// whoNow is the clock that dates a yearless `who` time. Overridable for tests.
+var whoNow = time.Now
+
+// parseBSDWhoTime reads macOS `who` login times, which have no year and follow
+// the locale: "Oct 30 11:53" or "30 Oct 11:53". A time that would be in the
+// future belongs to last year.
+func parseBSDWhoTime(fields []string) (time.Time, bool) {
+	if len(fields) < 3 {
+		return time.Time{}, false
+	}
+	now := whoNow().In(whoLocation)
+	text := strings.Join(fields[:3], " ")
+	for _, layout := range []string{"Jan 2 15:04", "2 Jan 15:04"} {
+		t, err := time.ParseInLocation(layout, text, whoLocation)
+		if err != nil {
+			continue
+		}
+		t = time.Date(now.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), 0, 0, whoLocation)
+		if t.After(now.Add(24 * time.Hour)) {
+			t = t.AddDate(-1, 0, 0)
+		}
+		return t, true
+	}
+	return time.Time{}, false
+}
+
 // ParseUserSessionsOutput parses `who` command output into user sessions.
 func ParseUserSessionsOutput(out []byte) []protocol.UserSession {
 	var sessions []protocol.UserSession
@@ -126,6 +152,8 @@ func ParseUserSessionsOutput(out []byte) []protocol.UserSession {
 			dateStr := loginFields[0] + " " + loginFields[1]
 			if t, parseErr := time.ParseInLocation("2006-01-02 15:04", dateStr, whoLocation); parseErr == nil {
 				session.LoginTime = t.UTC().Format(time.RFC3339)
+			} else if t, ok := parseBSDWhoTime(loginFields); ok {
+				session.LoginTime = t.UTC().Format(time.RFC3339)
 			} else {
 				session.LoginTime = strings.Join(loginFields, " ")
 			}
@@ -133,18 +161,29 @@ func ParseUserSessionsOutput(out []byte) []protocol.UserSession {
 			session.LoginTime = loginFields[0]
 		}
 
-		// Remote host is in parentheses at end of line, if present.
-		if idx := strings.LastIndex(line, "("); idx >= 0 {
-			if endIdx := strings.LastIndex(line, ")"); endIdx > idx {
-				host := line[idx+1 : endIdx]
-				if host != "" {
-					session.RemoteHost = host
-				}
-			}
-		}
+		session.RemoteHost = whoRemoteHost(fields)
 
 		sessions = append(sessions, session)
 	}
 
 	return sessions
+}
+
+// whoRemoteHost reads the comment `who` prints in parentheses at the end of a
+// line: the address a login came from, or ":0" for a local display. A shell
+// inside tmux reads "(tmux(4649).%0)": that is a tmux pane on this machine,
+// not a remote host, so it gives "". Nested parentheses are kept whole.
+func whoRemoteHost(fields []string) string {
+	if len(fields) == 0 {
+		return ""
+	}
+	last := fields[len(fields)-1]
+	if len(last) < 3 || !strings.HasPrefix(last, "(") || !strings.HasSuffix(last, ")") {
+		return ""
+	}
+	comment := last[1 : len(last)-1]
+	if strings.HasPrefix(comment, "tmux(") {
+		return ""
+	}
+	return comment
 }

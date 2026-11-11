@@ -5,6 +5,8 @@ package system
 import (
 	"context"
 	"os/exec"
+	"path"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -30,7 +32,11 @@ func CollectProcesses() ([]protocol.ProcessInfo, error) {
 func collectProcessesWithPS(run func(...string) ([]byte, error)) ([]protocol.ProcessInfo, error) {
 	out, err := run("-axo", "user=,pid=,%cpu=,%mem=,rss=,command=")
 	if err == nil {
-		return parseProcessRows(out, true), nil
+		processes := parseProcessRows(out, true)
+		if runtime.GOOS == "darwin" {
+			applyExecutableNames(processes, run)
+		}
+		return processes, nil
 	}
 	out, err = run("-o", "user=,pid=,rss=,args=")
 	if err != nil {
@@ -108,4 +114,34 @@ func parsePSRSSKB(raw string) int64 {
 		return 0
 	}
 	return int64(size*factor + 0.5)
+}
+
+// applyExecutableNames names each process after its executable. The name used
+// to be the command line's first word, which cuts macOS apps at their first
+// space ("Google" for Google Chrome, "Claude" for "Claude Helper
+// (Renderer)"). On macOS `ps -o comm` is the executable's full path, spaces
+// kept. Processes it does not list keep their name.
+func applyExecutableNames(processes []protocol.ProcessInfo, run func(...string) ([]byte, error)) {
+	out, err := run("-axo", "pid=,comm=")
+	if err != nil {
+		return
+	}
+	names := make(map[int]string)
+	for _, line := range strings.Split(string(out), "\n") {
+		pidText, comm, ok := strings.Cut(strings.TrimSpace(line), " ")
+		if !ok {
+			continue
+		}
+		pid, pidErr := strconv.Atoi(pidText)
+		comm = strings.TrimSpace(comm)
+		if pidErr != nil || comm == "" {
+			continue
+		}
+		names[pid] = path.Base(comm)
+	}
+	for i := range processes {
+		if name := names[processes[i].PID]; name != "" && name != "." && name != "/" {
+			processes[i].Name = name
+		}
+	}
 }

@@ -55,7 +55,7 @@ func TestStartLinuxVNCServerUsesExistingDisplayWhenAvailable(t *testing.T) {
 
 	// Create a lock file so hasUsableDisplay(:0) returns true.
 	lockFile := "/tmp/.X0-lock"
-	if err := os.WriteFile(lockFile, []byte("99999\n"), 0o644); err != nil {
+	if err := os.WriteFile(lockFile, []byte(fmt.Sprintf("%d\n", os.Getpid())), 0o644); err != nil {
 		t.Fatalf("failed to create mock lock file: %v", err)
 	}
 	defer os.Remove(lockFile)
@@ -147,7 +147,7 @@ func TestStartLinuxVNCServerFallsBackToXvfbOnDisplayError(t *testing.T) {
 
 	// Create lock file so display :0 is considered usable (first attempt runs).
 	lockFile := "/tmp/.X0-lock"
-	if err := os.WriteFile(lockFile, []byte("99999\n"), 0o644); err != nil {
+	if err := os.WriteFile(lockFile, []byte(fmt.Sprintf("%d\n", os.Getpid())), 0o644); err != nil {
 		t.Fatalf("failed to create mock lock file: %v", err)
 	}
 	defer os.Remove(lockFile)
@@ -306,7 +306,7 @@ func TestStartLinuxVNCServerReturnsPrimaryErrorWhenDisplayIsHealthyButStartupFai
 
 	// Create lock file so :0 is considered usable (triggers first attempt).
 	lockFile := "/tmp/.X0-lock"
-	if err := os.WriteFile(lockFile, []byte("99999\n"), 0o644); err != nil {
+	if err := os.WriteFile(lockFile, []byte(fmt.Sprintf("%d\n", os.Getpid())), 0o644); err != nil {
 		t.Fatalf("failed to create mock lock file: %v", err)
 	}
 	defer os.Remove(lockFile)
@@ -349,7 +349,7 @@ func TestStartLinuxVNCServerBootstrapFailureStillStartsVNC(t *testing.T) {
 
 	// Create lock file so :0 is considered usable (triggers first attempt → display error → Xvfb).
 	lockFile := "/tmp/.X0-lock"
-	if err := os.WriteFile(lockFile, []byte("99999\n"), 0o644); err != nil {
+	if err := os.WriteFile(lockFile, []byte(fmt.Sprintf("%d\n", os.Getpid())), 0o644); err != nil {
 		t.Fatalf("failed to create mock lock file: %v", err)
 	}
 	defer os.Remove(lockFile)

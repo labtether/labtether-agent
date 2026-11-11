@@ -159,7 +159,7 @@ func collectMountsLinux() ([]protocol.MountInfo, error) {
 }
 
 // collectMountsDF parses POSIX `df -kP` output to collect mount/disk information.
-// This works on Linux, macOS, and FreeBSD.
+// This works on Linux and macOS.
 //
 // df -kP column layout:
 //
@@ -173,7 +173,29 @@ func collectMountsDF() ([]protocol.MountInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	return parseMountsDFOutput(string(out)), nil
+	mounts := parseMountsDFOutput(string(out))
+	if runtime.GOOS == "darwin" {
+		mounts = withoutMacOSSystemVolumes(mounts)
+	}
+	return mounts, nil
+}
+
+// withoutMacOSSystemVolumes leaves out the APFS volumes macOS keeps for
+// itself (VM, Preboot, Update, Recovery and the like), which Finder and Disk
+// Utility hide too. They share the startup disk's space, so the Disks tab
+// listed the same size up to seven times. The system volume (/), the data
+// volume and every other mount stay.
+func withoutMacOSSystemVolumes(mounts []protocol.MountInfo) []protocol.MountInfo {
+	kept := mounts[:0]
+	for _, mount := range mounts {
+		point := mount.MountPoint
+		hidden := point == "/Volumes/Recovery" ||
+			(strings.HasPrefix(point, "/System/Volumes/") && point != "/System/Volumes/Data")
+		if !hidden {
+			kept = append(kept, mount)
+		}
+	}
+	return kept
 }
 
 // parseMountsDFOutput locates the numeric df columns instead of assuming the
