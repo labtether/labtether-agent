@@ -13,6 +13,7 @@ import (
 	"github.com/labtether/labtether-agent/internal/agentcore/backends"
 	dockerpkg "github.com/labtether/labtether-agent/internal/agentcore/docker"
 	"github.com/labtether/labtether-agent/internal/agentcore/files"
+	"github.com/labtether/labtether-agent/internal/agentcore/remoteaccess"
 	"github.com/labtether/labtether-agent/internal/agentcore/system"
 	"github.com/labtether/protocol"
 )
@@ -98,6 +99,7 @@ func Run(ctx context.Context, cfg RuntimeConfig, provider TelemetryProvider) err
 	if version := strings.TrimSpace(cfg.Version); version != "" {
 		staticMeta["agent_version"] = version
 	}
+	staticMeta[remoteaccess.TerminalReportsTmuxDetachMeta] = "true"
 	webrtcCaps := detectWebRTCCapabilitiesForConfig(cfg)
 	capabilities := []string{"terminal", "desktop", "files"}
 	if powerRuntime := newPlatformPowerBackend(); powerRuntime.Supported(powerActionReboot) && powerRuntime.Supported(powerActionShutdown) {

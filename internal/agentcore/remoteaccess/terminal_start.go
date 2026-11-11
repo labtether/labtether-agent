@@ -10,6 +10,7 @@ import (
 	"github.com/labtether/protocol"
 	"io"
 	"log"
+	"os"
 	"os/exec"
 	"time"
 )
@@ -93,16 +94,25 @@ func (tm *TerminalManager) startTerminal(transport MessageSender, req protocol.T
 	// Determine command to run: tmux session or plain shell.
 	startDir := terminalStartDir()
 	tmuxAttached := false
+	attachedTmuxPath := ""
 	var cmd *exec.Cmd
+	var native *nativeTerminal
 	var err error
 	if req.UseTmux && req.TmuxSession != "" {
 		tmuxPath, lookErr := exec.LookPath("tmux")
 		if lookErr == nil && tmuxPath != "" {
-			cmd, err = securityruntime.NewCommandContext(pending.ctx, tmuxPath, tmuxStartArgs(req.TmuxSession, startDir)...)
-			if err != nil {
-				log.Printf("terminal: tmux command blocked by runtime policy for session %s: %v", req.SessionID, err)
-				tm.sendPendingTerminalFailure(transport, req.SessionID, pending, "failed to start tmux: "+err.Error())
-				return
+			attachedTmuxPath = tmuxPath
+			// A control-mode client relays the shell's own output, which gives
+			// the browser real scroll-back. Older tmux, or a start that fails,
+			// attaches through a PTY as before.
+			native, cmd = tm.startTmuxControl(pending.ctx, tmuxPath, req, startDir, ClampUint16(cols), ClampUint16(rows))
+			if native == nil {
+				cmd, err = securityruntime.NewCommandContext(pending.ctx, tmuxPath, tmuxStartArgs(req.TmuxSession, startDir)...)
+				if err != nil {
+					log.Printf("terminal: tmux command blocked by runtime policy for session %s: %v", req.SessionID, err)
+					tm.sendPendingTerminalFailure(transport, req.SessionID, pending, "failed to start tmux: "+err.Error())
+					return
+				}
 			}
 			tmuxAttached = true
 		} else {
@@ -122,30 +132,32 @@ func (tm *TerminalManager) startTerminal(transport MessageSender, req protocol.T
 			return
 		}
 	}
-	cmd.Env = append(securityruntime.SanitizedChildEnv(), "TERM=xterm-256color")
-	if startDir != "" {
-		cmd.Dir = startDir
-	}
+	var ptmx *os.File
+	if native == nil {
+		cmd.Env = append(append(securityruntime.SanitizedChildEnv(), "TERM=xterm-256color"), tm.tmuxEnv...)
+		if startDir != "" {
+			cmd.Dir = startDir
+		}
 
-	startPTY := tm.startPTY
-	if startPTY == nil {
-		startPTY = pty.StartWithSize
-	}
-	ptmx, err := startPTY(cmd, &pty.Winsize{
-		Cols: ClampUint16(cols),
-		Rows: ClampUint16(rows),
-	})
-	var native *nativeTerminal
-	if errors.Is(err, pty.ErrUnsupported) {
-		// creack/pty has no Windows backend. Windows gets a pseudo console
-		// (ConPTY), or a stdin/stdout pipe bridge where the system has none.
-		// Either way the shell passes the same allowlist and agent channel.
-		native, err = startNativeTerminal(pending.ctx, cmd, ClampUint16(cols), ClampUint16(rows))
-	}
-	if err != nil {
-		log.Printf("terminal: failed to start PTY for session %s: %v", req.SessionID, err)
-		tm.sendPendingTerminalFailure(transport, req.SessionID, pending, "failed to start shell: "+err.Error())
-		return
+		startPTY := tm.startPTY
+		if startPTY == nil {
+			startPTY = pty.StartWithSize
+		}
+		ptmx, err = startPTY(cmd, &pty.Winsize{
+			Cols: ClampUint16(cols),
+			Rows: ClampUint16(rows),
+		})
+		if errors.Is(err, pty.ErrUnsupported) {
+			// creack/pty has no Windows backend. Windows gets a pseudo console
+			// (ConPTY), or a stdin/stdout pipe bridge where the system has none.
+			// Either way the shell passes the same allowlist and agent channel.
+			native, err = startNativeTerminal(pending.ctx, cmd, ClampUint16(cols), ClampUint16(rows))
+		}
+		if err != nil {
+			log.Printf("terminal: failed to start PTY for session %s: %v", req.SessionID, err)
+			tm.sendPendingTerminalFailure(transport, req.SessionID, pending, "failed to start shell: "+err.Error())
+			return
+		}
 	}
 
 	sess := &TerminalSession{
@@ -159,9 +171,11 @@ func (tm *TerminalManager) startTerminal(transport MessageSender, req protocol.T
 
 	var inputStream io.WriteCloser = ptmx
 	var nativeDone <-chan error
+	drainTimeout := terminalOutputDrainTimeout
 	if native != nil {
+		drainTimeout = max(drainTimeout, native.drainTimeout)
 		sess.input, sess.output = native.input, native.output
-		sess.resize, sess.stop = native.resize, native.stop
+		sess.resize, sess.stop, sess.outputChunk = native.resize, native.stop, native.outputChunk
 		inputStream, nativeDone = native.input, native.done
 	}
 	sess.inputWriter = streaminput.New(inputStream, func(error) { sess.terminate() })
@@ -194,7 +208,11 @@ func (tm *TerminalManager) startTerminal(transport MessageSender, req protocol.T
 		defer close(sess.outputDone)
 		tm.streamOutput(transport, sess)
 		if tm.cleanupSession(sess) {
-			SendTerminalClosed(transport, req.SessionID, sess.inputWriter.Reason("shell exited"))
+			reason := terminalShellExitedReason
+			if attachedTmuxPath != "" {
+				reason = tm.tmuxClientCloseReason(attachedTmuxPath, req.TmuxSession)
+			}
+			SendTerminalClosed(transport, req.SessionID, sess.inputWriter.Reason(reason))
 		}
 	}()
 
@@ -209,7 +227,7 @@ func (tm *TerminalManager) startTerminal(transport MessageSender, req protocol.T
 		close(sess.done)
 		select {
 		case <-sess.outputDone:
-		case <-time.After(terminalOutputDrainTimeout):
+		case <-time.After(drainTimeout):
 			// Give normal output time to drain, then release the orphaned stream.
 			sess.close()
 		}

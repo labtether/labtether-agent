@@ -94,6 +94,10 @@ jobs:
       - run: go vet ./...
         name: Vet
         if: needs.qa-select.outputs.checks_required != 'false'
+      # The terminal tests drive a real tmux; without it they skip.
+      - name: Install tmux
+        if: needs.qa-select.outputs.checks_required != 'false'
+        run: sudo apt-get install -y --no-install-recommends tmux
       - run: go test -race ./...
         name: Race test
         if: needs.qa-select.outputs.checks_required != 'false'

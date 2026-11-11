@@ -27,7 +27,7 @@ func (tm *TerminalManager) CloseAll() {
 
 // streamOutput reads from the PTY and sends output to the hub.
 func (tm *TerminalManager) streamOutput(transport MessageSender, sess *TerminalSession) {
-	buf := make([]byte, 4096)
+	buf := make([]byte, max(sess.outputChunk, terminalOutputChunkBytes))
 	for {
 		n, err := sess.read(buf)
 		if n > 0 {
