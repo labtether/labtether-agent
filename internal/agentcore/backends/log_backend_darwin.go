@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os/exec"
 	"regexp"
@@ -33,31 +32,7 @@ func (DarwinLogBackend) QueryEntries(req protocol.JournalQueryData) ([]protocol.
 
 	ctx, cancel := context.WithTimeout(context.Background(), darwinLogCommandTimeout)
 	defer cancel()
-
-	args := BuildDarwinLogShowArgs(req)
-	out, err := securityruntime.CommandContextCombinedOutput(ctx, "log", args...)
-	if err != nil {
-		if ctx.Err() == context.DeadlineExceeded {
-			return nil, fmt.Errorf("system log query timed out")
-		}
-		if errors.Is(err, securityruntime.ErrCommandOutputLimit) {
-			entries, parseErr := parseDarwinLogOutput(out, req)
-			if parseErr != nil {
-				return nil, parseErr
-			}
-			if len(entries) > 0 {
-				return entries, nil
-			}
-			return nil, fmt.Errorf("system log query output exceeded safe capture limit before matching entries were found")
-		}
-		trimmed := strings.TrimSpace(string(out))
-		if trimmed != "" {
-			return nil, fmt.Errorf("system log query failed: %s", TruncateCommandOutput([]byte(trimmed), MaxCommandOutputBytes))
-		}
-		return nil, fmt.Errorf("system log query failed: %w", err)
-	}
-
-	return parseDarwinLogOutput(out, req)
+	return queryDarwinLog(ctx, req)
 }
 
 func parseDarwinLogOutput(out []byte, req protocol.JournalQueryData) ([]protocol.LogStreamData, error) {
@@ -144,22 +119,17 @@ func (DarwinLogBackend) StreamEntries(ctx context.Context, emit func(protocol.Lo
 	return nil
 }
 
-// BuildDarwinLogShowArgs builds the arguments for `log show`.
+// BuildDarwinLogShowArgs builds the arguments for one `log show` over the
+// requested range (the query itself reads relative ranges newest first).
 func BuildDarwinLogShowArgs(req protocol.JournalQueryData) []string {
-	args := []string{"show", "--style", "ndjson", "--color", "none", "--debug", "--predicate", "eventType == logEvent"}
+	args := darwinLogShowBaseArgs(req)
 	start, end, last := ResolveDarwinLogRange(req.Since, req.Until)
 	if last != "" {
-		args = append(args, "--last", last)
-		return args
+		return append(args, "--last", last)
 	}
-	if start != "" {
-		args = append(args, "--start", start)
-	}
+	args = append(args, "--start", start)
 	if end != "" {
 		args = append(args, "--end", end)
-	}
-	if start == "" && end == "" {
-		args = append(args, "--last", "1h")
 	}
 	return args
 }

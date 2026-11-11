@@ -21,3 +21,24 @@ func TestWhoLoginTimesAreTheHostsLocalTime(t *testing.T) {
 		t.Fatalf("login time %s, want 2026-11-03T10:15:00Z", got)
 	}
 }
+
+// macOS who prints "Oct 30 11:53" (or "30 Oct 11:53" in day-first locales),
+// which reached the Hub as raw text with no year.
+func TestWhoLoginTimesInMacOSFormats(t *testing.T) {
+	savedLocation, savedNow := whoLocation, whoNow
+	t.Cleanup(func() { whoLocation, whoNow = savedLocation, savedNow })
+	whoLocation = time.FixedZone("UTC+11", 11*60*60)
+	whoNow = func() time.Time { return time.Date(2026, 11, 11, 12, 0, 0, 0, whoLocation) }
+
+	for _, line := range []string{"demo     console  Oct 30 11:53", "demo     console  30 Oct 11:53"} {
+		sessions := ParseUserSessionsOutput([]byte(line + "\n"))
+		if len(sessions) != 1 || sessions[0].LoginTime != "2026-10-30T00:53:00Z" {
+			t.Fatalf("%q: sessions = %+v", line, sessions)
+		}
+	}
+	// A December login seen in November is last year's.
+	sessions := ParseUserSessionsOutput([]byte("demo ttys001 Dec 24 09:00\n"))
+	if len(sessions) != 1 || sessions[0].LoginTime != "2025-12-23T22:00:00Z" {
+		t.Fatalf("December session = %+v", sessions)
+	}
+}

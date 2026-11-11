@@ -54,3 +54,25 @@ func TestCollectProcessesUsesExplicitRichColumns(t *testing.T) {
 		t.Fatalf("rich ps process = %+v", got)
 	}
 }
+
+// macOS app processes were named after the first word of their command line:
+// "Google" for Google Chrome. The executable path names them.
+func TestApplyExecutableNamesKeepsSpaces(t *testing.T) {
+	processes := parseProcessRows([]byte(
+		"demo 501 2.0 1.0 2048 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --flag\n"+
+			"demo 502 0.0 0.1 1024 /Applications/Claude.app/Contents/Frameworks/Claude Helper (Renderer).app/Contents/MacOS/Claude Helper (Renderer) --type=renderer\n"+
+			"root 1 0.0 0.1 512 /sbin/launchd\n"), true)
+	applyExecutableNames(processes, func(args ...string) ([]byte, error) {
+		if !reflect.DeepEqual(args, []string{"-axo", "pid=,comm="}) {
+			t.Fatalf("comm ps arguments = %v", args)
+		}
+		return []byte("  501 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome\n" +
+			"  502 /Applications/Claude.app/Contents/Frameworks/Claude Helper (Renderer).app/Contents/MacOS/Claude Helper (Renderer)\n"), nil
+	})
+	want := []string{"Google Chrome", "Claude Helper (Renderer)", "launchd"}
+	for i, process := range processes {
+		if process.Name != want[i] {
+			t.Errorf("process %d name = %q, want %q", process.PID, process.Name, want[i])
+		}
+	}
+}

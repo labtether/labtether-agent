@@ -2,6 +2,7 @@ package agentcore
 
 import (
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -57,8 +58,8 @@ func TestLoadConfigDefaultsWhenLowPowerDisabled(t *testing.T) {
 	if !cfg.ServicesDiscoveryPortScanIncludeListening {
 		t.Fatal("ServicesDiscoveryPortScanIncludeListening=false, want true")
 	}
-	if !cfg.LogStreamEnabled {
-		t.Fatal("LogStreamEnabled=false, want true")
+	if want := defaultLogStreamEnabled(runtime.GOOS); cfg.LogStreamEnabled != want {
+		t.Fatalf("LogStreamEnabled=%v, want %v on %s", cfg.LogStreamEnabled, want, runtime.GOOS)
 	}
 }
 

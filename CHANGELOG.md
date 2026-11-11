@@ -50,6 +50,23 @@ moves it to the LabTether 2.0 version line with Hub 2.0.
 - Windows log searches for errors or warnings search the whole log, not
   only the newest events read; filtering by source or text reads up to
   1,000 events per channel before filtering.
+- macOS launchd jobs report whether they are enabled or disabled instead of
+  "unknown", from launchd's own overrides.
+- macOS devices read "macOS 27.2" instead of "darwin".
+- macOS process names keep their spaces ("Google Chrome", not "Google").
+- The macOS Cron / Timers list works: it reads the user's crontab with
+  `crontab -l` and shows launchd jobs even when a crontab or plist cannot be
+  read. It used to fail on every Mac with "no configured crontab source is
+  readable".
+- macOS login times in Users are dates, not raw `who` text.
+- macOS Disks leaves out the system's own APFS volumes (VM, Preboot, Update,
+  Recovery), as Finder does.
+- The macOS System Log query shows the newest lines. It used to read the
+  oldest part of the last hour, so lines were an hour old, and level, unit
+  and text filters are now part of the `log show` query.
+- The agent no longer streams the macOS unified log to the Hub unless
+  `LABTETHER_LOG_STREAM_ENABLED=true`; at its default level it wrote about
+  19,000 rows a minute into the Hub. The Mac app already turned it off.
 
 ## [1.7.1] - 2026-10-31
 

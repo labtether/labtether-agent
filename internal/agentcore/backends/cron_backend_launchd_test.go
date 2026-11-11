@@ -1,6 +1,10 @@
 package backends
 
-import "testing"
+import (
+	"context"
+	"errors"
+	"testing"
+)
 
 func TestBuildLaunchdSchedule(t *testing.T) {
 	payload := map[string]any{
@@ -56,5 +60,28 @@ func TestBuildLaunchdCronEntry(t *testing.T) {
 	}
 	if entry.Schedule != "every 60s" {
 		t.Fatalf("schedule=%q, want every 60s", entry.Schedule)
+	}
+}
+
+// macOS has no /var/spool/cron or /etc/cron.d: the Cron / Timers tab of every
+// Mac device answered "no configured crontab source is readable" and showed no
+// launchd jobs either.
+func TestDarwinCrontabWithoutACrontabIsNoError(t *testing.T) {
+	original := RunDarwinCrontabList
+	t.Cleanup(func() { RunDarwinCrontabList = original })
+	RunDarwinCrontabList = func(context.Context) ([]byte, error) {
+		return []byte("crontab: no crontab for demo\n"), errors.New("exit status 1")
+	}
+	entries, err := collectDarwinCrontab()
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("entries=%v err=%v, want none and no error", entries, err)
+	}
+
+	RunDarwinCrontabList = func(context.Context) ([]byte, error) {
+		return []byte("# backups\n30 2 * * * /usr/local/bin/backup.sh\n"), nil
+	}
+	entries, err = collectDarwinCrontab()
+	if err != nil || len(entries) != 1 || entries[0].Schedule != "30 2 * * *" || entries[0].Command != "/usr/local/bin/backup.sh" {
+		t.Fatalf("entries=%+v err=%v", entries, err)
 	}
 }
