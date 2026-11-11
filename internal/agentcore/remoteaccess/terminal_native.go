@@ -13,6 +13,9 @@ type nativeTerminal struct {
 	done   <-chan error // the shell's exit
 	// resize is nil for plain pipes, which have no size.
 	resize func(cols, rows uint16)
+	// outputChunk is the most output read into one message; zero means the
+	// default.
+	outputChunk int
 	// stop ends the shell and every program it started. It is nil for plain
 	// pipes: there the command's context ends the shell alone.
 	stop func()

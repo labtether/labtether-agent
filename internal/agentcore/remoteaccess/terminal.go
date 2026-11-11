@@ -31,6 +31,7 @@ type TerminalSession struct {
 	output      io.ReadCloser
 	resize      func(cols, rows uint16) // set by a Windows console; a PTY is resized through Ptmx
 	stop        func()                  // ends everything a Windows console started
+	outputChunk int                     // bytes per output message; zero means terminalOutputChunkBytes
 	cmd         *exec.Cmd
 	cancel      context.CancelFunc
 	done        chan struct{}
@@ -39,6 +40,9 @@ type TerminalSession struct {
 }
 
 const MaxTerminalSessions = 10
+
+// terminalOutputChunkBytes is how much output goes into one message.
+const terminalOutputChunkBytes = 4096
 
 // A background child may keep the PTY or pipe open after the shell exits.
 const terminalOutputDrainTimeout = 2 * time.Second
@@ -49,6 +53,7 @@ type TerminalManager struct {
 	Sessions map[string]*TerminalSession
 	pending  map[string]*pendingTerminalStart
 	startPTY func(*exec.Cmd, *pty.Winsize) (*os.File, error)
+	tmuxEnv  []string // added to tmux's environment; tests point it at a private server
 }
 
 func NewTerminalManager() *TerminalManager {
