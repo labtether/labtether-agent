@@ -1,6 +1,11 @@
 package system
 
-import "testing"
+import (
+	"strings"
+	"testing"
+
+	"github.com/labtether/protocol"
+)
 
 func TestParseMountsDFOutputDarwinPOSIX(t *testing.T) {
 	t.Parallel()
@@ -45,5 +50,20 @@ devfs                  197       197         0   100%     684          0  100%  
 	}
 	if mounts[1].MountPoint != "/System/Volumes/Data" || mounts[1].UsePct != 89 {
 		t.Fatalf("data mount=%+v", mounts[1])
+	}
+}
+
+// On a Mac the Disks tab listed VM, Preboot, Update and Recovery next to the
+// startup disk, each with the same container size.
+func TestWithoutMacOSSystemVolumes(t *testing.T) {
+	mounts := []protocol.MountInfo{{MountPoint: "/"}, {MountPoint: "/System/Volumes/VM"}, {MountPoint: "/System/Volumes/Preboot"},
+		{MountPoint: "/System/Volumes/Update"}, {MountPoint: "/System/Volumes/Data"}, {MountPoint: "/Volumes/Recovery"},
+		{MountPoint: "/Volumes/Backup Disk"}}
+	var got []string
+	for _, mount := range withoutMacOSSystemVolumes(mounts) {
+		got = append(got, mount.MountPoint)
+	}
+	if strings.Join(got, ",") != "/,/System/Volumes/Data,/Volumes/Backup Disk" {
+		t.Fatalf("kept %v", got)
 	}
 }

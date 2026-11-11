@@ -3,7 +3,9 @@ package backends
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -31,13 +33,45 @@ func (DarwinCronBackend) ListEntries() ([]protocol.CronEntry, error) {
 		collectionErrors = append(collectionErrors, fmt.Errorf("launchd: %w", launchdErr))
 	}
 
-	crontabEntries, crontabErr := CollectCrontabs()
+	crontabEntries, crontabErr := collectDarwinCrontab()
 	entries = append(entries, crontabEntries...)
 	if crontabErr != nil {
-		collectionErrors = append(collectionErrors, fmt.Errorf("crontabs: %w", crontabErr))
+		collectionErrors = append(collectionErrors, fmt.Errorf("crontab: %w", crontabErr))
 	}
 
-	return entries, combineScheduleErrors(collectionErrors...)
+	err := combineScheduleErrors(collectionErrors...)
+	if err != nil && len(entries) > 0 {
+		// One unreadable plist or crontab must not hide every other job.
+		log.Printf("cron: listing scheduled jobs: %v", err)
+		return entries, nil
+	}
+	return entries, err
+}
+
+// RunDarwinCrontabList runs `crontab -l` for the agent's user. Overridable for tests.
+var RunDarwinCrontabList = func(ctx context.Context) ([]byte, error) {
+	return securityruntime.CommandContextCombinedOutput(ctx, "crontab", "-l")
+}
+
+// collectDarwinCrontab reads the agent user's crontab. macOS keeps crontabs
+// in /usr/lib/cron/tabs, readable only by root, and has no /var/spool/cron or
+// /etc/cron.d, so reading the Linux paths failed, and the whole list with
+// them. A user without a crontab has no entries, not an error.
+func collectDarwinCrontab() ([]protocol.CronEntry, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), launchdPlistCommandTimeout)
+	defer cancel()
+	out, err := RunDarwinCrontabList(ctx)
+	if err != nil {
+		text := strings.TrimSpace(string(out))
+		if strings.Contains(strings.ToLower(text), "no crontab for") {
+			return nil, nil
+		}
+		if text == "" {
+			return nil, err
+		}
+		return nil, errors.New(text)
+	}
+	return parseCrontabData(out, strings.TrimSpace(os.Getenv("USER")), false), nil
 }
 
 func collectLaunchdEntries() ([]protocol.CronEntry, error) {

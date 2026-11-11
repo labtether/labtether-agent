@@ -91,6 +91,32 @@ func collectUserSessionsWho() ([]protocol.UserSession, error) {
 // whoLocation is the zone `who` prints login times in: the host's own.
 var whoLocation = time.Local
 
+// whoNow is the clock that dates a yearless `who` time. Overridable for tests.
+var whoNow = time.Now
+
+// parseBSDWhoTime reads macOS `who` login times, which have no year and follow
+// the locale: "Oct 30 11:53" or "30 Oct 11:53". A time that would be in the
+// future belongs to last year.
+func parseBSDWhoTime(fields []string) (time.Time, bool) {
+	if len(fields) < 3 {
+		return time.Time{}, false
+	}
+	now := whoNow().In(whoLocation)
+	text := strings.Join(fields[:3], " ")
+	for _, layout := range []string{"Jan 2 15:04", "2 Jan 15:04"} {
+		t, err := time.ParseInLocation(layout, text, whoLocation)
+		if err != nil {
+			continue
+		}
+		t = time.Date(now.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), 0, 0, whoLocation)
+		if t.After(now.Add(24 * time.Hour)) {
+			t = t.AddDate(-1, 0, 0)
+		}
+		return t, true
+	}
+	return time.Time{}, false
+}
+
 // ParseUserSessionsOutput parses `who` command output into user sessions.
 func ParseUserSessionsOutput(out []byte) []protocol.UserSession {
 	var sessions []protocol.UserSession
@@ -125,6 +151,8 @@ func ParseUserSessionsOutput(out []byte) []protocol.UserSession {
 		if len(loginFields) >= 2 {
 			dateStr := loginFields[0] + " " + loginFields[1]
 			if t, parseErr := time.ParseInLocation("2006-01-02 15:04", dateStr, whoLocation); parseErr == nil {
+				session.LoginTime = t.UTC().Format(time.RFC3339)
+			} else if t, ok := parseBSDWhoTime(loginFields); ok {
 				session.LoginTime = t.UTC().Format(time.RFC3339)
 			} else {
 				session.LoginTime = strings.Join(loginFields, " ")

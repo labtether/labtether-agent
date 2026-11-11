@@ -4,6 +4,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -64,7 +65,7 @@ func LoadConfig(defaultName, defaultPort, defaultSource string) RuntimeConfig {
 	webServiceDiscoveryIntervalDefault := 60 * time.Second
 	servicesDiscoveryPortScanEnabledDefault := true
 	servicesDiscoveryPortScanIncludeListeningDefault := true
-	logStreamEnabledDefault := true
+	logStreamEnabledDefault := defaultLogStreamEnabled(runtime.GOOS)
 	if lowPowerMode {
 		// Ultra low-power profile: trade freshness for lower idle CPU/memory.
 		collectIntervalDefault = 30 * time.Second
@@ -454,4 +455,13 @@ func LoadConfig(defaultName, defaultPort, defaultSource string) RuntimeConfig {
 	}
 
 	return cfg
+}
+
+// defaultLogStreamEnabled is whether the agent streams the system log to the
+// Hub when nothing sets LABTETHER_LOG_STREAM_ENABLED. macOS's unified log at
+// its default level writes hundreds of lines a second: a Mac agent stored
+// about 19,000 rows a minute in the Hub. The Mac app already turns the stream
+// off; the agent now does the same on its own. Device log queries still work.
+func defaultLogStreamEnabled(goos string) bool {
+	return goos != "darwin"
 }

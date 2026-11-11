@@ -299,13 +299,23 @@ func TestUsersManagerHandleUsersListPropagatesCollectionError(t *testing.T) {
 	}
 }
 
-func TestParseUserSessionsOutputPreservesNonISOLoginTime(t *testing.T) {
+func TestParseUserSessionsOutputReadsBSDLoginTime(t *testing.T) {
 	sessions := system.ParseUserSessionsOutput([]byte("demo console Mar  5 21:14\n"))
 	if len(sessions) != 1 {
 		t.Fatalf("expected 1 session, got %d", len(sessions))
 	}
-	if sessions[0].LoginTime != "Mar 5 21:14" {
-		t.Fatalf("login_time=%q, want %q", sessions[0].LoginTime, "Mar 5 21:14")
+	got, err := time.Parse(time.RFC3339, sessions[0].LoginTime)
+	if err != nil {
+		t.Fatalf("login_time=%q is not RFC 3339: %v", sessions[0].LoginTime, err)
+	}
+	if local := got.In(time.Local); local.Month() != time.March || local.Day() != 5 || local.Hour() != 21 || local.Minute() != 14 {
+		t.Fatalf("login_time=%q, want 5 March 21:14 local", sessions[0].LoginTime)
+	}
+}
+func TestParseUserSessionsOutputPreservesUnknownLoginTime(t *testing.T) {
+	sessions := system.ParseUserSessionsOutput([]byte("demo console sometime later\n"))
+	if len(sessions) != 1 || sessions[0].LoginTime != "sometime later" {
+		t.Fatalf("sessions=%+v, want the text kept", sessions)
 	}
 }
 
