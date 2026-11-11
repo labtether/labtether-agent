@@ -285,7 +285,11 @@ func TestTmuxControlSessionOutlivesClientAndEndsWithShell(t *testing.T) {
 	if err := syscall.Kill(client, syscall.SIGKILL); err != nil {
 		t.Fatal(err)
 	}
-	h.waitClosed(first)
+	// The Hub hides a saved session when the agent says its shell exited, so
+	// a client that ended while the session runs on must not say that.
+	if reason := h.waitClosed(first); reason != terminalTmuxDetachedReason {
+		t.Fatalf("close reason %q for a running session, want %q", reason, terminalTmuxDetachedReason)
+	}
 	if out := h.tmux("has-session", "-t", "=lt-keep"); out != "" {
 		t.Fatalf("session ended with its client: %s", out)
 	}
@@ -294,8 +298,8 @@ func TestTmuxControlSessionOutlivesClientAndEndsWithShell(t *testing.T) {
 	h.typeLine(second, "echo kept-$kept-still")
 	h.waitOutput(second, "kept-121-still", 15*time.Second)
 	h.typeLine(second, "exit")
-	if reason := h.waitClosed(second); reason != "shell exited" {
-		t.Fatalf("close reason %q, want %q", reason, "shell exited")
+	if reason := h.waitClosed(second); reason != terminalShellExitedReason {
+		t.Fatalf("close reason %q, want %q", reason, terminalShellExitedReason)
 	}
 	if out := h.tmux("has-session", "-t", "=lt-keep"); out == "" {
 		t.Fatal("session still runs after its shell exited")
@@ -304,7 +308,9 @@ func TestTmuxControlSessionOutlivesClientAndEndsWithShell(t *testing.T) {
 	third := h.open("lt-kill", 80, 24)
 	h.ready(third)
 	h.tmux("kill-session", "-t", "=lt-kill")
-	h.waitClosed(third)
+	if reason := h.waitClosed(third); reason != terminalShellExitedReason {
+		t.Fatalf("close reason %q for a killed session, want %q", reason, terminalShellExitedReason)
+	}
 }
 
 // Sessions that an older agent started through a PTY keep running across an

@@ -28,6 +28,16 @@ moves it to the LabTether 2.0 version line with Hub 2.0.
 
 ### Fixed
 
+- Terminal scroll-back works. On a device with tmux 3.2 or newer the agent
+  relays the shell's own output, so the console can scroll back, search and
+  copy everything printed in the session (up to 10,000 lines after a re-open).
+  It used to send tmux's drawing of one screen, so scrolling up showed
+  nothing. Older tmux attaches as before.
+
+- Terminal: the agent tells the Hub whether a tmux terminal closed because
+  its shell exited or because the client was detached while the session
+  still runs. Hub 2.0 moves an exited session to Ended.
+
 - Remote View on a Linux device without a desktop works again after the first
   session. The agent stops its Xvfb hard, which left the display's lock file;
   the next session took the dead display for a live one and failed with "VNC

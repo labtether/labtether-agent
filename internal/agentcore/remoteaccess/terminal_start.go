@@ -94,12 +94,14 @@ func (tm *TerminalManager) startTerminal(transport MessageSender, req protocol.T
 	// Determine command to run: tmux session or plain shell.
 	startDir := terminalStartDir()
 	tmuxAttached := false
+	attachedTmuxPath := ""
 	var cmd *exec.Cmd
 	var native *nativeTerminal
 	var err error
 	if req.UseTmux && req.TmuxSession != "" {
 		tmuxPath, lookErr := exec.LookPath("tmux")
 		if lookErr == nil && tmuxPath != "" {
+			attachedTmuxPath = tmuxPath
 			// A control-mode client relays the shell's own output, which gives
 			// the browser real scroll-back. Older tmux, or a start that fails,
 			// attaches through a PTY as before.
@@ -204,7 +206,11 @@ func (tm *TerminalManager) startTerminal(transport MessageSender, req protocol.T
 		defer close(sess.outputDone)
 		tm.streamOutput(transport, sess)
 		if tm.cleanupSession(sess) {
-			SendTerminalClosed(transport, req.SessionID, sess.inputWriter.Reason("shell exited"))
+			reason := terminalShellExitedReason
+			if attachedTmuxPath != "" {
+				reason = tm.tmuxClientCloseReason(attachedTmuxPath, req.TmuxSession)
+			}
+			SendTerminalClosed(transport, req.SessionID, sess.inputWriter.Reason(reason))
 		}
 	}()
 
