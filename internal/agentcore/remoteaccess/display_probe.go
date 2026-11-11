@@ -2,7 +2,6 @@ package remoteaccess
 
 import (
 	"fmt"
-	"os"
 	"sort"
 	"strings"
 
@@ -12,6 +11,9 @@ import (
 
 // maxProbedX11Display is the highest display number the scan checks (:0-:99).
 const maxProbedX11Display = 99
+
+// x11LockDir holds the X servers' /tmp/.X<n>-lock files (a variable for tests).
+var x11LockDir = "/tmp"
 
 // displayProbe answers "is this X11 display running?" for many displays. It
 // reads the desktop session (loginctl) and login list (who) at most once,
@@ -45,8 +47,7 @@ func (p *displayProbe) available(display string) bool {
 	}
 	server := x11ServerIdentity(display)
 
-	lockFile := fmt.Sprintf("/tmp/.X%s-lock", strings.TrimPrefix(server, ":"))
-	if _, err := os.Stat(lockFile); err == nil {
+	if x11LockHeld(fmt.Sprintf("%s/.X%s-lock", x11LockDir, strings.TrimPrefix(server, ":"))) {
 		return true
 	}
 
