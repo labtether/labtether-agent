@@ -1,10 +1,6 @@
 package remoteaccess
 
 import (
-	"fmt"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"slices"
 	"testing"
 
@@ -37,40 +33,5 @@ func TestDisplayScanLooksUpSessionsOnce(t *testing.T) {
 	}
 	if !slices.Contains(displays, ":7") || !slices.Contains(displays, ":12") {
 		t.Fatalf("displays = %v, want the session display :7 and the login display :12", displays)
-	}
-}
-
-// The agent stops its Xvfb with SIGKILL, which leaves /tmp/.X99-lock behind.
-// The next Remote View session took :99 for a live display and failed with
-// "VNC server not ready" instead of starting a new Xvfb (seen live on a
-// headless Linux device: the second session after any first one failed).
-func TestStaleX11LockIsNotALiveDisplay(t *testing.T) {
-	originalDir, originalSession, originalUsers := x11LockDir, DetectDesktopSessionFn, system.CollectUserSessionsFn
-	t.Cleanup(func() { x11LockDir, DetectDesktopSessionFn, system.CollectUserSessionsFn = originalDir, originalSession, originalUsers })
-	x11LockDir = t.TempDir()
-	DetectDesktopSessionFn = func() DesktopSessionInfo { return DesktopSessionInfo{} }
-	system.CollectUserSessionsFn = func() ([]protocol.UserSession, error) { return nil, nil }
-
-	exited := exec.Command("true")
-	if err := exited.Run(); err != nil {
-		t.Skip("no true command:", err)
-	}
-	writeLock := func(display, pid int) {
-		t.Helper()
-		if err := os.WriteFile(filepath.Join(x11LockDir, fmt.Sprintf(".X%d-lock", display)), []byte(fmt.Sprintf("%10d\n", pid)), 0o444); err != nil {
-			t.Fatal(err)
-		}
-	}
-	writeLock(99, exited.Process.Pid)
-	writeLock(98, os.Getpid())
-
-	if IsDisplayAvailable(":99") {
-		t.Fatal(":99 has only a stale lock but counts as a live display")
-	}
-	if !IsDisplayAvailable(":98") {
-		t.Fatal(":98 has the lock of a running process but counts as not available")
-	}
-	if got := FindFreeDisplay(); got != 99 {
-		t.Fatalf("FindFreeDisplay = %d, want 99 (its lock is stale)", got)
 	}
 }

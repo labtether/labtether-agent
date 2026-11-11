@@ -2,9 +2,7 @@ package remoteaccess
 
 import (
 	"fmt"
-	"os"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/labtether/labtether-agent/internal/agentcore/system"
@@ -16,23 +14,6 @@ const maxProbedX11Display = 99
 
 // x11LockDir holds the X servers' /tmp/.X<n>-lock files (a variable for tests).
 var x11LockDir = "/tmp"
-
-// x11LockHeld reports whether an X server's lock file belongs to a running
-// process. The agent stops its Xvfb with SIGKILL, which leaves the lock (and
-// socket) behind; a stale lock made the next Remote View session treat the
-// dead display as live and fail with "VNC server not ready" instead of
-// starting a new Xvfb. A lock whose content is not a PID still counts.
-func x11LockHeld(path string) bool {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return false
-	}
-	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
-	if err != nil || pid <= 0 {
-		return true
-	}
-	return processAlive(pid)
-}
 
 // displayProbe answers "is this X11 display running?" for many displays. It
 // reads the desktop session (loginctl) and login list (who) at most once,
