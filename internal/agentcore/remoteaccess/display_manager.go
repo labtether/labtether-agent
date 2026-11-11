@@ -65,6 +65,7 @@ func (dm *DisplayManager) acquire() (display, xauthPath string, err error) {
 	placeholder.xvfbCmd = xvfbCmd
 	placeholder.xauthPath = xauth
 	dm.Mu.Unlock()
+	RegisterAgentXvfb(xvfbCmd, displayStr, xauth)
 
 	log.Printf("desktop: started shared Xvfb on %s (xauth=%s)", displayStr, xauth)
 	return displayStr, xauth, nil

@@ -28,15 +28,14 @@ type LinuxDesktopSessionInfo struct {
 // Injectable function variables for desktop session detection.
 // The parent agentcore package wires these at init time.
 var (
-	DetectLinuxDesktopSessionFn    func() LinuxDesktopSessionInfo
-	AppendDetectedActiveDisplaysFn func(dst []string) []string
+	DetectLinuxDesktopSessionFn func() LinuxDesktopSessionInfo
+	// AgentXvfbDisplayFn returns the one Xvfb the agent started for Remote
+	// View and its Xauthority path ("none" without one), an empty display when
+	// there is none, or an error when the clipboard must stay off.
+	AgentXvfbDisplayFn func() (display, xauthPath string, err error)
 )
 
 var ClipboardLookPath = exec.LookPath
-
-func buildLinuxClipboardEnv() []string {
-	return buildLinuxClipboardEnvForSession(detectLinuxClipboardSession())
-}
 
 func detectLinuxClipboardSession() LinuxDesktopSessionInfo {
 	if DetectLinuxDesktopSessionFn != nil {
@@ -45,7 +44,7 @@ func detectLinuxClipboardSession() LinuxDesktopSessionInfo {
 	return LinuxDesktopSessionInfo{Type: DesktopSessionTypeX11, Display: ":0"}
 }
 
-func buildLinuxClipboardEnvForSession(session LinuxDesktopSessionInfo) []string {
+func buildLinuxClipboardEnvForSession(session LinuxDesktopSessionInfo) ([]string, error) {
 	if session.Type == DesktopSessionTypeWayland {
 		env := securityruntime.SanitizedChildEnv()
 		filtered := make([]string, 0, len(env)+2)
@@ -64,21 +63,24 @@ func buildLinuxClipboardEnvForSession(session LinuxDesktopSessionInfo) []string 
 		if waylandDisplay := strings.TrimSpace(session.WaylandDisplay); waylandDisplay != "" {
 			filtered = append(filtered, "WAYLAND_DISPLAY="+waylandDisplay)
 		}
-		return filtered
+		return filtered, nil
 	}
 
-	display := session.Display
-	if display == "" {
-		if AppendDetectedActiveDisplaysFn != nil {
-			if detected := AppendDetectedActiveDisplaysFn(nil); len(detected) > 0 {
-				display = detected[0]
-			}
+	display, xauthPath := session.Display, ""
+	// No desktop session: use the Xvfb the agent started for Remote View,
+	// with its own cookie. Never a display found by scanning, which another
+	// local user could run to read or plant the viewer's clipboard.
+	if display == "" && AgentXvfbDisplayFn != nil {
+		agentDisplay, agentXauth, err := AgentXvfbDisplayFn()
+		if err != nil {
+			return nil, err
 		}
+		display, xauthPath = agentDisplay, agentXauth
 	}
 	if display == "" {
 		display = ":0"
 	}
-	return buildX11ClipboardEnv(display, "")
+	return buildX11ClipboardEnv(display, xauthPath), nil
 }
 
 func buildX11ClipboardEnv(display, xauthPath string) []string {
@@ -95,7 +97,7 @@ func buildX11ClipboardEnv(display, xauthPath string) []string {
 		result = append(result, entry)
 	}
 	result = append(result, "DISPLAY="+display)
-	if xauthPath != "" {
+	if xauthPath != "" && xauthPath != "none" {
 		result = append(result, "XAUTHORITY="+xauthPath)
 	}
 	return result
@@ -105,7 +107,10 @@ func buildX11ClipboardEnv(display, xauthPath string) []string {
 func PlatformClipboardRead(format string) (text string, imgBase64 string, err error) {
 	wantsImage := format == "image" || format == "image/png"
 	session := detectLinuxClipboardSession()
-	env := buildLinuxClipboardEnvForSession(session)
+	env, err := buildLinuxClipboardEnvForSession(session)
+	if err != nil {
+		return "", "", err
+	}
 	if session.Type == DesktopSessionTypeWayland {
 		if _, lookErr := ClipboardLookPath("wl-paste"); lookErr != nil {
 			return "", "", fmt.Errorf("Wayland clipboard read requires wl-paste to be installed")
@@ -157,7 +162,10 @@ func PlatformClipboardRead(format string) (text string, imgBase64 string, err er
 // PlatformClipboardWriteText writes text using the native session clipboard tool.
 func PlatformClipboardWriteText(text string) error {
 	session := detectLinuxClipboardSession()
-	env := buildLinuxClipboardEnvForSession(session)
+	env, err := buildLinuxClipboardEnvForSession(session)
+	if err != nil {
+		return err
+	}
 	if session.Type == DesktopSessionTypeWayland {
 		if _, lookErr := ClipboardLookPath("wl-copy"); lookErr != nil {
 			return fmt.Errorf("Wayland clipboard write requires wl-copy to be installed")
@@ -220,7 +228,10 @@ func PlatformClipboardWriteImage(base64Data string) error {
 		return fmt.Errorf("clipboard image is not a PNG")
 	}
 	session := detectLinuxClipboardSession()
-	env := buildLinuxClipboardEnvForSession(session)
+	env, err := buildLinuxClipboardEnvForSession(session)
+	if err != nil {
+		return err
+	}
 	if session.Type == DesktopSessionTypeWayland {
 		if _, lookErr := ClipboardLookPath("wl-copy"); lookErr != nil {
 			return fmt.Errorf("Wayland image clipboard write requires wl-copy to be installed")

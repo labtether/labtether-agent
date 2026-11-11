@@ -3,6 +3,7 @@
 package agentcore
 
 import (
+	"github.com/labtether/labtether-agent/internal/agentcore/remoteaccess"
 	"github.com/labtether/labtether-agent/internal/agentcore/sysconfig"
 )
 
@@ -20,6 +21,9 @@ func init() {
 			XDGRuntimeDir:  session.XDGRuntimeDir,
 		}
 	}
+	// A device without a desktop session has no DISPLAY; the clipboard then
+	// uses the Xvfb this agent started for Remote View, with its own cookie.
+	sysconfig.AgentXvfbDisplayFn = remoteaccess.AgentXvfbDisplay
 
 	// Display enumeration lives in sysconfig to avoid a package cycle, while
 	// desktop-session and X11-auth discovery live in remoteaccess. Wire those

@@ -43,6 +43,16 @@ moves it to the LabTether 2.0 version line with Hub 2.0.
   the next session took the dead display for a live one and failed with "VNC
   server not ready". A lock whose process is gone no longer counts.
 
+- Remote View clipboard works on a Linux device without a desktop. With no
+  desktop session the clipboard went to display :0, where nothing runs, and
+  set and get failed with "xclip failed: exit status 1". It now uses the Xvfb
+  the agent started for Remote View, with that display's own Xauthority file,
+  and only while that Xvfb still runs. It never uses a display it merely
+  finds running, which another local user could start to read or plant
+  clipboard text. While two Remote View sessions run on such a device the
+  clipboard is off and says so: the clipboard request does not yet say which
+  session it is for.
+
 - Users: a shell inside tmux (every LabTether terminal) no longer lists a
   broken remote host such as "4649).%0"; the comment `who` prints is read as
   one field, and a tmux pane has no remote host.

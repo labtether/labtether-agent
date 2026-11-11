@@ -141,6 +141,7 @@ func StartLinuxVNCServer(display string, port int, quality, vncPassword string) 
 		}
 		return nil, nil, nil, "", fmt.Errorf("Xvfb fallback on %s failed: %w", fallbackDisplay, FormatVNCStartupError(fallbackErr, fallbackLogTail))
 	}
+	RegisterAgentXvfb(xvfbCmd, fallbackDisplay, xauthPath)
 	return cmd, xvfbCmd, bootstrapCmd, fallbackAuthPath, nil
 }
 
