@@ -44,6 +44,12 @@ moves it to the LabTether 2.0 version line with Hub 2.0.
   or disabled) instead of "unknown", and a failed start or stop shows the
   reason Windows gives, not only its error code.
 - Windows sessions in the Users list report when the user signed in.
+- The Windows Event Log stream sends each new event once. It used to send
+  the newest events again every 5 seconds, so one event could reach the
+  Hub's log store more than a hundred times.
+- Windows log searches for errors or warnings search the whole log, not
+  only the newest events read; filtering by source or text reads up to
+  1,000 events per channel before filtering.
 
 ## [1.7.1] - 2026-10-31
 
