@@ -2,6 +2,11 @@
 
 All notable changes to `labtether-agent` are documented in this file.
 
+## [2.0.1]
+
+No change to the agent since 2.0.0. It is released again so that every part of
+LabTether 2.0.1 carries the same version.
+
 ## [2.0.0] - unreleased
 
 Changes since v1.7.1. Apart from the web service scan fixes and the FreeBSD
