@@ -223,8 +223,8 @@ check it again before self-update.
 
 The standalone Windows amd64 and arm64 executables use this Ed25519 release
 trust. This flow does not add Authenticode signatures or establish a Windows
-publisher identity. The separate native Windows app's optional local eSigner
-CKA flow signs its wrapper, bundled Go child and MSI. It does not sign these
+publisher identity. The separate native Windows app's Certum signing
+(its `signed-release.yml`) signs its wrapper, bundled Go child and MSI. It does not sign these
 standalone downloads or replace their Ed25519 checks.
 
 ## Key Rotation
