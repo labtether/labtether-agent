@@ -69,7 +69,9 @@ jobs:
           "${selector[@]}"
 
       # The Rust agent (rust/) has its own checks. They run when rust/ or
-      # this workflow changes, and on full runs.
+      # this workflow changes, when internal/securityruntime changes (the
+      # Rust tests read its Go source and its shared case files), and on
+      # full runs.
       - name: Select Rust agent checks
         id: rust
         env:
@@ -80,7 +82,7 @@ jobs:
           selected=false
           if [[ "${FULL_MODE}" == "true" || -z "${BASE_SHA}" || "${BASE_SHA}" =~ ^0+$ ]]; then
             selected=true
-          elif git diff --name-only "${BASE_SHA}" "${GITHUB_SHA}" -- rust .github/workflows/ci.yml | grep -q .; then
+          elif git diff --name-only "${BASE_SHA}" "${GITHUB_SHA}" -- rust internal/securityruntime .github/workflows/ci.yml | grep -q .; then
             selected=true
           fi
           echo "Rust agent checks: ${selected}"

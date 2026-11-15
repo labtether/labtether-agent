@@ -47,6 +47,33 @@ impl Environment {
     pub fn bool_or(&self, key: &str, fallback: bool) -> bool {
         self.get(key).and_then(parse_go_bool).unwrap_or(fallback)
     }
+
+    /// The value exactly as set, untrimmed (Go's `os.Getenv`).
+    pub fn raw(&self, key: &str) -> Option<&str> {
+        self.vars.get(key).map(String::as_str)
+    }
+
+    /// Every name and value exactly as set, in no fixed order. Used to build
+    /// the environment of a started command.
+    pub fn raw_pairs(&self) -> impl Iterator<Item = (&str, &str)> {
+        self.vars
+            .iter()
+            .map(|(key, value)| (key.as_str(), value.as_str()))
+    }
+
+    /// Go's `parseCSVEnv`: comma-separated, each item trimmed, blanks
+    /// dropped. `None` when unset, blank or holding no item, where Go falls
+    /// back to its default list.
+    pub fn csv(&self, key: &str) -> Option<Vec<String>> {
+        let items: Vec<String> = self
+            .get(key)?
+            .split(',')
+            .map(str::trim)
+            .filter(|item| !item.is_empty())
+            .map(str::to_owned)
+            .collect();
+        (!items.is_empty()).then_some(items)
+    }
 }
 
 /// Go's `strconv.ParseBool`.

@@ -1,0 +1,1920 @@
+{
+ "parse": [
+  {
+   "in": "grep \"hello world\" '/tmp/a file'",
+   "from": "TestParseCommandLinePreservesLiteralQuotedArguments",
+   "args": [
+    "grep",
+    "hello world",
+    "/tmp/a file"
+   ]
+  },
+  {
+   "in": "a\tb",
+   "from": "added",
+   "args": [
+    "a",
+    "b"
+   ]
+  },
+  {
+   "in": "  a   b  ",
+   "from": "added",
+   "args": [
+    "a",
+    "b"
+   ]
+  },
+  {
+   "in": "a\\ b",
+   "from": "added",
+   "args": [
+    "a b"
+   ]
+  },
+  {
+   "in": "'a\\b'",
+   "from": "added",
+   "args": [
+    "a\\b"
+   ]
+  },
+  {
+   "in": "\"a\\\"b\"",
+   "from": "added",
+   "args": [
+    "a\"b"
+   ]
+  },
+  {
+   "in": "\"a\\b\"",
+   "from": "added",
+   "args": [
+    "ab"
+   ]
+  },
+  {
+   "in": "a\"b c\"d",
+   "from": "added",
+   "args": [
+    "ab cd"
+   ]
+  },
+  {
+   "in": "a''b",
+   "from": "added",
+   "args": [
+    "ab"
+   ]
+  },
+  {
+   "in": "x ''",
+   "from": "added",
+   "args": [
+    "x",
+    ""
+   ]
+  },
+  {
+   "in": "\\;",
+   "from": "added",
+   "args": [
+    ";"
+   ]
+  },
+  {
+   "in": "\"a;b\" 'c|d'",
+   "from": "added",
+   "args": [
+    "a;b",
+    "c|d"
+   ]
+  },
+  {
+   "in": "$(id) ${HOME} ~",
+   "from": "added",
+   "args": [
+    "$(id)",
+    "${HOME}",
+    "~"
+   ]
+  },
+  {
+   "in": "日本 語",
+   "from": "added",
+   "args": [
+    "日本",
+    "語"
+   ]
+  },
+  {
+   "in": "",
+   "from": "added",
+   "error": "command is required"
+  },
+  {
+   "in": "   \t ",
+   "from": "added",
+   "error": "command is required"
+  },
+  {
+   "in": "''",
+   "from": "added",
+   "error": "command is required"
+  },
+  {
+   "in": "' ' x",
+   "from": "added",
+   "error": "command is required"
+  },
+  {
+   "in": "a\\",
+   "from": "added",
+   "error": "command ends with an incomplete escape"
+  },
+  {
+   "in": "\"abc",
+   "from": "added",
+   "error": "command contains an unterminated quote"
+  },
+  {
+   "in": "'abc",
+   "from": "added",
+   "error": "command contains an unterminated quote"
+  },
+  {
+   "in": "a\u0000b",
+   "from": "added",
+   "error": "command contains a NUL byte"
+  },
+  {
+   "in": "a\nb",
+   "from": "added",
+   "error": "multiline commands are not supported"
+  },
+  {
+   "in": "a\rb",
+   "from": "added",
+   "error": "multiline commands are not supported"
+  },
+  {
+   "in": "\"a\nb\"",
+   "from": "added",
+   "error": "multiline commands are not supported"
+  },
+  {
+   "in": "a\\\nb",
+   "from": "added",
+   "error": "multiline commands are not supported"
+  },
+  {
+   "in": "a;b",
+   "from": "added",
+   "error": "shell control operator ';' is not supported"
+  },
+  {
+   "in": "a|b",
+   "from": "added",
+   "error": "shell control operator '|' is not supported"
+  },
+  {
+   "in": "a&b",
+   "from": "added",
+   "error": "shell control operator '&' is not supported"
+  },
+  {
+   "in": "a<b",
+   "from": "added",
+   "error": "shell control operator '<' is not supported"
+  },
+  {
+   "in": "a>b",
+   "from": "added",
+   "error": "shell control operator '>' is not supported"
+  },
+  {
+   "in": "a`b`",
+   "from": "added",
+   "error": "shell control operator '`' is not supported"
+  },
+  {
+   "repeat": "a",
+   "count": 65537,
+   "error": "command exceeds 65536 byte limit",
+   "from": "added"
+  },
+  {
+   "repeat": "a",
+   "count": 65536,
+   "arg_count": 1,
+   "from": "added"
+  }
+ ],
+ "exec": [
+  {
+   "group": "allowlist off with accept-risk",
+   "env": {
+    "LABTETHER_EXEC_ALLOWLIST_MODE": "false",
+    "LABTETHER_EXEC_ALLOWLIST_ACCEPT_RISK": "true",
+    "LABTETHER_EXEC_ALLOWED_BINARIES": ""
+   },
+   "cases": [
+    {
+     "in": "custom-binary",
+     "want": "allow",
+     "from": "TestValidateExecBinaryAllowsUnknownWhenAllowlistDisabled"
+    }
+   ]
+  },
+  {
+   "group": "allowlist off without accept-risk",
+   "env": {
+    "LABTETHER_EXEC_ALLOWLIST_MODE": "false",
+    "LABTETHER_EXEC_ALLOWLIST_ACCEPT_RISK": ""
+   },
+   "cases": [
+    {
+     "in": "custom-binary",
+     "want": "refusing to run \"custom-binary\": LABTETHER_EXEC_ALLOWLIST_MODE=false requires LABTETHER_EXEC_ALLOWLIST_ACCEPT_RISK=true to acknowledge that disabling the exec allowlist removes a significant security control",
+     "from": "TestValidateExecBinaryBlocksWhenAllowlistDisabledWithoutAcceptRisk"
+    }
+   ]
+  },
+  {
+   "group": "default mode",
+   "env": {
+    "LABTETHER_EXEC_ALLOWLIST_MODE": "",
+    "LABTETHER_EXEC_ALLOWED_BINARIES": ""
+   },
+   "cases": [
+    {
+     "in": "custom-binary",
+     "want": "command \"custom-binary\" is not allowlisted",
+     "from": "TestValidateExecBinaryBlocksUnknownByDefault"
+    }
+   ]
+  },
+  {
+   "group": "custom allowed list",
+   "env": {
+    "LABTETHER_EXEC_ALLOWLIST_MODE": "true",
+    "LABTETHER_EXEC_ALLOWED_BINARIES": "sh,systemctl"
+   },
+   "cases": [
+    {
+     "in": "custom-binary",
+     "want": "command \"custom-binary\" is not allowlisted",
+     "from": "TestValidateExecBinaryBlocksWhenAllowlistEnabled"
+    },
+    {
+     "in": "systemctl",
+     "want": "allow",
+     "from": "added"
+    },
+    {
+     "in": "SH",
+     "want": "allow",
+     "from": "added"
+    },
+    {
+     "in": "bash",
+     "want": "command \"bash\" is not allowlisted",
+     "from": "added"
+    }
+   ]
+  },
+  {
+   "group": "default desktop utilities",
+   "env": {
+    "LABTETHER_EXEC_ALLOWLIST_MODE": "",
+    "LABTETHER_EXEC_ALLOWED_BINARIES": ""
+   },
+   "cases": [
+    {
+     "in": "wl-copy",
+     "want": "allow",
+     "from": "TestValidateExecBinaryAllowsDefaultDesktopUtilities"
+    },
+    {
+     "in": "wl-paste",
+     "want": "allow",
+     "from": "TestValidateExecBinaryAllowsDefaultDesktopUtilities"
+    },
+    {
+     "in": "xauth",
+     "want": "allow",
+     "from": "TestValidateExecBinaryAllowsDefaultDesktopUtilities"
+    },
+    {
+     "in": "xclip",
+     "want": "allow",
+     "from": "TestValidateExecBinaryAllowsDefaultDesktopUtilities"
+    },
+    {
+     "in": "xdotool",
+     "want": "allow",
+     "from": "TestValidateExecBinaryAllowsDefaultDesktopUtilities"
+    },
+    {
+     "in": "xmodmap",
+     "want": "allow",
+     "from": "TestValidateExecBinaryAllowsDefaultDesktopUtilities"
+    },
+    {
+     "in": "labtether-x11-input",
+     "want": "allow",
+     "from": "TestValidateExecBinaryAllowsDefaultDesktopUtilities"
+    },
+    {
+     "in": "xsel",
+     "want": "allow",
+     "from": "TestValidateExecBinaryAllowsDefaultDesktopUtilities"
+    },
+    {
+     "in": "xset",
+     "want": "allow",
+     "from": "TestValidateExecBinaryAllowsDefaultDesktopUtilities"
+    },
+    {
+     "in": "ydotool",
+     "want": "allow",
+     "from": "TestValidateExecBinaryAllowsDefaultDesktopUtilities"
+    }
+   ]
+  },
+  {
+   "group": "Windows executable paths",
+   "env": {
+    "LABTETHER_EXEC_ALLOWLIST_MODE": "",
+    "LABTETHER_EXEC_ALLOWED_BINARIES": ""
+   },
+   "cases": [
+    {
+     "in": "C:\\Windows\\System32\\cmd.exe",
+     "want": "allow",
+     "from": "TestValidateExecBinaryNormalizesWindowsExecutableExtension"
+    },
+    {
+     "in": "C:\\Windows\\System32\\netsh.exe",
+     "want": "allow",
+     "from": "TestValidateExecBinaryNormalizesWindowsExecutableExtension"
+    },
+    {
+     "in": "C:\\Windows\\System32\\sc.exe",
+     "want": "allow",
+     "from": "TestValidateExecBinaryNormalizesWindowsExecutableExtension"
+    },
+    {
+     "in": "C:\\Windows\\System32\\schtasks.exe",
+     "want": "allow",
+     "from": "TestValidateExecBinaryNormalizesWindowsExecutableExtension"
+    },
+    {
+     "in": "C:\\Windows\\System32\\wevtutil.exe",
+     "want": "allow",
+     "from": "TestValidateExecBinaryNormalizesWindowsExecutableExtension"
+    },
+    {
+     "in": "C:\\Users\\operator\\AppData\\Local\\Microsoft\\WindowsApps\\winget.exe",
+     "want": "allow",
+     "from": "TestValidateExecBinaryNormalizesWindowsExecutableExtension"
+    },
+    {
+     "in": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.EXE",
+     "want": "allow",
+     "from": "TestValidateExecBinaryNormalizesWindowsExecutableExtension"
+    }
+   ]
+  },
+  {
+   "group": "names and paths under the default list",
+   "env": {},
+   "cases": [
+    {
+     "in": "",
+     "want": "command is required",
+     "from": "added"
+    },
+    {
+     "in": "   ",
+     "want": "command is required",
+     "from": "added"
+    },
+    {
+     "in": ".exe",
+     "want": "command is required",
+     "from": "added"
+    },
+    {
+     "in": "BASH",
+     "want": "allow",
+     "from": "added"
+    },
+    {
+     "in": " bash ",
+     "want": "allow",
+     "from": "added"
+    },
+    {
+     "in": "/usr/bin/bash",
+     "want": "allow",
+     "from": "added"
+    },
+    {
+     "in": "Bash.EXE",
+     "want": "allow",
+     "from": "added"
+    },
+    {
+     "in": "..\\bash",
+     "want": "allow",
+     "from": "added"
+    },
+    {
+     "in": "/tmp/x/bash",
+     "want": "allow",
+     "from": "added"
+    },
+    {
+     "in": "bash.exe.exe",
+     "want": "command \"bash.exe\" is not allowlisted",
+     "from": "added"
+    },
+    {
+     "in": "./custom",
+     "want": "command \"custom\" is not allowlisted",
+     "from": "added"
+    },
+    {
+     "in": "/usr/bin/",
+     "want": "command \"bin\" is not allowlisted",
+     "from": "added"
+    },
+    {
+     "in": "/",
+     "want": "command \"/\" is not allowlisted",
+     "from": "added"
+    },
+    {
+     "in": "rm",
+     "want": "command \"rm\" is not allowlisted",
+     "from": "added"
+    },
+    {
+     "in": "sudo",
+     "want": "command \"sudo\" is not allowlisted",
+     "from": "added"
+    }
+   ]
+  },
+  {
+   "group": "allowed list with spaces and blanks",
+   "env": {
+    "LABTETHER_EXEC_ALLOWED_BINARIES": " sh, systemctl ,,"
+   },
+   "cases": [
+    {
+     "in": "systemctl",
+     "want": "allow",
+     "from": "added"
+    },
+    {
+     "in": "sh",
+     "want": "allow",
+     "from": "added"
+    },
+    {
+     "in": "bash",
+     "want": "command \"bash\" is not allowlisted",
+     "from": "added"
+    }
+   ]
+  },
+  {
+   "group": "allowed list of blanks keeps the default",
+   "env": {
+    "LABTETHER_EXEC_ALLOWED_BINARIES": " , "
+   },
+   "cases": [
+    {
+     "in": "bash",
+     "want": "allow",
+     "from": "added"
+    },
+    {
+     "in": "custom",
+     "want": "command \"custom\" is not allowlisted",
+     "from": "added"
+    }
+   ]
+  },
+  {
+   "group": "allowed list entries are normalized",
+   "env": {
+    "LABTETHER_EXEC_ALLOWED_BINARIES": "/usr/bin/Custom.exe"
+   },
+   "cases": [
+    {
+     "in": "custom",
+     "want": "allow",
+     "from": "added"
+    },
+    {
+     "in": "CUSTOM",
+     "want": "allow",
+     "from": "added"
+    },
+    {
+     "in": "bash",
+     "want": "command \"bash\" is not allowlisted",
+     "from": "added"
+    }
+   ]
+  },
+  {
+   "group": "blocked list",
+   "env": {
+    "LABTETHER_EXEC_BLOCKED_BINARIES": "bash, /bin/ZSH.exe"
+   },
+   "cases": [
+    {
+     "in": "bash",
+     "want": "command \"bash\" blocked by runtime policy",
+     "from": "added"
+    },
+    {
+     "in": "/bin/BASH.exe",
+     "want": "command \"bash\" blocked by runtime policy",
+     "from": "added"
+    },
+    {
+     "in": "zsh",
+     "want": "command \"zsh\" blocked by runtime policy",
+     "from": "added"
+    },
+    {
+     "in": "sh",
+     "want": "allow",
+     "from": "added"
+    }
+   ]
+  },
+  {
+   "group": "blocked list beats a disabled allowlist",
+   "env": {
+    "LABTETHER_EXEC_ALLOWLIST_MODE": "false",
+    "LABTETHER_EXEC_ALLOWLIST_ACCEPT_RISK": "true",
+    "LABTETHER_EXEC_BLOCKED_BINARIES": "bash"
+   },
+   "cases": [
+    {
+     "in": "bash",
+     "want": "command \"bash\" blocked by runtime policy",
+     "from": "added"
+    },
+    {
+     "in": "custom",
+     "want": "allow",
+     "from": "added"
+    },
+    {
+     "in": "",
+     "want": "command is required",
+     "from": "added"
+    }
+   ]
+  },
+  {
+   "group": "Go boolean forms 0 and 1",
+   "env": {
+    "LABTETHER_EXEC_ALLOWLIST_MODE": "0",
+    "LABTETHER_EXEC_ALLOWLIST_ACCEPT_RISK": "1"
+   },
+   "cases": [
+    {
+     "in": "custom",
+     "want": "allow",
+     "from": "added"
+    }
+   ]
+  },
+  {
+   "group": "unparsable mode keeps the allowlist on",
+   "env": {
+    "LABTETHER_EXEC_ALLOWLIST_MODE": "no",
+    "LABTETHER_EXEC_ALLOWLIST_ACCEPT_RISK": "true"
+   },
+   "cases": [
+    {
+     "in": "custom",
+     "want": "command \"custom\" is not allowlisted",
+     "from": "added"
+    }
+   ]
+  },
+  {
+   "group": "unparsable accept-risk counts as off",
+   "env": {
+    "LABTETHER_EXEC_ALLOWLIST_MODE": "FALSE",
+    "LABTETHER_EXEC_ALLOWLIST_ACCEPT_RISK": "yes"
+   },
+   "cases": [
+    {
+     "in": "custom",
+     "want": "refusing to run \"custom\": LABTETHER_EXEC_ALLOWLIST_MODE=false requires LABTETHER_EXEC_ALLOWLIST_ACCEPT_RISK=true to acknowledge that disabling the exec allowlist removes a significant security control",
+     "from": "added"
+    }
+   ]
+  },
+  {
+   "group": "values are trimmed",
+   "env": {
+    "LABTETHER_EXEC_ALLOWLIST_MODE": " false ",
+    "LABTETHER_EXEC_ALLOWLIST_ACCEPT_RISK": " TRUE "
+   },
+   "cases": [
+    {
+     "in": "custom",
+     "want": "allow",
+     "from": "added"
+    }
+   ]
+  }
+ ],
+ "shell": [
+  {
+   "group": "shell allowlist off without accept-risk",
+   "env": {
+    "LABTETHER_SHELL_COMMAND_ALLOWLIST_MODE": "false",
+    "LABTETHER_SHELL_COMMAND_ALLOWLIST_ACCEPT_RISK": ""
+   },
+   "cases": [
+    {
+     "in": "whoami",
+     "want": "refusing shell command: LABTETHER_SHELL_COMMAND_ALLOWLIST_MODE=false requires LABTETHER_SHELL_COMMAND_ALLOWLIST_ACCEPT_RISK=true to acknowledge that disabling the shell allowlist removes a significant security control",
+     "from": "TestValidateShellCommandBlocksWhenAllowlistDisabledWithoutAcceptRisk"
+    }
+   ]
+  },
+  {
+   "group": "blocked substring from the setting",
+   "env": {
+    "LABTETHER_SHELL_COMMAND_BLOCKED_SUBSTRINGS": "rm -rf /"
+   },
+   "cases": [
+    {
+     "in": "echo ok && rm -rf /tmp",
+     "want": "shell control operator '&' is not supported",
+     "from": "TestValidateShellCommandBlocksKnownDangerousToken"
+    },
+    {
+     "in": "echo ok rm -rf /tmp",
+     "want": "command blocked by safety policy",
+     "from": "added"
+    },
+    {
+     "in": "cat mkfs.log",
+     "want": "allow",
+     "from": "added"
+    },
+    {
+     "in": "cat shutdown",
+     "want": "command blocked by safety policy",
+     "from": "added"
+    }
+   ]
+  },
+  {
+   "group": "custom prefixes",
+   "env": {
+    "LABTETHER_SHELL_COMMAND_ALLOWLIST_MODE": "true",
+    "LABTETHER_SHELL_COMMAND_ALLOWLIST_PREFIXES": "uname,uptime"
+   },
+   "cases": [
+    {
+     "in": "uptime",
+     "want": "allow",
+     "from": "TestValidateShellCommandAllowlist"
+    },
+    {
+     "in": "ls -la",
+     "want": "command not in allowlist",
+     "from": "TestValidateShellCommandAllowlist"
+    }
+   ]
+  },
+  {
+   "group": "prefix and operator bypasses",
+   "env": {
+    "LABTETHER_SHELL_COMMAND_ALLOWLIST_MODE": "true",
+    "LABTETHER_SHELL_COMMAND_ALLOWLIST_PREFIXES": "uptime,systemctl status"
+   },
+   "cases": [
+    {
+     "in": "uptime-now",
+     "want": "command not in allowlist",
+     "from": "TestValidateShellCommandRejectsPrefixAndShellOperatorBypasses"
+    },
+    {
+     "in": "uptime; id",
+     "want": "shell control operator ';' is not supported",
+     "from": "TestValidateShellCommandRejectsPrefixAndShellOperatorBypasses"
+    },
+    {
+     "in": "uptime && id",
+     "want": "shell control operator '&' is not supported",
+     "from": "TestValidateShellCommandRejectsPrefixAndShellOperatorBypasses"
+    },
+    {
+     "in": "uptime | id",
+     "want": "shell control operator '|' is not supported",
+     "from": "TestValidateShellCommandRejectsPrefixAndShellOperatorBypasses"
+    },
+    {
+     "in": "systemctl statusx sshd",
+     "want": "command not in allowlist",
+     "from": "TestValidateShellCommandRejectsPrefixAndShellOperatorBypasses"
+    },
+    {
+     "in": "systemctl status sshd > /tmp/output",
+     "want": "shell control operator '>' is not supported",
+     "from": "TestValidateShellCommandRejectsPrefixAndShellOperatorBypasses"
+    },
+    {
+     "in": "uptime\nid",
+     "want": "multiline commands are not supported",
+     "from": "TestValidateShellCommandRejectsPrefixAndShellOperatorBypasses"
+    }
+   ]
+  },
+  {
+   "group": "allowlist on by default",
+   "env": {
+    "LABTETHER_SHELL_COMMAND_ALLOWLIST_MODE": ""
+   },
+   "cases": [
+    {
+     "in": "uptime",
+     "want": "allow",
+     "from": "TestValidateShellCommandAllowlistEnabledByDefault"
+    },
+    {
+     "in": "echo hello",
+     "want": "command not in allowlist",
+     "from": "TestValidateShellCommandAllowlistEnabledByDefault"
+    }
+   ]
+  },
+  {
+   "group": "Windows echo probe",
+   "env": {
+    "LABTETHER_SHELL_COMMAND_ALLOWLIST_MODE": "",
+    "LABTETHER_SHELL_COMMAND_ALLOWLIST_PREFIXES": ""
+   },
+   "cases": [
+    {
+     "in": "cmd /c echo labtether-windows-agent-command-ok",
+     "want": "allow",
+     "from": "TestValidateShellCommandAllowsNarrowWindowsEchoProbe"
+    },
+    {
+     "in": "CMD /C ECHO LabTether_probe.v1:ok",
+     "want": "allow",
+     "from": "TestValidateShellCommandAllowsNarrowWindowsEchoProbe"
+    },
+    {
+     "in": "cmd /c echo \"quoted-safe-marker\"",
+     "want": "allow",
+     "from": "TestValidateShellCommandAllowsNarrowWindowsEchoProbe"
+    }
+   ]
+  },
+  {
+   "group": "Hub Windows read-only rules (shell and exec checks)",
+   "env": {
+    "LABTETHER_SHELL_COMMAND_ALLOWLIST_MODE": "",
+    "LABTETHER_SHELL_COMMAND_ALLOWLIST_PREFIXES": "",
+    "LABTETHER_EXEC_ALLOWLIST_MODE": "",
+    "LABTETHER_EXEC_ALLOWED_BINARIES": ""
+   },
+   "check": "validated",
+   "cases": [
+    {
+     "in": "whoami",
+     "want": "allow",
+     "from": "TestNewValidatedShellCommandMatchesHubWindowsReadOnlyRules"
+    },
+    {
+     "in": "whoami /all",
+     "want": "allow",
+     "from": "TestNewValidatedShellCommandMatchesHubWindowsReadOnlyRules"
+    },
+    {
+     "in": "hostname",
+     "want": "allow",
+     "from": "TestNewValidatedShellCommandMatchesHubWindowsReadOnlyRules"
+    },
+    {
+     "in": "ipconfig",
+     "want": "allow",
+     "from": "TestNewValidatedShellCommandMatchesHubWindowsReadOnlyRules"
+    },
+    {
+     "in": "ipconfig /all",
+     "want": "allow",
+     "from": "TestNewValidatedShellCommandMatchesHubWindowsReadOnlyRules"
+    },
+    {
+     "in": "systeminfo",
+     "want": "allow",
+     "from": "TestNewValidatedShellCommandMatchesHubWindowsReadOnlyRules"
+    },
+    {
+     "in": "tasklist",
+     "want": "allow",
+     "from": "TestNewValidatedShellCommandMatchesHubWindowsReadOnlyRules"
+    },
+    {
+     "in": "tasklist /svc",
+     "want": "allow",
+     "from": "TestNewValidatedShellCommandMatchesHubWindowsReadOnlyRules"
+    },
+    {
+     "in": "cmd /c ver",
+     "want": "allow",
+     "from": "TestNewValidatedShellCommandMatchesHubWindowsReadOnlyRules"
+    },
+    {
+     "in": "powershell -Command Get-Date",
+     "want": "allow",
+     "from": "TestNewValidatedShellCommandMatchesHubWindowsReadOnlyRules"
+    },
+    {
+     "in": "ipconfig /release",
+     "want": "command not in allowlist",
+     "from": "TestNewValidatedShellCommandMatchesHubWindowsReadOnlyRules"
+    },
+    {
+     "in": "ipconfig /all /release",
+     "want": "command not in allowlist",
+     "from": "TestNewValidatedShellCommandMatchesHubWindowsReadOnlyRules"
+    },
+    {
+     "in": "hostname newname",
+     "want": "command not in allowlist",
+     "from": "TestNewValidatedShellCommandMatchesHubWindowsReadOnlyRules"
+    },
+    {
+     "in": "cmd",
+     "want": "command not in allowlist",
+     "from": "TestNewValidatedShellCommandMatchesHubWindowsReadOnlyRules"
+    },
+    {
+     "in": "cmd /c",
+     "want": "command not in allowlist",
+     "from": "TestNewValidatedShellCommandMatchesHubWindowsReadOnlyRules"
+    },
+    {
+     "in": "cmd /c ver \"& del x\"",
+     "want": "command not in allowlist",
+     "from": "TestNewValidatedShellCommandMatchesHubWindowsReadOnlyRules"
+    },
+    {
+     "in": "cmd /c dir",
+     "want": "command not in allowlist",
+     "from": "TestNewValidatedShellCommandMatchesHubWindowsReadOnlyRules"
+    },
+    {
+     "in": "powershell",
+     "want": "command not in allowlist",
+     "from": "TestNewValidatedShellCommandMatchesHubWindowsReadOnlyRules"
+    },
+    {
+     "in": "powershell -Command",
+     "want": "command not in allowlist",
+     "from": "TestNewValidatedShellCommandMatchesHubWindowsReadOnlyRules"
+    },
+    {
+     "in": "powershell -Command Get-Date \"; Remove-Item x\"",
+     "want": "command not in allowlist",
+     "from": "TestNewValidatedShellCommandMatchesHubWindowsReadOnlyRules"
+    },
+    {
+     "in": "pwsh -Command Get-Date",
+     "want": "command not in allowlist",
+     "from": "TestNewValidatedShellCommandMatchesHubWindowsReadOnlyRules"
+    }
+   ]
+  },
+  {
+   "group": "Windows cmd interpreter bypasses",
+   "env": {
+    "LABTETHER_SHELL_COMMAND_ALLOWLIST_MODE": "",
+    "LABTETHER_SHELL_COMMAND_ALLOWLIST_PREFIXES": ""
+   },
+   "cases": [
+    {
+     "in": "cmd /c echo",
+     "want": "cmd /c is limited to an echo probe with a non-empty ASCII value",
+     "from": "TestValidateShellCommandRejectsWindowsCmdInterpreterBypasses"
+    },
+    {
+     "in": "cmd /c whoami",
+     "want": "command not in allowlist",
+     "from": "TestValidateShellCommandRejectsWindowsCmdInterpreterBypasses"
+    },
+    {
+     "in": "cmd /k echo ok",
+     "want": "command not in allowlist",
+     "from": "TestValidateShellCommandRejectsWindowsCmdInterpreterBypasses"
+    },
+    {
+     "in": "cmd /c \"echo ok & whoami\"",
+     "want": "command not in allowlist",
+     "from": "TestValidateShellCommandRejectsWindowsCmdInterpreterBypasses"
+    },
+    {
+     "in": "cmd /c echo \"ok & whoami\"",
+     "want": "cmd /c echo probe values may contain only ASCII letters, digits, dot, underscore, dash, or colon",
+     "from": "TestValidateShellCommandRejectsWindowsCmdInterpreterBypasses"
+    },
+    {
+     "in": "cmd /c echo \"ok | whoami\"",
+     "want": "cmd /c echo probe values may contain only ASCII letters, digits, dot, underscore, dash, or colon",
+     "from": "TestValidateShellCommandRejectsWindowsCmdInterpreterBypasses"
+    },
+    {
+     "in": "cmd /c echo \"ok > C:\\\\Temp\\\\probe.txt\"",
+     "want": "cmd /c echo probe values may contain only ASCII letters, digits, dot, underscore, dash, or colon",
+     "from": "TestValidateShellCommandRejectsWindowsCmdInterpreterBypasses"
+    },
+    {
+     "in": "cmd /c echo \"ok < C:\\\\Temp\\\\probe.txt\"",
+     "want": "cmd /c echo probe values may contain only ASCII letters, digits, dot, underscore, dash, or colon",
+     "from": "TestValidateShellCommandRejectsWindowsCmdInterpreterBypasses"
+    },
+    {
+     "in": "cmd /c echo %PATH%",
+     "want": "cmd /c echo probe values may contain only ASCII letters, digits, dot, underscore, dash, or colon",
+     "from": "TestValidateShellCommandRejectsWindowsCmdInterpreterBypasses"
+    },
+    {
+     "in": "cmd /c echo !COMSPEC!",
+     "want": "cmd /c echo probe values may contain only ASCII letters, digits, dot, underscore, dash, or colon",
+     "from": "TestValidateShellCommandRejectsWindowsCmdInterpreterBypasses"
+    },
+    {
+     "in": "cmd /c echo $(whoami)",
+     "want": "cmd /c echo probe values may contain only ASCII letters, digits, dot, underscore, dash, or colon",
+     "from": "TestValidateShellCommandRejectsWindowsCmdInterpreterBypasses"
+    },
+    {
+     "in": "cmd /c echo `whoami`",
+     "want": "shell control operator '`' is not supported",
+     "from": "TestValidateShellCommandRejectsWindowsCmdInterpreterBypasses"
+    },
+    {
+     "in": "cmd /c echo ok && whoami",
+     "want": "shell control operator '&' is not supported",
+     "from": "TestValidateShellCommandRejectsWindowsCmdInterpreterBypasses"
+    },
+    {
+     "in": "cmd /c echo ok & whoami",
+     "want": "shell control operator '&' is not supported",
+     "from": "TestValidateShellCommandRejectsWindowsCmdInterpreterBypasses"
+    },
+    {
+     "in": "cmd /c echo ok | whoami",
+     "want": "shell control operator '|' is not supported",
+     "from": "TestValidateShellCommandRejectsWindowsCmdInterpreterBypasses"
+    },
+    {
+     "in": "cmd /c echo ok > probe.txt",
+     "want": "shell control operator '>' is not supported",
+     "from": "TestValidateShellCommandRejectsWindowsCmdInterpreterBypasses"
+    },
+    {
+     "in": "cmd /c echo ok\nwhoami",
+     "want": "multiline commands are not supported",
+     "from": "TestValidateShellCommandRejectsWindowsCmdInterpreterBypasses"
+    },
+    {
+     "in": "cmd /c echo ok\r\nwhoami",
+     "want": "multiline commands are not supported",
+     "from": "TestValidateShellCommandRejectsWindowsCmdInterpreterBypasses"
+    },
+    {
+     "in": "cmd /c echo shutdown",
+     "want": "command blocked by safety policy",
+     "from": "TestValidateShellCommandRejectsWindowsCmdInterpreterBypasses"
+    },
+    {
+     "in": "cmd /c echo ok /?",
+     "want": "cmd /c echo probe values may contain only ASCII letters, digits, dot, underscore, dash, or colon",
+     "from": "TestValidateShellCommandRejectsWindowsCmdInterpreterBypasses"
+    },
+    {
+     "in": "cmd /c echo 日本語",
+     "want": "cmd /c echo probe values may contain only ASCII letters, digits, dot, underscore, dash, or colon",
+     "from": "TestValidateShellCommandRejectsWindowsCmdInterpreterBypasses"
+    }
+   ]
+  },
+  {
+   "group": "shutdown variants",
+   "env": {},
+   "cases": [
+    {
+     "in": "shutdown now",
+     "want": "command blocked by safety policy",
+     "from": "TestValidateShellCommandBlocksShutdownVariants"
+    },
+    {
+     "in": "shutdown -h now",
+     "want": "command blocked by safety policy",
+     "from": "TestValidateShellCommandBlocksShutdownVariants"
+    },
+    {
+     "in": "shutdown -P now",
+     "want": "command blocked by safety policy",
+     "from": "TestValidateShellCommandBlocksShutdownVariants"
+    },
+    {
+     "in": "SHUTDOWN -h now",
+     "want": "command blocked by safety policy",
+     "from": "TestValidateShellCommandBlocksShutdownVariants"
+    },
+    {
+     "in": "sudo shutdown -h now",
+     "want": "command blocked by safety policy",
+     "from": "TestValidateShellCommandBlocksShutdownVariants"
+    },
+    {
+     "in": "echo hi && shutdown -r now",
+     "want": "shell control operator '&' is not supported",
+     "from": "TestValidateShellCommandBlocksShutdownVariants"
+    },
+    {
+     "in": "reboot",
+     "want": "command blocked by safety policy",
+     "from": "TestValidateShellCommandBlocksShutdownVariants"
+    },
+    {
+     "in": "sudo reboot",
+     "want": "command blocked by safety policy",
+     "from": "TestValidateShellCommandBlocksShutdownVariants"
+    },
+    {
+     "in": "halt",
+     "want": "command blocked by safety policy",
+     "from": "TestValidateShellCommandBlocksShutdownVariants"
+    },
+    {
+     "in": "poweroff",
+     "want": "command blocked by safety policy",
+     "from": "TestValidateShellCommandBlocksShutdownVariants"
+    }
+   ]
+  },
+  {
+   "group": "shutdown inside another word",
+   "env": {},
+   "cases": [
+    {
+     "in": "cat shutdown.log",
+     "want": "allow",
+     "from": "TestValidateShellCommandDoesNotBlockShutdownSubstring"
+    },
+    {
+     "in": "ls /etc/shutdown.conf",
+     "want": "allow",
+     "from": "TestValidateShellCommandDoesNotBlockShutdownSubstring"
+    }
+   ]
+  },
+  {
+   "group": "default readers stay read-only",
+   "env": {
+    "LABTETHER_SHELL_COMMAND_ALLOWLIST_MODE": "true",
+    "LABTETHER_SHELL_COMMAND_ALLOWLIST_PREFIXES": ""
+   },
+   "protect": [
+    "{state}"
+   ],
+   "skip_os": [
+    "windows"
+   ],
+   "cases": [
+    {
+     "in": "journalctl --vacuum-time=1s",
+     "want": "journalctl --vacuum-time changes system logs and is not allowed here",
+     "from": "TestValidateShellCommandKeepsDefaultReadersReadOnly"
+    },
+    {
+     "in": "journalctl --rotate",
+     "want": "journalctl --rotate changes system logs and is not allowed here",
+     "from": "TestValidateShellCommandKeepsDefaultReadersReadOnly"
+    },
+    {
+     "in": "journalctl --cursor-file=/tmp/cursor -n 1",
+     "want": "journalctl --cursor-file changes system logs and is not allowed here",
+     "from": "TestValidateShellCommandKeepsDefaultReadersReadOnly"
+    },
+    {
+     "in": "cat {state}/agent-token",
+     "want": "reading {state}/agent-token is not allowed here",
+     "from": "TestValidateShellCommandKeepsDefaultReadersReadOnly"
+    },
+    {
+     "in": "head -c 64 {state}/agent-token",
+     "want": "reading {state}/agent-token is not allowed here",
+     "from": "TestValidateShellCommandKeepsDefaultReadersReadOnly"
+    },
+    {
+     "in": "grep --file={state}/agent-token /dev/null",
+     "want": "reading {state}/agent-token is not allowed here",
+     "from": "TestValidateShellCommandKeepsDefaultReadersReadOnly"
+    },
+    {
+     "in": "grep -r token {tmp}",
+     "want": "recursive grep is not allowed here",
+     "from": "TestValidateShellCommandKeepsDefaultReadersReadOnly"
+    },
+    {
+     "in": "tail /etc/shadow",
+     "want": "reading /etc/shadow is not allowed here",
+     "from": "TestValidateShellCommandKeepsDefaultReadersReadOnly"
+    },
+    {
+     "in": "cat /proc/self/environ",
+     "want": "reading /proc/self/environ is not allowed here",
+     "from": "TestValidateShellCommandKeepsDefaultReadersReadOnly"
+    },
+    {
+     "in": "cat /root/.ssh/id_ed25519",
+     "want": "reading /root/.ssh/id_ed25519 is not allowed here",
+     "from": "TestValidateShellCommandKeepsDefaultReadersReadOnly"
+    },
+    {
+     "in": "journalctl -u sshd -n 50 --no-pager",
+     "want": "allow",
+     "from": "TestValidateShellCommandKeepsDefaultReadersReadOnly"
+    },
+    {
+     "in": "tail -n 100 /var/log/syslog",
+     "want": "allow",
+     "from": "TestValidateShellCommandKeepsDefaultReadersReadOnly"
+    },
+    {
+     "in": "grep -i error /var/log/syslog",
+     "want": "allow",
+     "from": "TestValidateShellCommandKeepsDefaultReadersReadOnly"
+    },
+    {
+     "in": "cat /etc/os-release",
+     "want": "allow",
+     "from": "TestValidateShellCommandKeepsDefaultReadersReadOnly"
+    },
+    {
+     "in": "head -c 64 {state}/./agent-token",
+     "want": "reading {state}/./agent-token is not allowed here",
+     "from": "added"
+    },
+    {
+     "in": "cat {state}/sub/../agent-token",
+     "want": "reading {state}/sub/../agent-token is not allowed here",
+     "from": "added"
+    },
+    {
+     "in": "cat {state}",
+     "want": "reading {state} is not allowed here",
+     "from": "added"
+    },
+    {
+     "in": "cat {state}/../other",
+     "want": "allow",
+     "from": "added"
+    },
+    {
+     "in": "cat {link}/agent-token",
+     "want": "reading {link}/agent-token is not allowed here",
+     "from": "added"
+    },
+    {
+     "in": "cat {link}/missing",
+     "want": "allow",
+     "from": "added"
+    },
+    {
+     "in": "cat /etc//shadow",
+     "want": "reading /etc//shadow is not allowed here",
+     "from": "added"
+    },
+    {
+     "in": "cat /etc/../etc/shadow",
+     "want": "reading /etc/../etc/shadow is not allowed here",
+     "from": "added"
+    },
+    {
+     "in": "cat /etc/shadow-",
+     "want": "reading /etc/shadow- is not allowed here",
+     "from": "added"
+    },
+    {
+     "in": "cat /etc/shadowx",
+     "want": "allow",
+     "from": "added"
+    },
+    {
+     "in": "cat /etc/sudoers.d/README",
+     "want": "reading /etc/sudoers.d/README is not allowed here",
+     "from": "added"
+    },
+    {
+     "in": "cat -- /etc/shadow",
+     "want": "reading /etc/shadow is not allowed here",
+     "from": "added"
+    },
+    {
+     "in": "head -c64 /etc/gshadow",
+     "want": "reading /etc/gshadow is not allowed here",
+     "from": "added"
+    },
+    {
+     "in": "tail --lines=5 /etc/master.passwd",
+     "want": "reading /etc/master.passwd is not allowed here",
+     "from": "added"
+    },
+    {
+     "in": "cat --x=/etc/shadow",
+     "want": "reading /etc/shadow is not allowed here",
+     "from": "added"
+    },
+    {
+     "in": "grep -f/etc/shadow x",
+     "want": "reading /etc/shadow is not allowed here",
+     "from": "added"
+    },
+    {
+     "in": "grep -ef/etc/shadow x",
+     "want": "reading /etc/shadow is not allowed here",
+     "from": "added"
+    },
+    {
+     "in": "grep -if /etc/shadow",
+     "want": "reading /etc/shadow is not allowed here",
+     "from": "added"
+    },
+    {
+     "in": "cat ~/.ssh/id_rsa",
+     "want": "reading ~/.ssh/id_rsa is not allowed here",
+     "from": "added"
+    },
+    {
+     "in": "cat /home/demo/.ssh/id_rsa.pub",
+     "want": "allow",
+     "from": "added"
+    },
+    {
+     "in": "cat /home/demo/.ssh/authorized_keys",
+     "want": "allow",
+     "from": "added"
+    },
+    {
+     "in": "cat /etc/ssh/ssh_host_ed25519_key",
+     "want": "reading /etc/ssh/ssh_host_ed25519_key is not allowed here",
+     "from": "added"
+    },
+    {
+     "in": "cat /etc/ssh/ssh_host_ed25519_key.pub",
+     "want": "allow",
+     "from": "added"
+    },
+    {
+     "in": "cat /proc/1/environ",
+     "want": "reading /proc/1/environ is not allowed here",
+     "from": "added"
+    },
+    {
+     "in": "cat /proc/self/mem",
+     "want": "reading /proc/self/mem is not allowed here",
+     "from": "added"
+    },
+    {
+     "in": "cat /proc/self/status",
+     "want": "allow",
+     "from": "added"
+    },
+    {
+     "in": "cat -",
+     "want": "allow",
+     "from": "added"
+    },
+    {
+     "in": "cat",
+     "want": "allow",
+     "from": "added"
+    },
+    {
+     "in": "cat shutdown.log",
+     "want": "allow",
+     "from": "added"
+    },
+    {
+     "in": "grep -R x /etc",
+     "want": "recursive grep is not allowed here",
+     "from": "added"
+    },
+    {
+     "in": "grep -ri x /var/log",
+     "want": "recursive grep is not allowed here",
+     "from": "added"
+    },
+    {
+     "in": "grep -ir x /var/log",
+     "want": "recursive grep is not allowed here",
+     "from": "added"
+    },
+    {
+     "in": "grep --recursive x /var/log",
+     "want": "recursive grep is not allowed here",
+     "from": "added"
+    },
+    {
+     "in": "grep --dereference-recursive x /var/log",
+     "want": "recursive grep is not allowed here",
+     "from": "added"
+    },
+    {
+     "in": "grep -d recurse x /var/log",
+     "want": "recursive grep is not allowed here",
+     "from": "added"
+    },
+    {
+     "in": "grep -drecurse x /var/log",
+     "want": "recursive grep is not allowed here",
+     "from": "added"
+    },
+    {
+     "in": "grep --directories=recurse x /var/log",
+     "want": "recursive grep is not allowed here",
+     "from": "added"
+    },
+    {
+     "in": "grep --directories recurse x /var/log",
+     "want": "recursive grep is not allowed here",
+     "from": "added"
+    },
+    {
+     "in": "grep -dskip x /var/log/syslog",
+     "want": "allow",
+     "from": "added"
+    },
+    {
+     "in": "grep -e -r /var/log/syslog",
+     "want": "recursive grep is not allowed here",
+     "from": "added"
+    },
+    {
+     "in": "grep -er x /var/log/syslog",
+     "want": "allow",
+     "from": "added"
+    },
+    {
+     "in": "grep -A2 -r x /var/log",
+     "want": "recursive grep is not allowed here",
+     "from": "added"
+    },
+    {
+     "in": "journalctl --vacuum-size=1G",
+     "want": "journalctl --vacuum-size changes system logs and is not allowed here",
+     "from": "added"
+    },
+    {
+     "in": "journalctl --vacuum-files=2",
+     "want": "journalctl --vacuum-files changes system logs and is not allowed here",
+     "from": "added"
+    },
+    {
+     "in": "journalctl --flush",
+     "want": "journalctl --flush changes system logs and is not allowed here",
+     "from": "added"
+    },
+    {
+     "in": "journalctl --sync",
+     "want": "journalctl --sync changes system logs and is not allowed here",
+     "from": "added"
+    },
+    {
+     "in": "journalctl --relinquish-var",
+     "want": "journalctl --relinquish-var changes system logs and is not allowed here",
+     "from": "added"
+    },
+    {
+     "in": "journalctl --smart-relinquish-var",
+     "want": "journalctl --smart-relinquish-var changes system logs and is not allowed here",
+     "from": "added"
+    },
+    {
+     "in": "journalctl --setup-keys",
+     "want": "journalctl --setup-keys changes system logs and is not allowed here",
+     "from": "added"
+    },
+    {
+     "in": "journalctl --update-catalog",
+     "want": "journalctl --update-catalog changes system logs and is not allowed here",
+     "from": "added"
+    },
+    {
+     "in": "journalctl --ROTATE",
+     "want": "journalctl --rotate changes system logs and is not allowed here",
+     "from": "added"
+    },
+    {
+     "in": "journalctl -n 5 --cursor-file /tmp/c",
+     "want": "journalctl --cursor-file changes system logs and is not allowed here",
+     "from": "added"
+    },
+    {
+     "in": "journalctl --vacuum-time",
+     "want": "journalctl --vacuum-time changes system logs and is not allowed here",
+     "from": "added"
+    },
+    {
+     "in": "journalctl --rot",
+     "want": "allow",
+     "from": "added"
+    },
+    {
+     "in": "journalctl -u x --output=json",
+     "want": "allow",
+     "from": "added"
+    }
+   ]
+  },
+  {
+   "group": "a protected folder reached through a link",
+   "env": {},
+   "protect": [
+    "{link}"
+   ],
+   "skip_os": [
+    "windows"
+   ],
+   "cases": [
+    {
+     "in": "cat {state}/agent-token",
+     "want": "reading {state}/agent-token is not allowed here",
+     "from": "added"
+    },
+    {
+     "in": "cat {tmp}/other",
+     "want": "allow",
+     "from": "added"
+    }
+   ]
+  },
+  {
+   "group": "blank and relative protected paths are ignored",
+   "env": {},
+   "protect": [
+    "",
+    "  ",
+    "relative/state"
+   ],
+   "skip_os": [
+    "windows"
+   ],
+   "cases": [
+    {
+     "in": "cat {state}/agent-token",
+     "want": "allow",
+     "from": "added"
+    },
+    {
+     "in": "cat /etc/shadow",
+     "want": "reading /etc/shadow is not allowed here",
+     "from": "added"
+    }
+   ]
+  },
+  {
+   "group": "default rules",
+   "env": {},
+   "skip_os": [
+    "windows"
+   ],
+   "cases": [
+    {
+     "in": "uptime",
+     "want": "allow",
+     "from": "added"
+    },
+    {
+     "in": "UPTIME",
+     "want": "allow",
+     "from": "added"
+    },
+    {
+     "in": "  uptime  ",
+     "want": "allow",
+     "from": "added"
+    },
+    {
+     "in": "\tuptime",
+     "want": "allow",
+     "from": "added"
+    },
+    {
+     "in": "\"uptime\"",
+     "want": "allow",
+     "from": "added"
+    },
+    {
+     "in": "uptime -p",
+     "want": "allow",
+     "from": "added"
+    },
+    {
+     "in": "uptime \\;",
+     "want": "allow",
+     "from": "added"
+    },
+    {
+     "in": "systemctl status sshd",
+     "want": "allow",
+     "from": "added"
+    },
+    {
+     "in": "systemctl STATUS sshd",
+     "want": "allow",
+     "from": "added"
+    },
+    {
+     "in": "systemctl restart sshd",
+     "want": "command not in allowlist",
+     "from": "added"
+    },
+    {
+     "in": "docker ps -a",
+     "want": "allow",
+     "from": "added"
+    },
+    {
+     "in": "docker run x",
+     "want": "command not in allowlist",
+     "from": "added"
+    },
+    {
+     "in": "ps aux",
+     "want": "allow",
+     "from": "added"
+    },
+    {
+     "in": "top -b -n 1",
+     "want": "allow",
+     "from": "added"
+    },
+    {
+     "in": "df -h",
+     "want": "allow",
+     "from": "added"
+    },
+    {
+     "in": "free -m",
+     "want": "allow",
+     "from": "added"
+    },
+    {
+     "in": "du -sh /var",
+     "want": "allow",
+     "from": "added"
+    },
+    {
+     "in": "uname -a",
+     "want": "allow",
+     "from": "added"
+    },
+    {
+     "in": "docker images",
+     "want": "allow",
+     "from": "added"
+    },
+    {
+     "in": "ls -la /etc",
+     "want": "allow",
+     "from": "added"
+    },
+    {
+     "in": "cat /etc/inittab",
+     "want": "allow",
+     "from": "added"
+    },
+    {
+     "in": "systemctl status reboot.target",
+     "want": "allow",
+     "from": "added"
+    },
+    {
+     "in": "ls init",
+     "want": "command blocked by safety policy",
+     "from": "added"
+    },
+    {
+     "in": "grep init /var/log/syslog",
+     "want": "command blocked by safety policy",
+     "from": "added"
+    },
+    {
+     "in": "",
+     "want": "command is required",
+     "from": "added"
+    },
+    {
+     "in": "   ",
+     "want": "command is required",
+     "from": "added"
+    },
+    {
+     "in": "\"\"",
+     "want": "command is required",
+     "from": "added"
+    },
+    {
+     "in": "'' x",
+     "want": "command is required",
+     "from": "added"
+    },
+    {
+     "in": "echo ok rm -rf /tmp",
+     "want": "command blocked by safety policy",
+     "from": "added"
+    },
+    {
+     "in": "RM  -RF   /",
+     "want": "command blocked by safety policy",
+     "from": "added"
+    },
+    {
+     "in": "rm \"-rf\" /",
+     "want": "command blocked by safety policy",
+     "from": "added"
+    },
+    {
+     "in": "mkfs.ext4 /dev/sda",
+     "want": "command blocked by safety policy",
+     "from": "added"
+    },
+    {
+     "in": "cat mkfs.log",
+     "want": "command blocked by safety policy",
+     "from": "added"
+    },
+    {
+     "in": "systemctl  POWEROFF",
+     "want": "command blocked by safety policy",
+     "from": "added"
+    },
+    {
+     "in": "systemctl reboot",
+     "want": "command blocked by safety policy",
+     "from": "added"
+    },
+    {
+     "in": "systemctl halt",
+     "want": "command blocked by safety policy",
+     "from": "added"
+    },
+    {
+     "in": ":(){ :|:& };:",
+     "want": "shell control operator '|' is not supported",
+     "from": "added"
+    },
+    {
+     "in": "cmd.exe /c echo ok",
+     "want": "command not in allowlist",
+     "from": "added"
+    },
+    {
+     "in": "cmd /c echo ''",
+     "want": "cmd /c echo probe values must not be empty",
+     "from": "added"
+    },
+    {
+     "in": "cmd /c echo a ''",
+     "want": "cmd /c echo probe values must not be empty",
+     "from": "added"
+    },
+    {
+     "in": "sh -c uptime",
+     "want": "command not in allowlist",
+     "from": "added"
+    },
+    {
+     "in": "bash",
+     "want": "command not in allowlist",
+     "from": "added"
+    }
+   ]
+  },
+  {
+   "group": "links under /proc are followed",
+   "env": {},
+   "skip_os": [
+    "windows",
+    "darwin"
+   ],
+   "cases": [
+    {
+     "in": "cat /proc/self/root/etc/shadow",
+     "want": "reading /proc/self/root/etc/shadow is not allowed here",
+     "from": "added"
+    }
+   ]
+  },
+  {
+   "group": "blank substring setting keeps the default",
+   "env": {
+    "LABTETHER_SHELL_COMMAND_BLOCKED_SUBSTRINGS": " , "
+   },
+   "cases": [
+    {
+     "in": "cat mkfs.log",
+     "want": "command blocked by safety policy",
+     "from": "added"
+    },
+    {
+     "in": "uptime",
+     "want": "allow",
+     "from": "added"
+    }
+   ]
+  },
+  {
+   "group": "shell allowlist off with accept-risk",
+   "env": {
+    "LABTETHER_SHELL_COMMAND_ALLOWLIST_MODE": "false",
+    "LABTETHER_SHELL_COMMAND_ALLOWLIST_ACCEPT_RISK": "true"
+   },
+   "cases": [
+    {
+     "in": "echo hello",
+     "want": "allow",
+     "from": "added"
+    },
+    {
+     "in": "cat /etc/shadow",
+     "want": "allow",
+     "from": "added"
+    },
+    {
+     "in": "shutdown now",
+     "want": "command blocked by safety policy",
+     "from": "added"
+    },
+    {
+     "in": "uptime; id",
+     "want": "shell control operator ';' is not supported",
+     "from": "added"
+    },
+    {
+     "in": "rm -rf /",
+     "want": "command blocked by safety policy",
+     "from": "added"
+    }
+   ]
+  },
+  {
+   "group": "Go boolean forms for the shell switches",
+   "env": {
+    "LABTETHER_SHELL_COMMAND_ALLOWLIST_MODE": "0",
+    "LABTETHER_SHELL_COMMAND_ALLOWLIST_ACCEPT_RISK": "t"
+   },
+   "cases": [
+    {
+     "in": "echo hello",
+     "want": "allow",
+     "from": "added"
+    }
+   ]
+  },
+  {
+   "group": "exact rule",
+   "env": {
+    "LABTETHER_SHELL_COMMAND_ALLOWLIST_PREFIXES": "=uptime"
+   },
+   "cases": [
+    {
+     "in": "uptime",
+     "want": "allow",
+     "from": "added"
+    },
+    {
+     "in": "uptime -p",
+     "want": "command not in allowlist",
+     "from": "added"
+    }
+   ]
+  },
+  {
+   "group": "interpreter rule takes no extra arguments",
+   "env": {
+    "LABTETHER_SHELL_COMMAND_ALLOWLIST_PREFIXES": "bash,sh -c uptime"
+   },
+   "cases": [
+    {
+     "in": "bash",
+     "want": "allow",
+     "from": "added"
+    },
+    {
+     "in": "bash -c id",
+     "want": "command not in allowlist",
+     "from": "added"
+    },
+    {
+     "in": "sh -c uptime",
+     "want": "allow",
+     "from": "added"
+    },
+    {
+     "in": "sh -c uptime x",
+     "want": "command not in allowlist",
+     "from": "added"
+    }
+   ]
+  },
+  {
+   "group": "a quoted rule is one word",
+   "env": {
+    "LABTETHER_SHELL_COMMAND_ALLOWLIST_PREFIXES": "'systemctl status'"
+   },
+   "cases": [
+    {
+     "in": "systemctl status",
+     "want": "command not in allowlist",
+     "from": "added"
+    },
+    {
+     "in": "'systemctl status'",
+     "want": "allow",
+     "from": "added"
+    }
+   ]
+  },
+  {
+   "group": "a rule that does not parse is skipped",
+   "env": {
+    "LABTETHER_SHELL_COMMAND_ALLOWLIST_PREFIXES": "uptime;,df"
+   },
+   "cases": [
+    {
+     "in": "uptime",
+     "want": "command not in allowlist",
+     "from": "added"
+    },
+    {
+     "in": "df",
+     "want": "allow",
+     "from": "added"
+    }
+   ]
+  },
+  {
+   "group": "exact echo rule skips the value check",
+   "env": {
+    "LABTETHER_SHELL_COMMAND_ALLOWLIST_PREFIXES": "=cmd /c echo"
+   },
+   "cases": [
+    {
+     "in": "cmd /c echo",
+     "want": "allow",
+     "from": "added"
+    },
+    {
+     "in": "cmd /c echo ok",
+     "want": "command not in allowlist",
+     "from": "added"
+    }
+   ]
+  },
+  {
+   "group": "the first matching rule decides",
+   "env": {
+    "LABTETHER_SHELL_COMMAND_ALLOWLIST_PREFIXES": "cmd /c echo,=cmd /c echo"
+   },
+   "cases": [
+    {
+     "in": "cmd /c echo",
+     "want": "cmd /c is limited to an echo probe with a non-empty ASCII value",
+     "from": "added"
+    },
+    {
+     "in": "cmd /c echo ok",
+     "want": "allow",
+     "from": "added"
+    }
+   ]
+  }
+ ]
+}

@@ -12,27 +12,6 @@ import (
 	"time"
 )
 
-func TestCappedRetainingWriterDrainsAfterLimit(t *testing.T) {
-	t.Parallel()
-
-	writer := NewCappedRetainingWriter(5)
-	if written, err := writer.Write([]byte("abcdef")); err != nil || written != 6 {
-		t.Fatalf("first Write = (%d, %v), want (6, nil)", written, err)
-	}
-	if written, err := writer.Write([]byte("ghijkl")); err != nil || written != 6 {
-		t.Fatalf("second Write = (%d, %v), want (6, nil)", written, err)
-	}
-	if got := string(writer.Bytes()); got != "abcde" {
-		t.Fatalf("retained bytes = %q, want %q", got, "abcde")
-	}
-	if writer.Len() != 5 {
-		t.Fatalf("retained length = %d, want 5", writer.Len())
-	}
-	if !writer.Truncated() {
-		t.Fatal("expected writer to report discarded bytes")
-	}
-}
-
 func TestCappedRetainingWriterConcurrentWritesRemainBounded(t *testing.T) {
 	t.Parallel()
 
