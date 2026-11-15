@@ -25,3 +25,20 @@ func TestChoosePrimaryMACPrefersTheDefaultRouteInterface(t *testing.T) {
 		t.Fatalf("only virtual: got %q, want none", got)
 	}
 }
+
+// On macOS 27 every interface reported 02:00:00:00:00:00, and the agent sent
+// it as the device's MAC, so Wake-on-LAN went to an address no machine has.
+// A placeholder must never be chosen; sending none is better.
+func TestChoosePrimaryMACNeverReturnsAPlaceholder(t *testing.T) {
+	mac := func(s string) net.HardwareAddr { m, _ := net.ParseMAC(s); return m }
+	nics := []nic{
+		{name: "en0", mac: mac("02:00:00:00:00:00"), up: true, ips: []net.IP{net.ParseIP("192.0.2.10")}},
+		{name: "en1", mac: mac("00:00:00:00:00:00"), up: true, ips: []net.IP{net.ParseIP("192.0.2.11")}},
+	}
+	if got := choosePrimaryMAC(nics, net.ParseIP("192.0.2.10")); got != "" {
+		t.Fatalf("default route on a placeholder: got %q, want none", got)
+	}
+	if got := choosePrimaryMAC(nics, nil); got != "" {
+		t.Fatalf("no route: got %q, want none", got)
+	}
+}
