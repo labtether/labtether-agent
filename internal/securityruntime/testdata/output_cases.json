@@ -1,0 +1,187 @@
+{
+ "writer": [
+  {
+   "from": "TestCappedRetainingWriterDrainsAfterLimit",
+   "limit": 5,
+   "writes": [
+    "abcdef",
+    "ghijkl"
+   ],
+   "retained": "abcde",
+   "truncated": true
+  },
+  {
+   "from": "added",
+   "limit": 5,
+   "writes": [
+    "abcde"
+   ],
+   "retained": "abcde",
+   "truncated": false
+  },
+  {
+   "from": "added",
+   "limit": 5,
+   "writes": [
+    "abc",
+    "",
+    "de"
+   ],
+   "retained": "abcde",
+   "truncated": false
+  },
+  {
+   "from": "added",
+   "limit": 5,
+   "writes": [
+    "abcde",
+    ""
+   ],
+   "retained": "abcde",
+   "truncated": false
+  },
+  {
+   "from": "added",
+   "limit": 5,
+   "writes": [
+    "abcde",
+    "f"
+   ],
+   "retained": "abcde",
+   "truncated": true
+  },
+  {
+   "from": "added",
+   "limit": 0,
+   "writes": [
+    "a"
+   ],
+   "retained": "",
+   "truncated": true
+  }
+ ],
+ "capture": [
+  {
+   "from": "added",
+   "name": "both streams drained, combined limit",
+   "capture": "combined",
+   "script": "head -c 2097152 /dev/zero | tr '\\0' x; head -c 2097152 /dev/zero | tr '\\0' y >&2",
+   "limit": 4096,
+   "timeout_ms": 10000,
+   "length": 4096,
+   "truncated": true,
+   "exit": 0
+  },
+  {
+   "from": "added",
+   "name": "exit code kept with the limit",
+   "capture": "combined",
+   "script": "head -c 131072 /dev/zero | tr '\\0' x; head -c 131072 /dev/zero | tr '\\0' y >&2; exit 7",
+   "limit": 1024,
+   "timeout_ms": 10000,
+   "length": 1024,
+   "truncated": true,
+   "exit": 7
+  },
+  {
+   "from": "added",
+   "name": "stdout and stderr kept apart",
+   "capture": "stdout",
+   "script": "printf xxx; printf yyyyy >&2; exit 9",
+   "limit": 1024,
+   "timeout_ms": 10000,
+   "output": "xxx",
+   "stderr": "yyyyy",
+   "truncated": false,
+   "exit": 9
+  },
+  {
+   "from": "added",
+   "name": "combined output keeps the write order",
+   "capture": "combined",
+   "script": "printf a; printf b >&2; printf c",
+   "limit": 1024,
+   "timeout_ms": 10000,
+   "output": "abc",
+   "truncated": false,
+   "exit": 0
+  },
+  {
+   "from": "added",
+   "name": "stderr cut at 64 KiB beside stdout",
+   "capture": "stdout",
+   "script": "printf ok; head -c 70000 /dev/zero | tr '\\0' y >&2; exit 3",
+   "limit": 1024,
+   "timeout_ms": 10000,
+   "output": "ok",
+   "stderr_length": 65536,
+   "truncated": false,
+   "exit": 3
+  },
+  {
+   "from": "added",
+   "name": "output exactly at the limit",
+   "capture": "stdout",
+   "script": "head -c 1024 /dev/zero | tr '\\0' x",
+   "limit": 1024,
+   "timeout_ms": 10000,
+   "length": 1024,
+   "truncated": false,
+   "exit": 0
+  },
+  {
+   "from": "added",
+   "name": "one byte over the limit",
+   "capture": "combined",
+   "script": "head -c 1025 /dev/zero | tr '\\0' x",
+   "limit": 1024,
+   "timeout_ms": 10000,
+   "length": 1024,
+   "truncated": true,
+   "exit": 0
+  },
+  {
+   "from": "added",
+   "name": "timeout stops the command",
+   "capture": "combined",
+   "script": "printf start; exec sleep 5",
+   "limit": 1024,
+   "timeout_ms": 500,
+   "output": "start",
+   "truncated": false,
+   "signal": 9,
+   "timed_out": true,
+   "max_ms": 3000
+  },
+  {
+   "from": "added",
+   "name": "the program is started under its own name",
+   "capture": "combined",
+   "script": "printf %s \"$0\"",
+   "limit": 1024,
+   "timeout_ms": 10000,
+   "output": "sh",
+   "truncated": false,
+   "exit": 0
+  },
+  {
+   "from": "added",
+   "name": "a program missing from PATH",
+   "capture": "combined",
+   "script": "true",
+   "path": "/nonexistent",
+   "limit": 1024,
+   "timeout_ms": 10000,
+   "error": "exec: \"sh\": executable file not found in $PATH"
+  },
+  {
+   "from": "added",
+   "name": "a limit of zero is refused",
+   "capture": "combined",
+   "script": "printf x",
+   "limit": 0,
+   "timeout_ms": 10000,
+   "error": "command output limit must be positive"
+  }
+ ]
+}

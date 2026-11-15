@@ -1,0 +1,104 @@
+{
+ "filter": [
+  {
+   "from": "TestSanitizedChildEnvRemovesCredentials",
+   "env": {
+    "LABTETHER_API_TOKEN": "agent-secret",
+    "LABTETHER_ENROLLMENT_TOKEN": "enrollment-secret",
+    "OPENAI_API_KEY": "provider-secret",
+    "SSH_AUTH_SOCK": "/tmp/agent.sock",
+    "DATABASE_URL": "postgres://user:secret@database/labtether",
+    "MYSQL_PWD": "database-secret",
+    "PGPASSFILE": "/tmp/pgpass",
+    "DOCKER_CONFIG": "/tmp/docker-credentials",
+    "NETRC": "/tmp/netrc",
+    "LABTETHER_SAFE_TEST_VALUE": "unknown-values-fail-closed",
+    "LANG": "en_AU.UTF-8",
+    "LC_TIME": "en_AU.UTF-8"
+   },
+   "removed": [
+    "LABTETHER_API_TOKEN",
+    "LABTETHER_ENROLLMENT_TOKEN",
+    "OPENAI_API_KEY",
+    "SSH_AUTH_SOCK",
+    "DATABASE_URL",
+    "MYSQL_PWD",
+    "PGPASSFILE",
+    "DOCKER_CONFIG",
+    "NETRC",
+    "LABTETHER_SAFE_TEST_VALUE"
+   ],
+   "kept": [
+    "LANG=en_AU.UTF-8",
+    "LC_TIME=en_AU.UTF-8"
+   ]
+  },
+  {
+   "from": "added",
+   "env": {
+    "TZ": " Australia/Sydney ",
+    "path": "/usr/bin",
+    "LABTETHER_EXEC_ALLOWLIST_MODE": "false",
+    "LD_PRELOAD": "/tmp/x.so",
+    "LC_": "x",
+    "HOME": "/home/demo"
+   },
+   "removed": [
+    "LABTETHER_EXEC_ALLOWLIST_MODE",
+    "LD_PRELOAD"
+   ],
+   "kept": [
+    "TZ= Australia/Sydney ",
+    "path=/usr/bin",
+    "LC_=x",
+    "HOME=/home/demo"
+   ]
+  }
+ ],
+ "keys": [
+  {
+   "from": "TestAllowedChildEnvKeyFailsClosed",
+   "allowed": [
+    "PATH",
+    "Home",
+    "LC_ALL",
+    "XDG_RUNTIME_DIR",
+    "SystemRoot"
+   ],
+   "refused": [
+    "DATABASE_URL",
+    "MYSQL_PWD",
+    "PGPASSFILE",
+    "DOCKER_CONFIG",
+    "NETRC",
+    "NEW_PROVIDER_CREDENTIAL"
+   ]
+  },
+  {
+   "from": "added",
+   "allowed": [
+    " PATH ",
+    "lc_messages",
+    "LC_",
+    "ComSpec",
+    "ProgramFiles(x86)",
+    "XAUTHORITY",
+    "TMPDIR"
+   ],
+   "refused": [
+    "",
+    "LC",
+    "LD_PRELOAD",
+    "LD_LIBRARY_PATH",
+    "SSH_AUTH_SOCK",
+    "LABTETHER_API_TOKEN",
+    "LABTETHER_EXEC_ALLOWLIST_MODE",
+    "XDG_CONFIG_HOME",
+    "HOSTNAME",
+    "PS1",
+    "PATH2",
+    "HOME_DIR"
+   ]
+  }
+ ]
+}

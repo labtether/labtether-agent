@@ -1,58 +1,68 @@
 package securityruntime
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
 
-func TestSanitizedChildEnvRemovesCredentials(t *testing.T) {
-	t.Setenv("LABTETHER_API_TOKEN", "agent-secret")
-	t.Setenv("LABTETHER_ENROLLMENT_TOKEN", "enrollment-secret")
-	t.Setenv("OPENAI_API_KEY", "provider-secret")
-	t.Setenv("SSH_AUTH_SOCK", "/tmp/agent.sock")
-	t.Setenv("DATABASE_URL", "postgres://user:secret@database/labtether")
-	t.Setenv("MYSQL_PWD", "database-secret")
-	t.Setenv("PGPASSFILE", "/tmp/pgpass")
-	t.Setenv("DOCKER_CONFIG", "/tmp/docker-credentials")
-	t.Setenv("NETRC", "/tmp/netrc")
-	t.Setenv("LABTETHER_SAFE_TEST_VALUE", "unknown-values-fail-closed")
-	t.Setenv("LANG", "en_AU.UTF-8")
-	t.Setenv("LC_TIME", "en_AU.UTF-8")
+type childEnvCases struct {
+	Filter []struct {
+		Env     map[string]string `json:"env"`
+		Removed []string          `json:"removed"`
+		Kept    []string          `json:"kept"`
+		From    string            `json:"from"`
+	} `json:"filter"`
+	Keys []struct {
+		Allowed []string `json:"allowed"`
+		Refused []string `json:"refused"`
+		From    string   `json:"from"`
+	} `json:"keys"`
+}
 
-	env := SanitizedChildEnv()
-	joined := strings.Join(env, "\n")
-	for _, forbidden := range []string{
-		"LABTETHER_API_TOKEN=",
-		"LABTETHER_ENROLLMENT_TOKEN=",
-		"OPENAI_API_KEY=",
-		"SSH_AUTH_SOCK=",
-		"DATABASE_URL=",
-		"MYSQL_PWD=",
-		"PGPASSFILE=",
-		"DOCKER_CONFIG=",
-		"NETRC=",
-		"LABTETHER_SAFE_TEST_VALUE=",
-	} {
-		if strings.Contains(joined, forbidden) {
-			t.Fatalf("child environment retained sensitive variable %s", forbidden)
+// Risk: a credential in the agent's environment reaches a started command.
+// testdata/child_env_cases.json "filter".
+func TestSharedChildEnvFilterCases(t *testing.T) {
+	var cases childEnvCases
+	loadCases(t, "child_env_cases.json", &cases)
+	for index, tc := range cases.Filter {
+		for key, value := range tc.Env {
+			t.Setenv(key, value)
 		}
-	}
-	for _, required := range []string{"LANG=en_AU.UTF-8", "LC_TIME=en_AU.UTF-8"} {
-		if !strings.Contains(joined, required) {
-			t.Fatalf("child environment dropped required allowlisted variable %s", required)
+		env := SanitizedChildEnv()
+		keys := make([]string, 0, len(env))
+		for _, entry := range env {
+			key, _, _ := strings.Cut(entry, "=")
+			keys = append(keys, key)
+		}
+		for _, removed := range tc.Removed {
+			if slices.Contains(keys, removed) {
+				t.Errorf("filter[%d]: child environment kept %s", index, removed)
+			}
+		}
+		for _, kept := range tc.Kept {
+			if !slices.Contains(env, kept) {
+				t.Errorf("filter[%d]: child environment lost %q", index, kept)
+			}
 		}
 	}
 }
 
-func TestAllowedChildEnvKeyFailsClosed(t *testing.T) {
-	for _, key := range []string{"PATH", "Home", "LC_ALL", "XDG_RUNTIME_DIR", "SystemRoot"} {
-		if !isAllowedChildEnvKey(key) {
-			t.Fatalf("expected %s to be allowed", key)
+// Risk: a new or uncommon variable is passed on by guesswork instead of
+// failing closed. testdata/child_env_cases.json "keys".
+func TestSharedChildEnvKeyCases(t *testing.T) {
+	var cases childEnvCases
+	loadCases(t, "child_env_cases.json", &cases)
+	for _, tc := range cases.Keys {
+		for _, key := range tc.Allowed {
+			if !isAllowedChildEnvKey(key) {
+				t.Errorf("expected %q to be allowed", key)
+			}
 		}
-	}
-	for _, key := range []string{"DATABASE_URL", "MYSQL_PWD", "PGPASSFILE", "DOCKER_CONFIG", "NETRC", "NEW_PROVIDER_CREDENTIAL"} {
-		if isAllowedChildEnvKey(key) {
-			t.Fatalf("expected %s to fail closed", key)
+		for _, key := range tc.Refused {
+			if isAllowedChildEnvKey(key) {
+				t.Errorf("expected %q to fail closed", key)
+			}
 		}
 	}
 }

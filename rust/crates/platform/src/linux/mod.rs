@@ -6,11 +6,12 @@ mod lookpath;
 pub mod metadata;
 pub mod netid;
 pub mod netlink;
+pub mod process;
 pub mod procfs;
 pub mod sampler;
 pub mod temperature;
 
-pub use lookpath::command_exists;
+pub use lookpath::{LookPathError, command_exists, look_path};
 pub use metadata::{heartbeat_disk_available, host_metadata};
 pub use sampler::{Sample, Sampler, SysPaths};
 

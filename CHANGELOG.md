@@ -17,6 +17,10 @@ All notable changes to `labtether-agent` are documented in this file.
   samples while the hub is unreachable and sends them after reconnecting, and
   it applies collect and heartbeat intervals from the hub (`config.update`)
   within the Go agent's limits.
+- The Rust agent has the Go agent's command rules in its own crate
+  (`rust/crates/security`): exec and shell allowlists, read-only reader
+  checks, the child environment, output limits and timeouts. Nothing calls it
+  yet. The Go and Rust tests read the same case files.
 
 ### Fixed
 

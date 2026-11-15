@@ -2,303 +2,100 @@ package securityruntime
 
 import (
 	"context"
-	"path/filepath"
+	"fmt"
 	"runtime"
+	"slices"
+	"strings"
 	"testing"
 )
 
-func TestValidateExecBinaryAllowsUnknownWhenAllowlistDisabled(t *testing.T) {
-	t.Setenv(envExecAllowlistMode, "false")
-	t.Setenv(envExecAllowlistAcceptRisk, "true")
-	t.Setenv(envExecAllowedBinaries, "")
-	if err := ValidateExecBinary("custom-binary"); err != nil {
-		t.Fatalf("expected command to be allowed when allowlist mode is disabled, got %v", err)
-	}
+type parseCase struct {
+	In       string   `json:"in"`
+	Repeat   string   `json:"repeat"`
+	Count    int      `json:"count"`
+	Args     []string `json:"args"`
+	ArgCount int      `json:"arg_count"`
+	Error    string   `json:"error"`
+	From     string   `json:"from"`
 }
 
-func TestValidateExecBinaryBlocksWhenAllowlistDisabledWithoutAcceptRisk(t *testing.T) {
-	t.Setenv(envExecAllowlistMode, "false")
-	t.Setenv(envExecAllowlistAcceptRisk, "")
-	if err := ValidateExecBinary("custom-binary"); err == nil {
-		t.Fatalf("expected command to be blocked when allowlist is disabled without accept-risk flag")
-	}
+type commandCases struct {
+	Parse []parseCase `json:"parse"`
+	Exec  []caseGroup `json:"exec"`
+	Shell []caseGroup `json:"shell"`
 }
 
-func TestValidateShellCommandBlocksWhenAllowlistDisabledWithoutAcceptRisk(t *testing.T) {
-	t.Setenv(envShellAllowlistMode, "false")
-	t.Setenv(envShellAllowlistAcceptRisk, "")
-	if err := ValidateShellCommand("whoami"); err == nil {
-		t.Fatalf("expected shell command to be blocked when allowlist is disabled without accept-risk flag")
-	}
+func loadCommandCases(t *testing.T) commandCases {
+	var cases commandCases
+	loadCases(t, "command_cases.json", &cases)
+	return cases
 }
 
-func TestValidateExecBinaryBlocksUnknownByDefault(t *testing.T) {
-	t.Setenv(envExecAllowlistMode, "")
-	t.Setenv(envExecAllowedBinaries, "")
-	if err := ValidateExecBinary("custom-binary"); err == nil {
-		t.Fatalf("expected unknown command to be blocked by default")
-	}
-}
-
-func TestValidateExecBinaryBlocksWhenAllowlistEnabled(t *testing.T) {
-	t.Setenv(envExecAllowlistMode, "true")
-	t.Setenv(envExecAllowedBinaries, "sh,systemctl")
-	if err := ValidateExecBinary("custom-binary"); err == nil {
-		t.Fatalf("expected command to be blocked")
-	}
-}
-
-func TestValidateExecBinaryAllowsDefaultDesktopUtilities(t *testing.T) {
-	t.Setenv(envExecAllowlistMode, "")
-	t.Setenv(envExecAllowedBinaries, "")
-	for _, name := range []string{"wl-copy", "wl-paste", "xauth", "xclip", "xdotool", "xmodmap", "labtether-x11-input", "xsel", "xset", "ydotool"} {
-		if err := ValidateExecBinary(name); err != nil {
-			t.Fatalf("expected %q to be allowlisted, got %v", name, err)
+// Risk: the command line splits differently, so a quoted operator runs or a
+// literal argument changes. testdata/command_cases.json "parse".
+func TestSharedParseCases(t *testing.T) {
+	for index, tc := range loadCommandCases(t).Parse {
+		input := tc.In
+		if tc.Repeat != "" {
+			input = strings.Repeat(tc.Repeat, tc.Count)
+		}
+		label := fmt.Sprintf("parse[%d] %.60q", index, input)
+		args, err := ParseCommandLine(input)
+		switch {
+		case tc.Error != "":
+			checkWant(t, label, err, tc.Error)
+		case err != nil:
+			t.Errorf("%s: error %q, want arguments", label, err)
+		case tc.Args != nil && !slices.Equal(args, tc.Args):
+			t.Errorf("%s: args %q, want %q", label, args, tc.Args)
+		case tc.ArgCount != 0 && len(args) != tc.ArgCount:
+			t.Errorf("%s: %d args, want %d", label, len(args), tc.ArgCount)
 		}
 	}
 }
 
-func TestValidateExecBinaryNormalizesWindowsExecutableExtension(t *testing.T) {
-	t.Setenv(envExecAllowlistMode, "")
-	t.Setenv(envExecAllowedBinaries, "")
-	for _, name := range []string{
-		`C:\Windows\System32\cmd.exe`,
-		`C:\Windows\System32\netsh.exe`,
-		`C:\Windows\System32\sc.exe`,
-		`C:\Windows\System32\schtasks.exe`,
-		`C:\Windows\System32\wevtutil.exe`,
-		`C:\Users\operator\AppData\Local\Microsoft\WindowsApps\winget.exe`,
-		`C:\Windows\System32\WindowsPowerShell\v1.0\powershell.EXE`,
-	} {
-		if err := ValidateExecBinary(name); err != nil {
-			t.Fatalf("expected Windows executable %q to match the extensionless allowlist: %v", name, err)
-		}
-	}
-}
-
-func TestValidateShellCommandBlocksKnownDangerousToken(t *testing.T) {
-	t.Setenv(envShellBlockedSubstrings, "rm -rf /")
-	if err := ValidateShellCommand("echo ok && rm -rf /tmp"); err == nil {
-		t.Fatalf("expected blocked shell command")
-	}
-}
-
-func TestValidateShellCommandAllowlist(t *testing.T) {
-	t.Setenv(envShellAllowlistMode, "true")
-	t.Setenv(envShellAllowlistPrefixes, "uname,uptime")
-	if err := ValidateShellCommand("uptime"); err != nil {
-		t.Fatalf("expected allowed command, got %v", err)
-	}
-	if err := ValidateShellCommand("ls -la"); err == nil {
-		t.Fatalf("expected non-allowlisted command to be blocked")
-	}
-}
-
-func TestValidateShellCommandRejectsPrefixAndShellOperatorBypasses(t *testing.T) {
-	t.Setenv(envShellAllowlistMode, "true")
-	t.Setenv(envShellAllowlistPrefixes, "uptime,systemctl status")
-
-	for _, command := range []string{
-		"uptime-now",
-		"uptime; id",
-		"uptime && id",
-		"uptime | id",
-		"systemctl statusx sshd",
-		"systemctl status sshd > /tmp/output",
-		"uptime\nid",
-	} {
-		if err := ValidateShellCommand(command); err == nil {
-			t.Fatalf("expected bypass attempt %q to be rejected", command)
-		}
-	}
-}
-
-func TestParseCommandLinePreservesLiteralQuotedArguments(t *testing.T) {
-	args, err := ParseCommandLine(`grep "hello world" '/tmp/a file'`)
-	if err != nil {
-		t.Fatalf("ParseCommandLine: %v", err)
-	}
-	want := []string{"grep", "hello world", "/tmp/a file"}
-	if len(args) != len(want) {
-		t.Fatalf("args = %#v, want %#v", args, want)
-	}
-	for i := range want {
-		if args[i] != want[i] {
-			t.Fatalf("args = %#v, want %#v", args, want)
-		}
-	}
-}
-
-func TestValidateShellCommandAllowlistEnabledByDefault(t *testing.T) {
-	t.Setenv(envShellAllowlistMode, "")
-	if err := ValidateShellCommand("uptime"); err != nil {
-		t.Fatalf("expected uptime to be allowlisted by default, got %v", err)
-	}
-	if err := ValidateShellCommand("echo hello"); err == nil {
-		t.Fatalf("expected non-allowlisted command to be blocked by default")
-	}
-}
-
-func TestValidateShellCommandAllowsNarrowWindowsEchoProbe(t *testing.T) {
-	t.Setenv(envShellAllowlistMode, "")
-	t.Setenv(envShellAllowlistPrefixes, "")
-
-	for _, command := range []string{
-		"cmd /c echo labtether-windows-agent-command-ok",
-		"CMD /C ECHO LabTether_probe.v1:ok",
-		`cmd /c echo "quoted-safe-marker"`,
-	} {
-		if err := ValidateShellCommand(command); err != nil {
-			t.Fatalf("expected narrow Windows echo probe %q to be allowed: %v", command, err)
-		}
-	}
-}
-
-// The Hub allows these read-only Windows commands, so the agent must run
-// them too, with the same strictness: forms that change settings and extra
-// interpreter arguments, which would run as code, stay refused.
-func TestNewValidatedShellCommandMatchesHubWindowsReadOnlyRules(t *testing.T) {
-	t.Setenv(envShellAllowlistMode, "")
-	t.Setenv(envShellAllowlistPrefixes, "")
-	t.Setenv(envExecAllowlistMode, "")
-	t.Setenv(envExecAllowedBinaries, "")
-
-	for _, command := range []string{
-		"whoami", "whoami /all", "hostname", "ipconfig", "ipconfig /all",
-		"systeminfo", "tasklist", "tasklist /svc", "cmd /c ver", "powershell -Command Get-Date",
-	} {
-		if _, err := NewValidatedShellCommandContext(context.Background(), command); err != nil {
-			t.Errorf("expected %q to be allowed: %v", command, err)
-		}
-	}
-	for _, command := range []string{
-		"ipconfig /release", "ipconfig /all /release", "hostname newname",
-		"cmd", "cmd /c", `cmd /c ver "& del x"`, "cmd /c dir",
-		"powershell", "powershell -Command", `powershell -Command Get-Date "; Remove-Item x"`,
-		"pwsh -Command Get-Date",
-	} {
-		if _, err := NewValidatedShellCommandContext(context.Background(), command); err == nil {
-			t.Errorf("expected %q to be refused", command)
-		}
-	}
-}
-
-func TestValidateShellCommandRejectsWindowsCmdInterpreterBypasses(t *testing.T) {
-	t.Setenv(envShellAllowlistMode, "")
-	t.Setenv(envShellAllowlistPrefixes, "")
-
-	for _, command := range []string{
-		"cmd /c echo",
-		"cmd /c whoami",
-		"cmd /k echo ok",
-		`cmd /c "echo ok & whoami"`,
-		`cmd /c echo "ok & whoami"`,
-		`cmd /c echo "ok | whoami"`,
-		`cmd /c echo "ok > C:\\Temp\\probe.txt"`,
-		`cmd /c echo "ok < C:\\Temp\\probe.txt"`,
-		"cmd /c echo %PATH%",
-		"cmd /c echo !COMSPEC!",
-		"cmd /c echo $(whoami)",
-		"cmd /c echo `whoami`",
-		"cmd /c echo ok && whoami",
-		"cmd /c echo ok & whoami",
-		"cmd /c echo ok | whoami",
-		"cmd /c echo ok > probe.txt",
-		"cmd /c echo ok\nwhoami",
-		"cmd /c echo ok\r\nwhoami",
-		"cmd /c echo shutdown",
-		"cmd /c echo ok /?",
-		"cmd /c echo 日本語",
-	} {
-		if err := ValidateShellCommand(command); err == nil {
-			t.Fatalf("expected Windows cmd bypass attempt %q to be rejected", command)
-		}
-	}
-}
-
-func TestValidateShellCommandBlocksShutdownVariants(t *testing.T) {
-	cases := []struct {
-		name    string
-		command string
-	}{
-		{"shutdown now", "shutdown now"},
-		{"shutdown -h now (original blocked form)", "shutdown -h now"},
-		{"shutdown with flags -P", "shutdown -P now"},
-		{"shutdown with mixed case", "SHUTDOWN -h now"},
-		{"sudo shutdown", "sudo shutdown -h now"},
-		{"chained shutdown", "echo hi && shutdown -r now"},
-		{"reboot command", "reboot"},
-		{"reboot with sudo", "sudo reboot"},
-		{"halt command", "halt"},
-		{"poweroff command", "poweroff"},
-	}
-	for _, tc := range cases {
-		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
-			if err := ValidateShellCommand(tc.command); err == nil {
-				t.Fatalf("expected %q to be blocked, but it was allowed", tc.command)
+// Risk: a program off the exec allowlist starts, or a blocked one does.
+// testdata/command_cases.json "exec".
+func TestSharedExecCases(t *testing.T) {
+	for _, group := range loadCommandCases(t).Exec {
+		t.Run(group.Group, func(t *testing.T) {
+			applyPolicyEnv(t, group.Env)
+			for _, tc := range group.Cases {
+				checkWant(t, fmt.Sprintf("%q", tc.In), ValidateExecBinary(tc.In), tc.Want)
 			}
 		})
 	}
 }
 
-func TestValidateShellCommandDoesNotBlockShutdownSubstring(t *testing.T) {
-	// "shutdown" embedded inside another word (e.g. a filename with a dot)
-	// should not be blocked, because the dot makes it a distinct token.
-	cases := []struct {
-		name    string
-		command string
-	}{
-		{"cat file with shutdown in name via dot", "cat shutdown.log"},
-		{"ls shutdown config file", "ls /etc/shutdown.conf"},
-	}
-	for _, tc := range cases {
-		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
-			if err := ValidateShellCommand(tc.command); err != nil {
-				t.Fatalf("expected %q to be allowed, but it was blocked: %v", tc.command, err)
+// Risk: a Hub command escapes the shell allowlist, the blocked words or the
+// read-only reader rules. testdata/command_cases.json "shell".
+func TestSharedShellCases(t *testing.T) {
+	for _, group := range loadCommandCases(t).Shell {
+		t.Run(group.Group, func(t *testing.T) {
+			if slices.Contains(group.SkipOS, runtime.GOOS) {
+				t.Skipf("case group does not apply on %s", runtime.GOOS)
+			}
+			applyPolicyEnv(t, group.Env)
+			paths := casePaths(t)
+			protect := make([]string, 0, len(group.Protect))
+			for _, path := range group.Protect {
+				protect = append(protect, paths.Replace(path))
+			}
+			SetProtectedReadPaths(protect...)
+			t.Cleanup(func() { SetProtectedReadPaths() })
+			for _, tc := range group.Cases {
+				command := paths.Replace(tc.In)
+				var err error
+				switch group.Check {
+				case "validated":
+					_, err = NewValidatedShellCommandContext(context.Background(), command)
+				case "":
+					err = ValidateShellCommand(command)
+				default:
+					t.Fatalf("unknown check %q", group.Check)
+				}
+				checkWant(t, fmt.Sprintf("%q", command), err, paths.Replace(tc.Want))
 			}
 		})
-	}
-}
-
-// The default "safe" list must stay read-only and away from secrets: a key
-// meant for safe commands must not wipe logs or read the agent token.
-func TestValidateShellCommandKeepsDefaultReadersReadOnly(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("uses Unix paths")
-	}
-	t.Setenv(envShellAllowlistMode, "true")
-	t.Setenv(envShellAllowlistPrefixes, "")
-	stateDir := t.TempDir()
-	SetProtectedReadPaths(stateDir)
-	t.Cleanup(func() { SetProtectedReadPaths() })
-	token := filepath.Join(stateDir, "agent-token")
-
-	for _, command := range []string{
-		"journalctl --vacuum-time=1s",
-		"journalctl --rotate",
-		"journalctl --cursor-file=/tmp/cursor -n 1",
-		"cat " + token,
-		"head -c 64 " + filepath.Join(stateDir, ".", "agent-token"),
-		"grep --file=" + token + " /dev/null",
-		"grep -r token " + filepath.Dir(stateDir),
-		"tail /etc/shadow",
-		"cat /proc/self/environ",
-		"cat /root/.ssh/id_ed25519",
-	} {
-		if err := ValidateShellCommand(command); err == nil {
-			t.Errorf("expected %q to be rejected", command)
-		}
-	}
-	for _, command := range []string{
-		"journalctl -u sshd -n 50 --no-pager",
-		"tail -n 100 /var/log/syslog",
-		"grep -i error /var/log/syslog",
-		"cat /etc/os-release",
-	} {
-		if err := ValidateShellCommand(command); err != nil {
-			t.Errorf("expected %q to be allowed, got %v", command, err)
-		}
 	}
 }

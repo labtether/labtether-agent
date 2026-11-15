@@ -16,8 +16,10 @@
 
 #![forbid(unsafe_code)]
 
+pub mod command_security;
 mod env;
 pub mod files;
+pub mod gopath;
 mod secret;
 mod settings_file;
 pub mod urls;
@@ -25,6 +27,7 @@ pub mod urls;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+pub use command_security::CommandSecuritySettings;
 pub use env::{Environment, parse_duration_or, parse_go_bool};
 pub use secret::Secret;
 pub use settings_file::SettingsFileError;
@@ -120,6 +123,8 @@ pub struct Settings {
     /// The agent's `PATH`, used only to tell whether a program is installed.
     pub search_path: String,
     pub log_level: LogLevel,
+    /// The rules for commands the agent starts (exec and shell allowlists).
+    pub command_security: CommandSecuritySettings,
 }
 
 impl Settings {
@@ -251,6 +256,7 @@ pub fn load(env: &Environment, host: &HostFacts) -> Result<Loaded, ConfigError> 
     };
 
     let token_file = path_or(env, "LABTETHER_TOKEN_FILE", "agent-token");
+    let device_key_file = path_or(env, "LABTETHER_DEVICE_KEY_FILE", "device-key");
     let settings_file = path_or(env, "LABTETHER_AGENT_SETTINGS_FILE", "agent-config.json");
     let mut tls = TlsSettings {
         ca_file: env.get("LABTETHER_TLS_CA_FILE").map(PathBuf::from),
@@ -290,6 +296,14 @@ pub fn load(env: &Environment, host: &HostFacts) -> Result<Loaded, ConfigError> 
         }
     }
 
+    let command_security = CommandSecuritySettings::from_env(
+        env,
+        &command_security::AgentFiles {
+            token_file: &token_file,
+            settings_file: &settings_file,
+            device_key_file: &device_key_file,
+        },
+    );
     let settings = Settings {
         name: env.get_or("AGENT_NAME", "labtether-agent").to_owned(),
         asset_id,
@@ -314,7 +328,7 @@ pub fn load(env: &Environment, host: &HostFacts) -> Result<Loaded, ConfigError> 
         token_file,
         enrollment: load_enrollment(env, &mut warnings),
         settings_file,
-        device_key_file: path_or(env, "LABTETHER_DEVICE_KEY_FILE", "device-key"),
+        device_key_file,
         device_public_key_file: path_or(env, "LABTETHER_DEVICE_PUBLIC_KEY_FILE", "device-key.pub"),
         device_fingerprint_file: path_or(
             env,
@@ -329,6 +343,7 @@ pub fn load(env: &Environment, host: &HostFacts) -> Result<Loaded, ConfigError> 
         allow_remote_overrides: remote_overrides(env),
         search_path: env.get_or("PATH", "").to_owned(),
         log_level,
+        command_security,
     };
     Ok(Loaded { settings, warnings })
 }

@@ -221,3 +221,49 @@ fn enrollment_token_comes_from_environment_then_file() {
     assert_eq!(enrollment.file, None);
     assert!(!format!("{enrollment:?}").contains("env-token"));
 }
+
+// Fault: an agent credential or state location is left off the list that
+// allowlisted readers may not open, so `cat` from the Hub could return the
+// agent token (Go's agentSecretPaths).
+#[test]
+fn secret_paths_follow_go_agent_secret_paths() {
+    let env = Environment::from_pairs([
+        (
+            "LABTETHER_TOKEN_FILE",
+            " /var/lib/LabTether-Agent/agent-token ",
+        ),
+        ("LABTETHER_ENROLLMENT_TOKEN_FILE", " /run/enroll.token "),
+        ("LABTETHER_WEBRTC_TURN_PASS_FILE", "/etc/turn.pass"),
+        ("LABTETHER_AGENT_LOCAL_AUTH_TOKEN_FILE", "/run/local.token"),
+        (
+            "LABTETHER_AGENT_SETTINGS_FILE",
+            "/nonexistent/agent-config.json",
+        ),
+        ("HOME", "/home/demo/"),
+    ]);
+    let settings = load(&env, &host()).unwrap().settings;
+    assert_eq!(
+        settings.command_security.secret_paths,
+        [
+            "/var/lib/LabTether-Agent/agent-token",
+            "/run/enroll.token",
+            "/nonexistent/agent-config.json",
+            "/etc/labtether/device-key",
+            "/etc/turn.pass",
+            "/home/demo/.labtether",
+            "/run/local.token",
+            "/var/lib/LabTether-Agent",
+        ]
+    );
+
+    // A token outside a LabTether folder adds no folder; no HOME adds "".
+    let env = Environment::from_pairs([("LABTETHER_TOKEN_FILE", "/srv/agent-token")]);
+    let paths = load(&env, &host())
+        .unwrap()
+        .settings
+        .command_security
+        .secret_paths;
+    assert_eq!(paths.len(), 7);
+    assert_eq!(paths[5], "");
+    assert!(!paths.contains(&"/srv".to_owned()));
+}

@@ -38,6 +38,40 @@ for it. Heartbeat details the Go agent learns by running a program
 (`tailscale status`) or that describe features (`cap_*`, desktop, WebRTC,
 power, connectors) are not sent.
 
+## Command rules
+
+`crates/security` holds the Go agent's rules for every command the agent
+starts (`internal/securityruntime`). Nothing calls it yet; the read-only
+pages will be its first users.
+
+- Exec allowlist: Go's default program list, `LABTETHER_EXEC_ALLOWLIST_MODE`
+  with `LABTETHER_EXEC_ALLOWLIST_ACCEPT_RISK`, `LABTETHER_EXEC_ALLOWED_BINARIES`
+  and `LABTETHER_EXEC_BLOCKED_BINARIES`. Only the program's name counts.
+- Shell commands: Go's parser (no shell, operators refused), the prefix rules
+  (`LABTETHER_SHELL_COMMAND_ALLOWLIST_*`), blocked substrings and words.
+- Read-only readers: `journalctl` may not rotate or vacuum; `cat`, `head`,
+  `tail` and `grep` may not read the agent's own files or system secrets, and
+  `grep` may not recurse.
+- Child environment: only Go's list of variables, taken from the environment
+  read at start.
+- `CommandPolicy::run` is the only way to start a process. It checks the
+  program, gives it no stdin and its own process group, keeps output up to a
+  limit (8 MiB by default), and on timeout sends SIGKILL to the whole group.
+  It waits at most 1 s for the output pipes after the command ends (Go's
+  `WaitDelay` on the remote command path), then closes them; no thread
+  outlives the call.
+  `rust/clippy.toml` makes `std::process::Command::new` fail clippy in every
+  other place.
+
+Settings are read once at start into `CommandSecuritySettings`; the variable
+names, defaults and parsing are Go's. Error text is Go's, word for word.
+
+The cases are JSON files in `internal/securityruntime/testdata/`; the Go and
+Rust tests both read them, and `tests/go_lists.rs` reads the Go source to
+check the default lists. Not here yet: the outbound network rules, file
+scope, log redaction, long-running processes (terminal and desktop
+sessions), and Windows and macOS.
+
 ## Not yet
 
 This binary is not hardened and not a replacement for the Go agent:
@@ -50,7 +84,7 @@ This binary is not hardened and not a replacement for the Go agent:
 - no HTTP heartbeat while the WebSocket is down, and no local API with
   `/agent/telemetry` or `/metrics`;
 - no terminal, files, Remote View, Docker, services, packages, logs or
-  other actions;
+  other actions (the command rules exist but nothing runs a command);
 - no local API, self-update, installer, systemd unit or container image;
 - Linux only.
 
@@ -59,7 +93,8 @@ This binary is not hardened and not a replacement for the Go agent:
 | Folder | Holds |
 |---|---|
 | `crates/config` | The settings, read from the environment and `agent-config.json` |
-| `crates/platform` | Linux readers: `/proc`, `/sys`, `statfs`, the interface list from netlink, the PATH check |
+| `crates/platform` | Linux readers: `/proc`, `/sys`, `statfs`, the interface list from netlink, the PATH lookup, process-group stop |
+| `crates/security` | The command rules and `CommandPolicy::run`, the one way to start a process |
 | `crates/core` | Device key, TLS, enrollment, connection, reconnect, message handlers, heartbeat, telemetry loop, offline buffer, `config.update` |
 | `agent` | The binary: reads settings, starts the connection, stops on SIGTERM |
 
