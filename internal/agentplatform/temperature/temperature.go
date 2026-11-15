@@ -68,16 +68,18 @@ func readTemperatureFromGopsutil() (float64, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
 	defer cancel()
 
+	// gopsutil returns the sensors it could read together with a warnings
+	// error when any one sensor failed. Choose from those readings; fall
+	// back only when none of them is usable.
 	stats, err := sensors.TemperaturesWithContext(ctx)
+	value, _, ok := selectPreferredTemperature(stats)
+	if ok {
+		return value, nil
+	}
 	if err != nil {
 		return 0, err
 	}
-
-	value, _, ok := selectPreferredTemperature(stats)
-	if !ok {
-		return 0, errors.New("no usable temperature samples returned")
-	}
-	return value, nil
+	return 0, errors.New("no usable temperature samples returned")
 }
 
 func selectPreferredTemperature(stats []sensors.TemperatureStat) (float64, string, bool) {

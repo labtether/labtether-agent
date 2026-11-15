@@ -18,6 +18,19 @@ All notable changes to `labtether-agent` are documented in this file.
   it applies collect and heartbeat intervals from the hub (`config.update`)
   within the Go agent's limits.
 
+### Fixed
+
+- CPU use on Linux counts time spent running VMs once. The kernel already
+  includes it in user time, and the agent added it a second time, so a host
+  that runs VMs (a Proxmox node, for example) reported CPU use higher than it
+  was.
+- Memory use on Linux kernels older than 3.14, which have no `MemAvailable`
+  line, is worked out from free, buffer and cache memory. Those hosts showed
+  memory as 100 % used.
+- Temperature on Linux comes from the CPU sensor when another sensor cannot
+  be read. Before, one unreadable sensor made the agent report the hottest
+  sensor of any kind, such as a disk, in place of the CPU.
+
 ## [2.0.1]
 
 No change to the agent since 2.0.0. It is released again so that every part of

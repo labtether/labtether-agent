@@ -6,7 +6,8 @@
 pub struct CpuTimes {
     /// `idle` plus `iowait`.
     pub idle: u64,
-    /// The sum of every column, as Go adds them (guest time included).
+    /// The sum of the first eight columns. `guest` and `guest_nice` are left
+    /// out: the kernel already counts them in `user` and `nice`.
     pub total: u64,
 }
 
@@ -22,7 +23,8 @@ pub enum CpuStatError {
 }
 
 /// Go's `readCPUSample`: the first line starting with `cpu `, at least four
-/// numbers, every column parsed. Any bad column fails the whole line.
+/// numbers, every column parsed. Any bad column fails the whole line. Only
+/// the first eight columns are added into the total.
 pub fn parse_cpu_times(text: &str) -> Result<CpuTimes, CpuStatError> {
     let Some(line) = text.lines().find(|line| line.starts_with("cpu ")) else {
         return Err(CpuStatError::NoCpuLine);
@@ -36,7 +38,9 @@ pub fn parse_cpu_times(text: &str) -> Result<CpuTimes, CpuStatError> {
         let value: u64 = token
             .parse()
             .map_err(|_| CpuStatError::NotANumber((*token).to_owned()))?;
-        times.total = times.total.wrapping_add(value);
+        if index < 8 {
+            times.total = times.total.wrapping_add(value);
+        }
         if index == 3 || index == 4 {
             times.idle = times.idle.wrapping_add(value);
         }
@@ -72,11 +76,18 @@ fn meminfo_kb(text: &str, key: &str) -> Option<u64> {
 }
 
 /// Go's `readMemoryUsagePercent`: `(MemTotal - MemAvailable) / MemTotal`.
-/// A missing `MemAvailable` counts as zero available, so the host reads as
-/// fully used, as in Go; a missing `MemTotal` gives 0.
+/// Kernels before 3.14 have no `MemAvailable` line; then available is
+/// `MemFree + Buffers + Cached`, at most `MemTotal`. A missing `MemTotal`
+/// gives 0.
 pub fn memory_used_percent(text: &str) -> f64 {
     let total = meminfo_kb(text, "MemTotal:").unwrap_or(0);
-    let available = meminfo_kb(text, "MemAvailable:").unwrap_or(0);
+    let available = meminfo_kb(text, "MemAvailable:").unwrap_or_else(|| {
+        let field = |key| meminfo_kb(text, key).unwrap_or(0);
+        field("MemFree:")
+            .wrapping_add(field("Buffers:"))
+            .wrapping_add(field("Cached:"))
+            .min(total)
+    });
     if total == 0 || available >= total {
         return 0.0;
     }

@@ -2,7 +2,8 @@
 //!
 //! - CPU: busy share of the `/proc/stat` counters since the last sample; 0
 //!   on the first sample and after a failed read.
-//! - Memory: `(MemTotal - MemAvailable) / MemTotal`.
+//! - Memory: `(MemTotal - MemAvailable) / MemTotal`; without a
+//!   `MemAvailable` line, available is `MemFree + Buffers + Cached`.
 //! - Disk: `statfs("/")`, read at most once a minute; between reads the last
 //!   value is reused.
 //! - Network: bytes per second since the last sample, summed over every

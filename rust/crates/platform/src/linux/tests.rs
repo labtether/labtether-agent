@@ -131,12 +131,56 @@ fn cpu_counters_that_go_backwards_do_not_panic() {
     assert_eq!(cpu_percent(current, current), 0.0, "no time passed");
 }
 
-// Fault: memory is read from the wrong field, or a kernel without
-// MemAvailable is shown differently from the Go agent (Go: fully used).
+// Fault: guest and guest_nice time, which the kernel already counts in user
+// and nice, is added to the total a second time, so a host that runs VMs
+// (a Proxmox node, for example) reports CPU use higher than it is.
+#[test]
+fn cpu_total_counts_guest_time_once() {
+    // Ten seconds on a 4-core host (4000 ticks at 100 Hz). Deltas:
+    // user +1800 (guest +1600 of it), nice +100 (guest_nice +100 of it),
+    // system +200, idle +1800, iowait +20, softirq +80.
+    // Total of the first eight columns: 1800+100+200+1800+20+0+80+0 = 4000.
+    // Idle (idle+iowait): 1820. Busy: (4000-1820)/4000 = 54.5 %.
+    // Adding guest and guest_nice again gives (5700-1820)/5700 = 68.07 %.
+    let previous = parse_cpu_times("cpu  4705 120 1503 89012 312 0 85 0 2400 30\n").unwrap();
+    let current = parse_cpu_times("cpu  6505 220 1703 90812 332 0 165 0 4000 130\n").unwrap();
+    let busy = cpu_percent(previous, current);
+    assert!((busy - 54.5).abs() < 1e-9, "{busy}");
+    // A kernel with only seven columns still adds all of them.
+    assert_eq!(
+        parse_cpu_times("cpu  10 0 5 80 5 0 0\n"),
+        Ok(CpuTimes {
+            idle: 85,
+            total: 100
+        })
+    );
+}
+
+// Fault: memory is read from the wrong field, or a kernel without a
+// MemAvailable line (before 3.14) reads as zero available, so the host shows
+// 100 % memory used.
 #[test]
 fn memory_follows_the_go_rules_for_missing_fields() {
     let percent = memory_used_percent(MEMINFO);
     assert!((percent - 10.359_126_008_971_677).abs() < 1e-9, "{percent}");
+    // Available = MemFree + Buffers + Cached = 512344+301220+4211532 = 5025096
+    // kB. Used = (8058888-5025096)/8058888 = 37.645 %.
+    let old_kernel = "\
+MemTotal:        8058888 kB
+MemFree:          512344 kB
+Buffers:          301220 kB
+Cached:          4211532 kB
+SwapCached:         1024 kB
+Active:          4102332 kB
+Inactive:        2733000 kB
+SwapTotal:       2097148 kB
+SwapFree:        2090000 kB
+";
+    let percent = memory_used_percent(old_kernel);
+    assert!((percent - 37.645_292_998_239_95).abs() < 1e-9, "{percent}");
+    // A MemAvailable line that says 0 is used as it is.
+    let zero = "MemTotal: 8058888 kB\nMemFree: 512344 kB\nMemAvailable: 0 kB\nCached: 4211532 kB\n";
+    assert_eq!(memory_used_percent(zero), 100.0);
     assert_eq!(memory_used_percent("MemTotal: 1000 kB\n"), 100.0);
     assert_eq!(memory_used_percent("MemAvailable: 10 kB\n"), 0.0);
     assert_eq!(
