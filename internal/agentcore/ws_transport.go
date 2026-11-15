@@ -50,9 +50,10 @@ const (
 )
 
 // Client-side keepalive constants. The agent client pings every 25s
-// (staggered from the hub's 30s interval). If no pong (or any other
-// frame) arrives within 60s the read deadline fires and the connection
-// is torn down.
+// (staggered from the hub's 30s interval). Only a pong resets the read
+// deadline; messages and the hub's pings do not. If no pong arrives within
+// 60s the read deadline fires and the connection is torn down. The hub
+// likewise resets its deadline only on the agent's pongs, not on every frame.
 //
 // Named "client" to avoid collision with the hub-side clientPingInterval
 // (30s) in cmd/labtether/agent_ws_handler.go.

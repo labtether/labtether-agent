@@ -33,7 +33,7 @@ pub enum SessionEnd {
     Shutdown,
     /// The Hub closed the socket or the read failed.
     Closed,
-    /// No pong (or other frame that resets the deadline) in time.
+    /// No pong in time. Only a pong resets the deadline, as in Go.
     MissedPong,
     /// A frame could not be written in time, or the writer stopped.
     WriteFailed,
