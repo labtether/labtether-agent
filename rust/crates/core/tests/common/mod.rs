@@ -18,7 +18,7 @@ use std::time::Duration;
 use serde_json::{Value, json};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::{mpsc, watch};
+use tokio::sync::{broadcast, mpsc, watch};
 use tokio_rustls::TlsAcceptor;
 
 mod socket;
@@ -76,6 +76,8 @@ pub struct Behaviour {
     pub stall: bool,
     /// Close each socket right after the upgrade.
     pub close_at_once: bool,
+    /// Answer every upgrade with 503, as a Hub that is down behind a proxy.
+    pub refuse_upgrade: bool,
 }
 
 impl Default for Behaviour {
@@ -88,6 +90,7 @@ impl Default for Behaviour {
             pending: Pending::Ignore,
             stall: false,
             close_at_once: false,
+            refuse_upgrade: false,
         }
     }
 }
@@ -97,6 +100,7 @@ pub struct Shared {
     events: mpsc::UnboundedSender<Event>,
     next_id: AtomicUsize,
     kick: watch::Sender<u64>,
+    push: broadcast::Sender<String>,
 }
 
 impl Shared {
@@ -124,6 +128,7 @@ impl Hub {
             events: tx,
             next_id: AtomicUsize::new(1),
             kick: watch::channel(0).0,
+            push: broadcast::channel(16).0,
         });
         let tls = acceptor.is_some();
         let task_shared = shared.clone();
@@ -163,6 +168,11 @@ impl Hub {
     /// Closes every open agent socket from the Hub side.
     pub fn drop_connections(&self) {
         self.shared.kick.send_modify(|count| *count += 1);
+    }
+
+    /// Sends `message` to every open agent socket.
+    pub fn send_to_agents(&self, message: &Value) {
+        let _ = self.shared.push.send(message.to_string());
     }
 
     /// The next event, or `None` after `limit`.
@@ -374,6 +384,10 @@ pub(crate) fn next_id(shared: &Shared) -> usize {
 
 pub(crate) fn kick_receiver(shared: &Shared) -> watch::Receiver<u64> {
     shared.kick.subscribe()
+}
+
+pub(crate) fn push_receiver(shared: &Shared) -> broadcast::Receiver<String> {
+    shared.push.subscribe()
 }
 
 pub(crate) fn emit(shared: &Shared, event: Event) {

@@ -1,6 +1,6 @@
 [package]
 name = "labtether-agent-core"
-description = "Device key, TLS, enrollment, Hub connection, reconnect and heartbeat for the LabTether Rust agent"
+description = "Device key, TLS, enrollment, Hub connection, reconnect, heartbeat and telemetry for the LabTether Rust agent"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -9,6 +9,7 @@ publish.workspace = true
 
 [dependencies]
 labtether-agent-config.workspace = true
+labtether-agent-platform.workspace = true
 labtether-protocol.workspace = true
 
 data-encoding.workspace = true

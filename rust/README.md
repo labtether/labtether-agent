@@ -21,11 +21,22 @@ On Linux, the `labtether-agent-rs` binary:
 - keeps one WebSocket open, pings every 25 s, reconnects with a growing wait
   (1 s to 60 s), and re-enrolls with a staged token after three refused
   credentials;
-- sends a heartbeat every 20 s (`AGENT_HEARTBEAT_INTERVAL`) so the Hub lists
-  the device as online.
+- samples CPU, memory, root disk, network and temperature every 10 s
+  (`AGENT_COLLECT_INTERVAL`) with the Go agent's formulas, reading `/proc`,
+  `/sys` and `statfs` only;
+- sends a heartbeat every 20 s (`AGENT_HEARTBEAT_INTERVAL`) with the Go
+  agent's hardware, OS, address and metric details, and with each heartbeat
+  a telemetry sample, so the Hub shows the device online with live charts;
+- keeps up to 60 samples while the Hub is unreachable and sends them, oldest
+  first, after reconnecting;
+- applies collect and heartbeat intervals from the Hub (`config.update`)
+  within the Go agent's limits, keeps intervals set in the environment, saves
+  them in `applied-config.json` and replies with the values in use.
 
 It reports no capabilities, so the Hub offers no terminal, files or actions
-for it.
+for it. Heartbeat details the Go agent learns by running a program
+(`tailscale status`) or that describe features (`cap_*`, desktop, WebRTC,
+power, connectors) are not sent.
 
 ## Not yet
 
@@ -34,7 +45,10 @@ This binary is not hardened and not a replacement for the Go agent:
 - no outbound rules: the enrollment request and the WebSocket dial do not
   refuse loopback or private addresses the way the Go agent's outbound
   policy does;
-- no metrics or telemetry, and none of the heartbeat's hardware details;
+- no Tailscale details beyond whether it is installed, no connector probes
+  and no `cap_*` keys;
+- no HTTP heartbeat while the WebSocket is down, and no local API with
+  `/agent/telemetry` or `/metrics`;
 - no terminal, files, Remote View, Docker, services, packages, logs or
   other actions;
 - no local API, self-update, installer, systemd unit or container image;
@@ -45,7 +59,8 @@ This binary is not hardened and not a replacement for the Go agent:
 | Folder | Holds |
 |---|---|
 | `crates/config` | The settings, read from the environment and `agent-config.json` |
-| `crates/core` | Device key, TLS, enrollment, connection, reconnect, message handlers, heartbeat |
+| `crates/platform` | Linux readers: `/proc`, `/sys`, `statfs`, the interface list from netlink, the PATH check |
+| `crates/core` | Device key, TLS, enrollment, connection, reconnect, message handlers, heartbeat, telemetry loop, offline buffer, `config.update` |
 | `agent` | The binary: reads settings, starts the connection, stops on SIGTERM |
 
 The wire messages come from the `labtether-protocol` crate in the
@@ -73,5 +88,7 @@ cargo test --locked
 
 The tests start a stand-in Hub inside the test process. They cover settings
 precedence, the TLS rules, enrollment and its file invariants, reconnect,
-keepalive and the bounded send queue. Behaviour on a real Hub is checked on
+keepalive, the bounded send queue, the offline telemetry buffer and
+`config.update`. The Linux readers are tested against captured `/proc` and
+`/sys` text and a made-up sysfs tree. Behaviour on a real Hub is checked on
 the lab machines, not in CI.

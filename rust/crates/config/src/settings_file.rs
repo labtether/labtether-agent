@@ -11,6 +11,7 @@ use crate::LogLevel;
 use crate::env::parse_go_bool;
 use crate::files::{self, MAX_STATE_FILE_BYTES};
 
+pub(crate) const KEY_COLLECT_INTERVAL_SEC: &str = "collect_interval_sec";
 pub(crate) const KEY_HEARTBEAT_INTERVAL_SEC: &str = "heartbeat_interval_sec";
 pub(crate) const KEY_LOG_LEVEL: &str = "log_level";
 pub(crate) const KEY_TLS_SKIP_VERIFY: &str = "tls_skip_verify";
@@ -25,6 +26,7 @@ struct RawFile {
 /// The values found in the file, already checked.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub(crate) struct FileValues {
+    pub collect_interval_sec: Option<u64>,
     pub heartbeat_interval_sec: Option<u64>,
     pub log_level: Option<LogLevel>,
     pub tls_skip_verify: Option<bool>,
@@ -70,6 +72,9 @@ pub(crate) fn load(path: &Path) -> Result<FileValues, SettingsFileError> {
 fn parse_values(values: &BTreeMap<String, String>) -> FileValues {
     let get = |key: &str| values.get(key).map(|value| value.trim());
     FileValues {
+        collect_interval_sec: get(KEY_COLLECT_INTERVAL_SEC)
+            .and_then(|raw| raw.parse::<u64>().ok())
+            .filter(|seconds| (2..=300).contains(seconds)),
         heartbeat_interval_sec: get(KEY_HEARTBEAT_INTERVAL_SEC)
             .and_then(|raw| raw.parse::<u64>().ok())
             .filter(|seconds| (5..=600).contains(seconds)),

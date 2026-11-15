@@ -62,22 +62,32 @@ fn environment_wins_over_file_for_hub_managed_settings() {
     let dir = TempDir::new();
     write_settings_file(
         &dir,
-        r#"{"heartbeat_interval_sec":"90","log_level":"error"}"#,
+        r#"{"heartbeat_interval_sec":"90","collect_interval_sec":"45","log_level":"error"}"#,
     );
     let env = env_in(
         &dir,
         &[
             ("AGENT_HEARTBEAT_INTERVAL", "30s"),
+            ("AGENT_COLLECT_INTERVAL", "1"),
             ("LABTETHER_LOG_LEVEL", "debug"),
         ],
     );
     let settings = load(&env, &host()).unwrap().settings;
     assert_eq!(settings.heartbeat_interval, Duration::from_secs(30));
+    assert_eq!(
+        settings.collect_interval,
+        Duration::from_secs(2),
+        "clamped to Go's 2 s"
+    );
+    assert!(settings.heartbeat_pinned && settings.collect_pinned);
     assert_eq!(settings.log_level, LogLevel::Debug);
 
-    // Without the environment the file applies.
+    // Without the environment the file applies and nothing is pinned.
     let settings = load(&env_in(&dir, &[]), &host()).unwrap().settings;
     assert_eq!(settings.heartbeat_interval, Duration::from_secs(90));
+    assert_eq!(settings.collect_interval, Duration::from_secs(45));
+    assert!(!settings.heartbeat_pinned && !settings.collect_pinned);
+    assert!(settings.allow_remote_overrides);
     assert_eq!(settings.log_level, LogLevel::Error);
 }
 

@@ -1,14 +1,18 @@
 //! One open connection: a writer task that owns the socket's send side and
 //! pings every 25 s, and a read loop that closes the connection when no pong
 //! arrives within 60 s (Go's `pingLoop`, read deadline and `receiveLoop`).
+//! While a connection with a token is open, its send queue is shared with
+//! the telemetry loop, which sends the heartbeat and telemetry.
 
+use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use futures_util::stream::SplitSink;
 use futures_util::{SinkExt, StreamExt};
 use labtether_protocol::Message;
 use tokio::sync::{mpsc, watch};
-use tokio::time::{Instant, MissedTickBehavior, interval, interval_at, sleep_until};
+use tokio::time::{Instant, MissedTickBehavior, interval_at, sleep_until};
 use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::Message as Frame;
 
@@ -16,8 +20,9 @@ use crate::agent::Agent;
 use crate::connection::Connection;
 use crate::dispatch::{Context, Flow};
 use crate::handlers;
+use crate::heartbeat::LinkStats;
 use crate::net::HubStream;
-use crate::outbox::{Outbox, Outgoing, SendError};
+use crate::outbox::{Outbox, Outgoing};
 
 pub(crate) type Sink = SplitSink<WebSocketStream<HubStream>, Frame>;
 
@@ -46,11 +51,13 @@ async fn send_frame(sink: &mut Sink, frame: Frame, limit: Duration) -> bool {
 }
 
 /// Owns the send side: queued messages, then pings on a fixed interval.
+/// Each message written counts in `stats.sent`.
 pub(crate) async fn writer(
     mut sink: Sink,
     mut queue: mpsc::Receiver<Outgoing>,
     ping_every: Duration,
     write_timeout: Duration,
+    stats: Arc<LinkStats>,
 ) {
     let mut ping = interval_at(Instant::now() + ping_every, ping_every);
     ping.set_missed_tick_behavior(MissedTickBehavior::Delay);
@@ -61,6 +68,7 @@ pub(crate) async fn writer(
                     if !send_frame(&mut sink, Frame::text(text), write_timeout).await {
                         return;
                     }
+                    stats.sent.fetch_add(1, Ordering::Relaxed);
                 }
                 Some(Outgoing::Close) | None => {
                     let _ = send_frame(&mut sink, Frame::Close(None), write_timeout).await;
@@ -77,18 +85,6 @@ pub(crate) async fn writer(
     }
 }
 
-/// Queues one heartbeat. A full queue drops it; the next one follows.
-fn send_heartbeat(agent: &Agent, outbox: &Outbox) {
-    let Some(message) = agent.heartbeat.message(&agent.identity.snapshot()) else {
-        return;
-    };
-    match outbox.send(&message) {
-        Ok(()) => {}
-        Err(SendError::Full) => log::warn!("heartbeat dropped: the send queue is full"),
-        Err(error) => log::debug!("heartbeat not sent: {error}"),
-    }
-}
-
 fn handle_text(
     text: &str,
     registry: &mut crate::dispatch::Registry,
@@ -101,6 +97,7 @@ fn handle_text(
             return Some(SessionEnd::BadMessage);
         }
     };
+    context.agent.stats.received.fetch_add(1, Ordering::Relaxed);
     match registry.dispatch(&message, context) {
         Flow::Continue => None,
         Flow::Reconnect => Some(SessionEnd::Reconnect),
@@ -121,7 +118,11 @@ pub async fn run(
         queue,
         timing.ping_interval,
         timing.write_timeout,
+        agent.stats.clone(),
     ));
+    if !connection.pending_enrollment {
+        agent.link.send_replace(Some(outbox.clone()));
+    }
     let mut registry = handlers::registry();
     let context = Context {
         agent,
@@ -130,8 +131,6 @@ pub async fn run(
 
     let deadline = sleep_until(Instant::now() + timing.read_deadline);
     tokio::pin!(deadline);
-    let mut heartbeat = interval(agent.settings.heartbeat_interval);
-    heartbeat.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
     let end = loop {
         tokio::select! {
@@ -159,12 +158,12 @@ pub async fn run(
                 log::warn!("no pong from the Hub within {:?}; closing the connection", timing.read_deadline);
                 break SessionEnd::MissedPong;
             }
-            _ = heartbeat.tick(), if !outbox.is_pending_enrollment() => send_heartbeat(agent, &outbox),
             _ = &mut writer_task => break SessionEnd::WriteFailed,
             _ = shutdown.changed() => break SessionEnd::Shutdown,
         }
     };
 
+    agent.link.send_replace(None);
     if !writer_task.is_finished() {
         outbox.close();
         if tokio::time::timeout(timing.write_timeout, &mut writer_task)

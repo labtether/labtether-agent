@@ -36,6 +36,10 @@ const DEFAULT_HEARTBEAT: Duration = Duration::from_secs(20);
 const LOW_POWER_HEARTBEAT: Duration = Duration::from_secs(120);
 const MIN_HEARTBEAT: Duration = Duration::from_secs(5);
 const MAX_HEARTBEAT: Duration = Duration::from_secs(600);
+const DEFAULT_COLLECT: Duration = Duration::from_secs(10);
+const LOW_POWER_COLLECT: Duration = Duration::from_secs(30);
+const MIN_COLLECT: Duration = Duration::from_secs(2);
+const MAX_COLLECT: Duration = Duration::from_secs(300);
 
 /// Log verbosity, the values Go's `log_level` setting accepts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -105,6 +109,16 @@ pub struct Settings {
     pub device_fingerprint_file: PathBuf,
     pub tls: TlsSettings,
     pub heartbeat_interval: Duration,
+    /// How often telemetry is sampled (`AGENT_COLLECT_INTERVAL`, 10 s).
+    pub collect_interval: Duration,
+    /// Chosen in the environment (or by low-power mode) at start: a Hub
+    /// `config.update` keeps these, as in Go's `settingPinned`.
+    pub heartbeat_pinned: bool,
+    pub collect_pinned: bool,
+    /// `LABTETHER_ALLOW_REMOTE_OVERRIDES`; on unless `false`, `0` or `off`.
+    pub allow_remote_overrides: bool,
+    /// The agent's `PATH`, used only to tell whether a program is installed.
+    pub search_path: String,
     pub log_level: LogLevel,
 }
 
@@ -184,6 +198,14 @@ fn ca_only(env: &Environment) -> Result<bool, ConfigError> {
     }
 }
 
+/// Go's `LABTETHER_ALLOW_REMOTE_OVERRIDES`: on unless `false`, `0` or `off`.
+fn remote_overrides(env: &Environment) -> bool {
+    env.get("LABTETHER_ALLOW_REMOTE_OVERRIDES")
+        .is_none_or(|raw| {
+            !(raw.eq_ignore_ascii_case("false") || raw == "0" || raw.eq_ignore_ascii_case("off"))
+        })
+}
+
 /// Reads the settings from `env`, `agent-config.json` and the token files.
 pub fn load(env: &Environment, host: &HostFacts) -> Result<Loaded, ConfigError> {
     let mut warnings = Vec::new();
@@ -209,6 +231,15 @@ pub fn load(env: &Environment, host: &HostFacts) -> Result<Loaded, ConfigError> 
         MAX_HEARTBEAT,
     );
     let heartbeat_pinned = heartbeat_env.is_some() || low_power;
+    let collect_env = env.get("AGENT_COLLECT_INTERVAL");
+    let collect_default = if low_power {
+        LOW_POWER_COLLECT
+    } else {
+        DEFAULT_COLLECT
+    };
+    let mut collect_interval =
+        parse_duration_or(collect_env, collect_default, MIN_COLLECT, MAX_COLLECT);
+    let collect_pinned = collect_env.is_some() || low_power;
 
     let level_env = env.get("LABTETHER_LOG_LEVEL");
     let mut log_level = match level_env {
@@ -237,6 +268,9 @@ pub fn load(env: &Environment, host: &HostFacts) -> Result<Loaded, ConfigError> 
             }
             if let (Some(seconds), false) = (file.heartbeat_interval_sec, heartbeat_pinned) {
                 heartbeat_interval = Duration::from_secs(seconds);
+            }
+            if let (Some(seconds), false) = (file.collect_interval_sec, collect_pinned) {
+                collect_interval = Duration::from_secs(seconds);
             }
             if let (Some(level), None) = (file.log_level, level_env) {
                 log_level = level;
@@ -289,6 +323,11 @@ pub fn load(env: &Environment, host: &HostFacts) -> Result<Loaded, ConfigError> 
         ),
         tls,
         heartbeat_interval,
+        collect_interval,
+        heartbeat_pinned,
+        collect_pinned,
+        allow_remote_overrides: remote_overrides(env),
+        search_path: env.get_or("PATH", "").to_owned(),
         log_level,
     };
     Ok(Loaded { settings, warnings })

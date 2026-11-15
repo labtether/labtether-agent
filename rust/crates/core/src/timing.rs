@@ -31,6 +31,8 @@ pub struct Timing {
     /// A session shorter than this counts as a failed attempt: the next
     /// connect waits and the wait grows. Only a longer one resets the wait.
     pub min_stable_session: Duration,
+    /// Telemetry samples kept while offline (Go: 60).
+    pub telemetry_buffer: usize,
 }
 
 impl Default for Timing {
@@ -48,6 +50,7 @@ impl Default for Timing {
             rejected_wait: Duration::from_secs(5),
             send_queue: 64,
             min_stable_session: Duration::from_secs(30),
+            telemetry_buffer: crate::telemetry_buffer::CAPACITY,
         }
     }
 }

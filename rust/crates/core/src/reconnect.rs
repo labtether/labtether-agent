@@ -111,6 +111,10 @@ pub async fn run(agent: Arc<Agent>, mut shutdown: watch::Receiver<bool>) {
         }
         match connection::connect(&agent).await {
             Ok(connection) => {
+                agent
+                    .stats
+                    .connects
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 backoff.connected();
                 let opened = Instant::now();
                 let end = session::run(&agent, connection, &mut shutdown).await;
