@@ -1,0 +1,21 @@
+[package]
+name = "labtether-agent-rs"
+description = "The LabTether Rust agent for Linux (connect step)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "labtether-agent-rs"
+path = "src/main.rs"
+
+[dependencies]
+labtether-agent-config.workspace = true
+labtether-agent-core.workspace = true
+log.workspace = true
+tokio = { workspace = true, features = ["macros", "rt", "signal", "sync"] }
+
+[lints]
+workspace = true

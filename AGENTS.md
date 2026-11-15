@@ -115,6 +115,11 @@ Read user-facing text once against this list before you ship it.
 ## This repo
 
 - Entry point: `cmd/labtether-agent/`. Runtime: `internal/agentcore/`.
+- `rust/` is the Rust port (workspace: `crates/config`, `crates/core`,
+  `agent`). It connects, enrolls and sends heartbeats only, and is not
+  released. Check it with `cargo fmt --check`, `cargo clippy --locked
+  --all-targets -- -D warnings` and `cargo test --locked` in `rust/`; build
+  and run it on the lab machines, not the development laptop.
 - Platform providers: `internal/agentplatform/`. Identity and trust:
   `internal/agentidentity/`, `internal/securityruntime/`,
   `internal/servicehttp/`.

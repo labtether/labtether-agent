@@ -55,3 +55,8 @@ __pycache__/
 
 # Local task scratch space
 /work/
+
+# Rust build output
+rust/target/
+# The Rust core crate is source, not a core dump (see "core" above).
+!rust/crates/core/
