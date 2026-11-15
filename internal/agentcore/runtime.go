@@ -39,6 +39,11 @@ type Runtime struct {
 	baseCollectInterval       time.Duration
 	baseHeartbeatInterval     time.Duration
 
+	// collects tells the heartbeat loop when a collection is due or running.
+	collects collectSchedule
+	// collectWaitLimit replaces collectWaitLimit in tests when above 0.
+	collectWaitLimit time.Duration
+
 	startedAt time.Time
 	alerts    []AlertSnapshot
 
@@ -226,70 +231,86 @@ func isLoopbackBindAddress(value string) bool {
 	return false
 }
 
+// collectLoop collects a sample at start and then every collect interval.
+// An interval change, including a reset to the configured value, applies
+// from the next tick.
 func (r *Runtime) collectLoop(ctx context.Context) {
 	defer func() {
+		r.collects.stop()
 		if err := recover(); err != nil {
 			log.Printf("agent: panic in collectLoop: %v\n%s", err, debug.Stack())
 		}
 	}()
-	r.collectOnce(time.Now().UTC())
-	currentInterval := r.cfg.CollectInterval
-	ticker := time.NewTicker(currentInterval)
-	defer ticker.Stop()
+	start := time.Now()
+	r.collects.begin(start)
+	r.collectOnce(start.UTC())
+	currentInterval := r.collectInterval()
+	due := nextTick(start, currentInterval, time.Now())
+	r.collects.finish(due)
+	timer := time.NewTimer(time.Until(due))
+	defer timer.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
 			log.Printf("%s telemetry collector stopped", r.cfg.Name)
 			return
-		case tick := <-ticker.C:
-			r.collectOnce(tick.UTC())
-			// Check for dynamic interval override.
-			if override := r.collectIntervalOverride.Load(); override > 0 {
-				newInterval := time.Duration(override) * time.Second
-				if newInterval != currentInterval {
-					currentInterval = newInterval
-					ticker.Reset(currentInterval)
-					log.Printf("%s: collect interval updated to %v", r.cfg.Name, currentInterval)
-				}
+		case <-timer.C:
+			now := time.Now()
+			r.collects.begin(now)
+			r.collectOnce(now.UTC())
+			if next := r.collectInterval(); next != currentInterval {
+				currentInterval = next
+				log.Printf("%s: collect interval updated to %v", r.cfg.Name, currentInterval)
 			}
+			due = nextTick(due, currentInterval, time.Now())
+			r.collects.finish(due)
+			timer.Reset(time.Until(due))
 		}
 	}
 }
 
+// heartbeatLoop sends a heartbeat with the latest sample after the first
+// collection and then every heartbeat interval, timed from the start of the
+// first collection. A heartbeat due while a collection is due or running
+// waits for it (see collectSchedule).
 func (r *Runtime) heartbeatLoop(ctx context.Context) {
 	defer func() {
 		if err := recover(); err != nil {
 			log.Printf("agent: panic in heartbeatLoop: %v\n%s", err, debug.Stack())
 		}
 	}()
-	currentInterval := r.cfg.HeartbeatInterval
+	currentInterval := r.heartbeatInterval()
 	r.heartbeatTickInterval.Store(int64(currentInterval))
 	if !r.waitForFirstSample(ctx, firstSampleWait) {
 		return
 	}
 	r.publishOnce(ctx)
-	ticker := time.NewTicker(currentInterval)
-	defer ticker.Stop()
+	now := time.Now()
+	due := nextTick(r.collects.heartbeatAnchor(now), currentInterval, now)
+	timer := time.NewTimer(time.Until(due))
+	defer timer.Stop()
+	gaveUpAt := ^uint64(0)
 
 	for {
 		select {
 		case <-ctx.Done():
 			log.Printf("%s heartbeat loop stopped", r.cfg.Name)
 			return
-		case <-ticker.C:
+		case <-timer.C:
+			if !r.collects.awaitDueCollection(ctx, due, r.heartbeatCollectWait(), &gaveUpAt) {
+				log.Printf("%s heartbeat loop stopped", r.cfg.Name)
+				return
+			}
 			r.publishOnce(ctx)
 			r.HeartbeatCounter.Add(1)
-			// Check for dynamic interval override.
-			if override := r.heartbeatIntervalOverride.Load(); override > 0 {
-				newInterval := time.Duration(override) * time.Second
-				if newInterval != currentInterval {
-					currentInterval = newInterval
-					ticker.Reset(currentInterval)
-					r.heartbeatTickInterval.Store(int64(currentInterval))
-					log.Printf("%s: heartbeat interval updated to %v", r.cfg.Name, currentInterval)
-				}
+			if next := r.heartbeatInterval(); next != currentInterval {
+				currentInterval = next
+				r.heartbeatTickInterval.Store(int64(currentInterval))
+				log.Printf("%s: heartbeat interval updated to %v", r.cfg.Name, currentInterval)
 			}
+			due = nextTick(due, currentInterval, time.Now())
+			timer.Reset(time.Until(due))
 		}
 	}
 }
