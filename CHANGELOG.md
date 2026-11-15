@@ -34,6 +34,16 @@ All notable changes to `labtether-agent` are documented in this file.
   default route, so Wake-on-LAN can target a Mac. macOS 27 hid it as
   `02:00:00:00:00:00`. Interfaces without a known address show none in place
   of that placeholder.
+- When a heartbeat and a metrics collection fell due at the same time, the
+  agent could send the previous reading again and drop the new one, so a short
+  spike (a download burst, a CPU peak) could be missing from the device's
+  charts. The heartbeat now goes out with the new reading.
+- Setting the collect or heartbeat interval back to the default from the hub
+  changed the value the agent reported but not how often it sent data, until
+  the agent restarted. The change now applies from the next tick.
+- When the hub accepted the agent's connection and closed it straight away,
+  the agent reconnected about once a second without backing off. It now waits
+  longer after each connection that lasts under 30 seconds.
 
 ## [2.0.1]
 
