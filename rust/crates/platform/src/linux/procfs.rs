@@ -61,7 +61,7 @@ pub fn cpu_percent(previous: CpuTimes, current: CpuTimes) -> f64 {
     }
 }
 
-fn meminfo_kb(text: &str, key: &str) -> Option<u64> {
+pub(crate) fn meminfo_kb(text: &str, key: &str) -> Option<u64> {
     let mut found = None;
     for line in text.lines() {
         let mut fields = line.split_whitespace();

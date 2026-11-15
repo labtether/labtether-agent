@@ -10,6 +10,9 @@ use std::path::Path;
 pub struct Capacity {
     pub blocks: u64,
     pub available_blocks: u64,
+    /// `f_bfree`: free blocks, the root reserve included. The disk list
+    /// counts used space against this one.
+    pub free_blocks: u64,
     /// `f_bsize`; zero or below means unknown.
     pub block_size: i64,
 }
@@ -41,13 +44,19 @@ impl Capacity {
 }
 
 /// `statfs(path)`, or `None` when it fails.
+pub fn capacity(path: &Path) -> Option<Capacity> {
+    statfs(path).ok()
+}
+
+/// `statfs(path)` with the reason it failed.
 // `f_bsize` is a C long: `i64` on 64-bit targets, `i32` on 32-bit ones.
 #[allow(clippy::useless_conversion)]
-pub fn capacity(path: &Path) -> Option<Capacity> {
-    let stats = rustix::fs::statfs(path).ok()?;
-    Some(Capacity {
+pub fn statfs(path: &Path) -> std::io::Result<Capacity> {
+    let stats = rustix::fs::statfs(path)?;
+    Ok(Capacity {
         blocks: stats.f_blocks,
         available_blocks: stats.f_bavail,
+        free_blocks: stats.f_bfree,
         block_size: i64::from(stats.f_bsize),
     })
 }

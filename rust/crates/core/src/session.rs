@@ -41,6 +41,8 @@ pub enum SessionEnd {
     BadMessage,
     /// Enrollment was approved; connect again with the new token.
     Reconnect,
+    /// A request found every handler slot taken; Go closes the connection.
+    Overloaded,
 }
 
 async fn send_frame(sink: &mut Sink, frame: Frame, limit: Duration) -> bool {
@@ -101,6 +103,7 @@ fn handle_text(
     match registry.dispatch(&message, context) {
         Flow::Continue => None,
         Flow::Reconnect => Some(SessionEnd::Reconnect),
+        Flow::Close => Some(SessionEnd::Overloaded),
     }
 }
 
@@ -123,7 +126,7 @@ pub async fn run(
     if !connection.pending_enrollment {
         agent.link.send_replace(Some(outbox.clone()));
     }
-    let mut registry = handlers::registry();
+    let mut registry = handlers::registry(&agent.features);
     let context = Context {
         agent,
         outbox: &outbox,

@@ -116,12 +116,14 @@ Read user-facing text once against this list before you ship it.
 
 - Entry point: `cmd/labtether-agent/`. Runtime: `internal/agentcore/`.
 - `rust/` is the Rust port (workspace: `crates/config`, `crates/core`,
-  `crates/platform`, `crates/security`, `agent`). It connects, enrolls, and
-  sends heartbeats and telemetry; it has no other features and is not
-  released. Linux readers live in `crates/platform` and take captured text in
-  their tests. `crates/security` holds the command rules; its
-  `CommandPolicy::run` is the only way Rust code may start a process
-  (`rust/clippy.toml` refuses `Command::new` elsewhere). Its cases live in
+  `crates/platform`, `crates/security`, `crates/capabilities`, `agent`). It
+  connects, enrolls, sends heartbeats and telemetry, and answers the disk,
+  network interface and process lists; it has no actions and is not
+  released. Each page is a module in `crates/capabilities`; Linux readers
+  live in `crates/platform` and take captured text in their tests.
+  `crates/security` holds the command rules; its `CommandPolicy::run` is the
+  only way Rust code may start a process (`rust/clippy.toml` refuses
+  `Command::new` elsewhere). Its cases live in
   `internal/securityruntime/testdata/` and the Go tests read them too, so
   change a rule in both agents and its case once. Check it
   with `cargo fmt --check`, `cargo clippy --locked --all-targets -- -D

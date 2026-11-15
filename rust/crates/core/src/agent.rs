@@ -9,6 +9,7 @@ use tokio::sync::watch;
 use tokio::time::Instant;
 
 use crate::credential::{self, IdentityCell};
+use crate::features::Features;
 use crate::flow;
 use crate::heartbeat::{HeartbeatTemplate, LinkStats};
 use crate::identity::{self, DeviceIdentity, IdentityError};
@@ -17,6 +18,7 @@ use crate::outbox::Outbox;
 use crate::state::StateFiles;
 use crate::timing::Timing;
 use crate::tls::{self, TlsError, TrustMode};
+use crate::workers::Workers;
 
 /// Why the agent could not start.
 #[derive(Debug, thiserror::Error)]
@@ -57,12 +59,27 @@ pub struct Agent {
     /// An admin rejected the pending request; wait for a token.
     pub(crate) rejected: AtomicBool,
     pub(crate) re_enroll: Mutex<ReEnroll>,
+    /// The feature handlers each connection registers.
+    pub(crate) features: Features,
+    /// Request handler slots, shared by every connection as in Go.
+    pub(crate) workers: Workers,
 }
 
 impl Agent {
+    /// An agent with no features: it connects and reports telemetry only.
+    pub async fn start(settings: Settings, timing: Timing) -> Result<Arc<Self>, StartError> {
+        Self::start_with(settings, timing, Features::new()).await
+    }
+
     /// Checks TLS, loads or creates the device key, picks the credential and
     /// enrolls when a one-use token is staged and no token is saved.
-    pub async fn start(settings: Settings, timing: Timing) -> Result<Arc<Self>, StartError> {
+    /// `features` adds the request handlers and what the heartbeat
+    /// advertises.
+    pub async fn start_with(
+        settings: Settings,
+        timing: Timing,
+        features: Features,
+    ) -> Result<Arc<Self>, StartError> {
         tls::validate(&settings.tls)?;
         let mut tls_settings = settings.tls.clone();
         log_trust(&tls_settings);
@@ -96,7 +113,8 @@ impl Agent {
             token: enrollment.filter(|_| identity.token.is_some()),
             last_attempt: None,
         };
-        let heartbeat = HeartbeatTemplate::new(&settings, &device);
+        let heartbeat = HeartbeatTemplate::new(&settings, &device, features.advertised());
+        let workers = Workers::new(timing.request_workers);
         let intervals = IntervalControl::new(&settings);
         Ok(Arc::new(Self {
             tls: tls::client_config(&tls_settings)?,
@@ -111,6 +129,8 @@ impl Agent {
             stats: Arc::new(LinkStats::default()),
             rejected: AtomicBool::new(false),
             re_enroll: Mutex::new(re_enroll),
+            features,
+            workers,
         }))
     }
 
@@ -130,6 +150,11 @@ impl Agent {
 
     pub(crate) fn waiting_after_rejection(&self) -> bool {
         self.rejected.load(Ordering::Relaxed) && self.identity.snapshot().token.is_none()
+    }
+
+    /// Request handlers running now.
+    pub fn workers_running(&self) -> usize {
+        self.workers.running()
     }
 
     /// The asset ID in use now (the Hub's, once known).

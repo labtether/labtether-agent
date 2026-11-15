@@ -1,5 +1,6 @@
 //! Linux readers for the LabTether Rust agent: CPU, memory, disk, network
-//! and temperature telemetry, and the host details the heartbeat carries.
+//! and temperature telemetry, the host details the heartbeat carries, and
+//! the mount, interface and process lists the device pages show.
 //!
 //! Ported from the Go agent's `internal/agentplatform/linux`,
 //! `internal/agentplatform/temperature` and `internal/agentplatform/netid`,

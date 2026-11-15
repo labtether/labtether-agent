@@ -173,6 +173,7 @@ fn lan_address_and_mac_are_chosen_like_go() {
         up,
         loopback: name == "lo",
         ips: ips.iter().map(|text| ip(text)).collect(),
+        ..Nic::default()
     };
     let nics = [
         nic("lo", &[], true, &["127.0.0.1"]),

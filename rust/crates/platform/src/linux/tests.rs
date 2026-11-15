@@ -10,6 +10,8 @@ use super::host::{chassis_type_label, cpu_metadata, khz_text_as_mhz, os_metadata
 use super::procfs::*;
 use super::sampler::{Sampler, SysPaths};
 
+mod pages;
+mod processes;
 mod sensors;
 
 pub(crate) struct TempDir(pub PathBuf);

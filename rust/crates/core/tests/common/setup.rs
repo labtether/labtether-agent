@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
 use labtether_agent_config::{Environment, HostFacts, Settings, load};
-use labtether_agent_core::{Agent, StartError, Timing};
+use labtether_agent_core::{Agent, Features, StartError, Timing};
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
@@ -99,6 +99,7 @@ pub fn fast_timing() -> Timing {
         send_queue: 64,
         min_stable_session: Duration::from_secs(1),
         telemetry_buffer: 60,
+        request_workers: 20,
     }
 }
 
@@ -122,7 +123,16 @@ impl Running {
 
 /// Starts an agent with `settings`.
 pub async fn start(settings: Settings, timing: Timing) -> Result<Running, StartError> {
-    let agent = Agent::start(settings, timing).await?;
+    start_with(settings, timing, Features::new()).await
+}
+
+/// Starts an agent with `settings` and `features`.
+pub async fn start_with(
+    settings: Settings,
+    timing: Timing,
+    features: Features,
+) -> Result<Running, StartError> {
+    let agent = Agent::start_with(settings, timing, features).await?;
     let (shutdown, receiver) = watch::channel(false);
     let handle = tokio::spawn(agent.clone().run(receiver));
     Ok(Running {

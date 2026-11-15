@@ -21,6 +21,11 @@ All notable changes to `labtether-agent` are documented in this file.
   (`rust/crates/security`): exec and shell allowlists, read-only reader
   checks, the child environment, output limits and timeouts. Nothing calls it
   yet. The Go and Rust tests read the same case files.
+- The Rust agent answers the hub's disk, network interface and process lists
+  (`disk.list`, `network.list`, `process.list`) with the Go agent's fields,
+  units, order and limits, reading `/proc`, `/sys`, `statfs` and netlink
+  without running any program. It advertises network listing only, so the
+  hub offers no network or process actions for it.
 
 ### Fixed
 
