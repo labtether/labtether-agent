@@ -436,8 +436,22 @@ func TestReconnectLoopReEnrollsAfterAuthFailureThreshold(t *testing.T) {
 
 func TestReconnectLoopForcesReconnectOnNetworkChange(t *testing.T) {
 	networkChanged := make(chan struct{}, 1)
+	// Each clock read is 31 s after the last, so every session counts as
+	// stable and a network change must reconnect at once, with no backoff.
+	var clockReads atomic.Int64
+	var backoffWaits atomic.Int32
 	transport := &wsTransport{
 		networkChanged: networkChanged,
+		now: func() time.Time {
+			return time.Unix(0, 0).Add(time.Duration(clockReads.Add(1)) * 31 * time.Second)
+		},
+		jitter: func(time.Duration) time.Duration { return 0 },
+		timeAfter: func(d time.Duration) <-chan time.Time {
+			if d != time.Second { // the open-socket poll uses 1 s; anything else is a backoff wait
+				backoffWaits.Add(1)
+			}
+			return time.After(min(d, 5*time.Millisecond))
+		},
 	}
 
 	connectCalls := 0
@@ -479,5 +493,8 @@ func TestReconnectLoopForcesReconnectOnNetworkChange(t *testing.T) {
 	}
 	if got := atomic.LoadInt64(&transport.reconnectCount); got != 2 {
 		t.Fatalf("expected reconnect count 2, got %d", got)
+	}
+	if got := backoffWaits.Load(); got != 0 {
+		t.Fatalf("network change after a stable session waited %d times, want a reconnect at once", got)
 	}
 }
