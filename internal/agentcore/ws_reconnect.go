@@ -41,6 +41,7 @@ func jitterDuration(max time.Duration) time.Duration {
 // reconnectLoop attempts to maintain a persistent WebSocket connection with
 // exponential backoff (1s, 2s, 4s, 8s... cap 60s) and jitter. Auth failures
 // (401/403) back off to 5-minute intervals after 3 consecutive failures.
+// A session shorter than minStableSession counts as a failed attempt.
 func (t *wsTransport) reconnectLoop(ctx context.Context, onConnect func()) {
 	backoff := time.Second
 
@@ -80,6 +81,7 @@ func (t *wsTransport) reconnectLoop(ctx context.Context, onConnect func()) {
 			}
 		}
 
+		tokenBefore := t.identitySource().Snapshot().BearerToken
 		resp, err := t.connectAttempt(ctx)
 		if err != nil {
 			kind := classifyConnectError(err, resp)
@@ -157,8 +159,9 @@ func (t *wsTransport) reconnectLoop(ctx context.Context, onConnect func()) {
 			continue
 		}
 
-		// Connected — reset backoff, record the reconnect, and notify.
-		backoff = time.Second
+		// Connected: record the reconnect and notify. The backoff resets only
+		// after a stable session (see waitAfterSession).
+		openedAt := t.currentTime()
 		atomic.AddInt64(&t.reconnectCount, 1)
 		if onConnect != nil && t.Connected() {
 			onConnect()
@@ -181,7 +184,41 @@ func (t *wsTransport) reconnectLoop(ctx context.Context, onConnect func()) {
 			case <-t.after(time.Second):
 			}
 		}
+
+		if ctx.Err() != nil {
+			return
+		}
+		if wait := t.waitAfterSession(openedAt, tokenBefore, &backoff); wait > 0 {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.after(wait):
+			}
+		}
 	}
+}
+
+// minStableSession is how long a session must last before its end resets the
+// reconnect backoff. A Hub that accepts each socket and closes it at once
+// used to get a reconnect loop with no wait at all.
+const minStableSession = 30 * time.Second
+
+// waitAfterSession returns how long to wait before reconnecting after a
+// session ends. A session that lasted minStableSession, or that ended because
+// the Hub approved enrollment and gave a new token, reconnects at once and
+// resets the backoff. A shorter session counts as a failed attempt: it waits
+// the current backoff with jitter, and the backoff grows.
+func (t *wsTransport) waitAfterSession(openedAt time.Time, tokenBefore string, backoff *time.Duration) time.Duration {
+	lasted := t.currentTime().Sub(openedAt)
+	if lasted >= minStableSession || t.identitySource().Snapshot().BearerToken != tokenBefore {
+		*backoff = time.Second
+		return 0
+	}
+	wait := *backoff + t.jitterDuration(*backoff/4)
+	*backoff = time.Duration(math.Min(float64(*backoff*2), float64(maxBackoff)))
+	log.Printf("agentws: the connection to the Hub closed after %s; retrying in %s",
+		lasted.Round(time.Millisecond), wait.Round(time.Millisecond))
+	return wait
 }
 
 func isTLSTrustError(err error) bool {
