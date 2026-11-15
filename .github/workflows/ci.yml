@@ -43,6 +43,7 @@ jobs:
       agent_cross_platform: ${{ steps.select.outputs.agent_cross_platform }}
       agent_installed_container: ${{ steps.select.outputs.agent_installed_container }}
       selected_json: ${{ steps.select.outputs.selected_json }}
+      rust_agent: ${{ steps.rust.outputs.rust_agent }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -66,6 +67,24 @@ jobs:
             selector+=(--base "${BASE_SHA}" --head "${GITHUB_SHA}")
           fi
           "${selector[@]}"
+
+      # The Rust agent (rust/) has its own checks. They run when rust/ or
+      # this workflow changes, and on full runs.
+      - name: Select Rust agent checks
+        id: rust
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          FULL_MODE: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/') }}
+        run: |
+          set -euo pipefail
+          selected=false
+          if [[ "${FULL_MODE}" == "true" || -z "${BASE_SHA}" || "${BASE_SHA}" =~ ^0+$ ]]; then
+            selected=true
+          elif git diff --name-only "${BASE_SHA}" "${GITHUB_SHA}" -- rust .github/workflows/ci.yml | grep -q .; then
+            selected=true
+          fi
+          echo "Rust agent checks: ${selected}"
+          echo "rust_agent=${selected}" >> "${GITHUB_OUTPUT}"
 
   go-checks:
     needs: [line-limit, qa-select]
@@ -204,9 +223,31 @@ jobs:
           docker run --rm --entrypoint /bin/sh labtether-agent:qa-contract \
             -eu -c 'test "$LABTETHER_TOKEN_FILE" = /var/lib/labtether/agent-token && touch /var/lib/labtether/write-probe'
 
+  rust-agent:
+    name: Rust agent
+    needs: qa-select
+    if: needs.qa-select.outputs.rust_agent == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: rust
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Update stable Rust
+        run: rustup update stable --no-self-update
+      - name: Check formatting
+        run: cargo fmt --check
+      - name: Clippy
+        run: cargo clippy --locked --all-targets -- -D warnings
+      - name: Test
+        run: cargo test --locked
+
   ci-result:
     name: CI result
-    needs: [line-limit, qa-select, go-checks, cross-build, installed-container]
+    needs: [line-limit, qa-select, go-checks, cross-build, installed-container, rust-agent]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 2
@@ -217,4 +258,15 @@ jobs:
       - name: Require every selected check to pass
         env:
           NEEDS_JSON: ${{ toJSON(needs) }}
-        run: python3 -B scripts/ci/check-ci-result.py
+        run: |
+          set -euo pipefail
+          # The Rust agent job is checked here; the shared checker below
+          # knows the Go jobs only.
+          rust_selected=$(jq -r '."qa-select".outputs.rust_agent // ""' <<<"${NEEDS_JSON}")
+          rust_result=$(jq -r '."rust-agent".result // ""' <<<"${NEEDS_JSON}")
+          if [[ "${rust_selected}" == "true" && "${rust_result}" != "success" ]] ||
+            [[ "${rust_selected}" != "true" && "${rust_result}" != "skipped" ]]; then
+            echo "CI failed: Rust agent checks: selected=${rust_selected} result=${rust_result}" >&2
+            exit 1
+          fi
+          NEEDS_JSON=$(jq -c 'del(."rust-agent")' <<<"${NEEDS_JSON}") python3 -B scripts/ci/check-ci-result.py

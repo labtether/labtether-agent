@@ -2,6 +2,16 @@
 
 All notable changes to `labtether-agent` are documented in this file.
 
+## Unreleased
+
+### Added
+
+- A Rust agent for Linux in `rust/`, not released and not used by the
+  installers. It reads the Go agent's settings, enrolls with a one-use token or
+  waits for approval, keeps a WebSocket connection to the hub with the same
+  keepalive and reconnect rules, and sends heartbeats. It reports no
+  capabilities. CI checks it when `rust/` changes.
+
 ## [2.0.1]
 
 No change to the agent since 2.0.0. It is released again so that every part of

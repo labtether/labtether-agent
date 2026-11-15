@@ -1,0 +1,57 @@
+[workspace]
+resolver = "3"
+members = ["agent", "crates/config", "crates/core"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+repository = "https://github.com/labtether/labtether-agent"
+publish = false
+
+[workspace.dependencies]
+labtether-agent-config = { path = "crates/config" }
+labtether-agent-core = { path = "crates/core" }
+labtether-protocol = { git = "https://github.com/labtether/protocol", rev = "483ffb9afd17b75fd0d5e0d3b1c9d3f41fbfd594" }
+
+data-encoding = "2.11"
+ed25519-dalek = "3.0"
+futures-util = { version = "0.3.34", default-features = false, features = ["sink", "std"] }
+getrandom = "0.4"
+http = "1.5"
+http-body-util = "0.1.5"
+hyper = { version = "1.12", default-features = false, features = ["client", "http1"] }
+hyper-util = { version = "0.1.21", default-features = false, features = ["tokio"] }
+log = "0.4.35"
+rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
+rustls-native-certs = "0.8.5"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+sha2 = "0.11"
+thiserror = "2.0"
+tokio = { version = "1.54", default-features = false }
+tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring", "tls12"] }
+tokio-tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
+
+# Test-only: certificates for the stand-in Hub.
+rcgen = { version = "0.14.10", default-features = false, features = ["crypto", "pem", "ring"] }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+# The lab VM and CI build with these settings. Debug info and incremental
+# files make the target folder several times larger and are not used here.
+[profile.dev]
+debug = false
+incremental = false
+
+[profile.test]
+debug = false
+incremental = false
+
+[profile.release]
+debug = false
+incremental = false
+strip = true
+lto = "thin"
+codegen-units = 4

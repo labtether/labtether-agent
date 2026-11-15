@@ -57,6 +57,13 @@ go build -o labtether-agent ./cmd/labtether-agent/
 GOOS=linux GOARCH=arm64 go build -o labtether-agent-linux-arm64 ./cmd/labtether-agent/
 ```
 
+## Rust agent
+
+The agent is being ported to Rust in small steps, in [rust/](rust/README.md).
+The Go agent above is the one that ships. So far the Rust agent enrolls a
+Linux machine, stays connected and sends heartbeats, so the hub lists it as
+online; it offers no terminal, files, metrics or actions yet.
+
 ## Contributing
 
 If you work with an AI coding agent, point it at [AGENTS.md](AGENTS.md) first.
