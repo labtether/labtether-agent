@@ -28,6 +28,8 @@ type nic struct {
 // address of the host's default route, else of the first wired-looking
 // interface that is up, else "". The Hub needs it before the host is off: a
 // device that is off cannot report it, so Wake-on-LAN had nothing to send.
+// On macOS 27 the interface list holds a placeholder for every MAC; listNICs
+// replaces it with the hardware port's address (see MACResolver).
 func PrimaryMAC() string {
 	return choosePrimaryMAC(listNICs(), DefaultRouteIP())
 }
@@ -38,8 +40,9 @@ func listNICs() []nic {
 		return nil
 	}
 	out := make([]nic, 0, len(ifaces))
+	resolver := NewMACResolver()
 	for _, iface := range ifaces {
-		entry := nic{name: iface.Name, mac: iface.HardwareAddr,
+		entry := nic{name: iface.Name, mac: resolver.Resolve(iface.Name, iface.HardwareAddr),
 			up: iface.Flags&net.FlagUp != 0, loopback: iface.Flags&net.FlagLoopback != 0}
 		if addrs, err := iface.Addrs(); err == nil {
 			for _, addr := range addrs {
@@ -70,7 +73,8 @@ func DefaultRouteIP() net.IP {
 var virtualPrefixes = []string{"docker", "veth", "br-", "virbr", "vnet", "tailscale", "tun", "tap", "wg", "zt", "lxc", "cni", "flannel", "cali", "kube"}
 
 func choosePrimaryMAC(nics []nic, routeIP net.IP) string {
-	usable := func(n nic) bool { return n.up && !n.loopback && len(n.mac) == 6 }
+	// A placeholder is never sent: no MAC is better than a wrong Wake-on-LAN target.
+	usable := func(n nic) bool { return n.up && !n.loopback && len(n.mac) == 6 && !IsPlaceholderMAC(n.mac) }
 	if routeIP != nil {
 		for _, n := range nics {
 			for _, ip := range n.ips {

@@ -30,6 +30,10 @@ All notable changes to `labtether-agent` are documented in this file.
 - Temperature on Linux comes from the CPU sensor when another sensor cannot
   be read. Before, one unreadable sensor made the agent report the hottest
   sensor of any kind, such as a disk, in place of the CPU.
+- macOS: the agent reports the real MAC address of the network port on the
+  default route, so Wake-on-LAN can target a Mac. macOS 27 hid it as
+  `02:00:00:00:00:00`. Interfaces without a known address show none in place
+  of that placeholder.
 
 ## [2.0.1]
 

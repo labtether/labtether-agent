@@ -9,6 +9,8 @@ import (
 	"sync"
 
 	"github.com/labtether/protocol"
+
+	"github.com/labtether/labtether-agent/internal/agentplatform/netid"
 )
 
 // NetworkManager handles network interface info and network actions from the hub.
@@ -147,6 +149,7 @@ func collectNetInterfaces() ([]protocol.NetInterface, error) {
 	}
 	statsByName, statsErr := ReadIfaceStatsBatch(interfaceNames)
 
+	macs := netid.NewMACResolver()
 	var result []protocol.NetInterface
 	for _, iface := range raw {
 		// Skip loopback interfaces.
@@ -159,9 +162,11 @@ func collectNetInterfaces() ([]protocol.NetInterface, error) {
 			state = "up"
 		}
 
+		// macOS 27 puts a placeholder in place of every MAC; show the
+		// hardware port's address, or none, never the placeholder.
 		mac := ""
-		if iface.HardwareAddr != nil {
-			mac = iface.HardwareAddr.String()
+		if hw := macs.Resolve(iface.Name, iface.HardwareAddr); hw != nil {
+			mac = hw.String()
 		}
 
 		addrs, addrErr := iface.Addrs()
