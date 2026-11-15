@@ -467,9 +467,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "labtether-agent-macos-sys"
+version = "0.1.0"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "labtether-agent-platform"
 version = "0.1.0"
 dependencies = [
+ "labtether-agent-macos-sys",
  "rustix",
  "thiserror",
 ]
@@ -481,6 +489,7 @@ dependencies = [
  "labtether-agent-capabilities",
  "labtether-agent-config",
  "labtether-agent-core",
+ "labtether-agent-platform",
  "log",
  "tokio",
 ]

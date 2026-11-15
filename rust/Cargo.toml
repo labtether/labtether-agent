@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["agent", "crates/capabilities", "crates/config", "crates/core", "crates/platform", "crates/security"]
+members = ["agent", "crates/capabilities", "crates/config", "crates/core", "crates/macos-sys", "crates/platform", "crates/security"]
 
 [workspace.package]
 version = "0.1.0"
@@ -13,6 +13,7 @@ publish = false
 labtether-agent-capabilities = { path = "crates/capabilities" }
 labtether-agent-config = { path = "crates/config" }
 labtether-agent-core = { path = "crates/core" }
+labtether-agent-macos-sys = { path = "crates/macos-sys" }
 labtether-agent-platform = { path = "crates/platform" }
 labtether-protocol = { git = "https://github.com/labtether/protocol", rev = "483ffb9afd17b75fd0d5e0d3b1c9d3f41fbfd594" }
 
@@ -24,6 +25,9 @@ http = "1.5"
 http-body-util = "0.1.5"
 hyper = { version = "1.12", default-features = false, features = ["client", "http1"] }
 hyper-util = { version = "0.1.21", default-features = false, features = ["tokio"] }
+# macOS only, and only in crates/macos-sys: the system call declarations.
+# Already in the macOS build through rustix and tokio.
+libc = "0.2.191"
 log = "0.4.35"
 rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-native-certs = "0.8.5"

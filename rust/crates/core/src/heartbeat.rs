@@ -14,7 +14,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
 use labtether_agent_config::Settings;
-use labtether_agent_platform::{Sample, heartbeat_disk_available, host_metadata};
+use labtether_agent_platform::{PLATFORM, Sample, heartbeat_disk_available, host_metadata};
 use labtether_protocol::{HeartbeatData, MSG_HEARTBEAT, Message};
 
 use crate::credential::HubIdentity;
@@ -144,7 +144,7 @@ impl HeartbeatTemplate {
             source: self.source.clone(),
             group_id: identity.group_id.clone(),
             status: "online".to_owned(),
-            platform: "linux".to_owned(),
+            platform: PLATFORM.to_owned(),
             metadata: self.metadata(sample, stats),
             capabilities: self.capabilities.clone(),
             connectors: Vec::new(),

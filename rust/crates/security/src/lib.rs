@@ -16,9 +16,10 @@
 //! redaction, and long-running processes (terminal and desktop sessions).
 
 #![forbid(unsafe_code)]
-
-#[cfg(not(target_os = "linux"))]
-compile_error!("the LabTether Rust agent supports Linux only for now");
+// Linux only. On macOS the agent is the App Store monitoring edition and
+// starts no process at all, so this crate is empty there and nothing in
+// the macOS build can start one.
+#![cfg(target_os = "linux")]
 
 mod capture;
 mod child_env;

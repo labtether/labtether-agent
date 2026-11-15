@@ -1,6 +1,8 @@
 //! The Go agent's output cases, from the data file its own tests read. The
 //! capture cases start `sh -c script` through `CommandPolicy::run`.
 
+#![cfg(target_os = "linux")]
+
 mod cases;
 
 use std::collections::BTreeMap;

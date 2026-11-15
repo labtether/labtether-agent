@@ -1,6 +1,6 @@
 [package]
 name = "labtether-agent-rs"
-description = "The LabTether Rust agent for Linux"
+description = "The LabTether Rust agent for Linux and macOS"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -17,6 +17,9 @@ labtether-agent-config.workspace = true
 labtether-agent-core.workspace = true
 log.workspace = true
 tokio = { workspace = true, features = ["macros", "rt", "signal", "sync"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+labtether-agent-platform.workspace = true
 
 [lints]
 workspace = true

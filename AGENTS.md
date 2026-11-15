@@ -116,11 +116,16 @@ Read user-facing text once against this list before you ship it.
 
 - Entry point: `cmd/labtether-agent/`. Runtime: `internal/agentcore/`.
 - `rust/` is the Rust port (workspace: `crates/config`, `crates/core`,
-  `crates/platform`, `crates/security`, `crates/capabilities`, `agent`). It
-  connects, enrolls, sends heartbeats and telemetry, and answers the disk,
-  network interface and process lists; it has no actions and is not
-  released. Each page is a module in `crates/capabilities`; Linux readers
-  live in `crates/platform` and take captured text in their tests.
+  `crates/platform`, `crates/macos-sys`, `crates/security`,
+  `crates/capabilities`, `agent`). It connects, enrolls, sends heartbeats
+  and telemetry, and answers the disk, network interface and process lists;
+  it has no actions and is not released. Each page is a module in
+  `crates/capabilities`; the readers live in `crates/platform` (`linux/`,
+  `macos/`) and take captured text or bytes in their tests. On macOS it is
+  the App Store monitoring edition: disks and network interfaces only, no
+  process started, and `crates/security` is empty there.
+  `crates/macos-sys` is the only crate allowed `unsafe` (one call per
+  block, each with a `SAFETY` comment); everything else forbids it.
   `crates/security` holds the command rules; its `CommandPolicy::run` is the
   only way Rust code may start a process (`rust/clippy.toml` refuses
   `Command::new` elsewhere). Its cases live in

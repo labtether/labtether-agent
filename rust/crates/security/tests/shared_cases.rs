@@ -2,6 +2,8 @@
 //! its own tests read. A case that passes in Go and fails here (or the other
 //! way round) means the two agents treat a command differently.
 
+#![cfg(target_os = "linux")]
+
 mod cases;
 
 use std::collections::BTreeMap;

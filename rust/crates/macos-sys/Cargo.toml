@@ -1,0 +1,21 @@
+[package]
+name = "labtether-agent-macos-sys"
+description = "The macOS system calls the LabTether Rust agent needs, behind safe functions: sysctl, the interface table, Mach host statistics, the mount table, volume space and the host UUID"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+libc.workspace = true
+
+# The one crate allowed `unsafe`: the workspace forbids it everywhere else.
+# Every block must carry a SAFETY comment and hold one unsafe operation.
+[lints.rust]
+unsafe_code = "allow"
+unsafe_op_in_unsafe_fn = "forbid"
+
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"
+multiple_unsafe_ops_per_block = "deny"
