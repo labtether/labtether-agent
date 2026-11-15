@@ -3,12 +3,14 @@
 //! Go asks gopsutil first and falls back to its own sysfs scan:
 //!
 //! 1. gopsutil reads every `hwmon*/temp*_input` (or, when there are none,
-//!    `hwmon*/device/temp*_input`) with its `name` and `temp*_label`. If any
-//!    of those reads fails, the whole step fails, even when other sensors
-//!    were read. Otherwise the plausible reading (-40 to 150 °C) with the
-//!    best sensor priority wins (CPU, then GPU, then board), the hottest on
-//!    a tie. gopsutil's `thermal_zone` branch for hosts without hwmon never
-//!    matches a file (its pattern ends in `/`), so such hosts reach step 2.
+//!    `hwmon*/device/temp*_input`) with its `name` and `temp*_label`. A
+//!    sensor that cannot be read is skipped; gopsutil counts it as a warning
+//!    and still returns the others. Of the readings that came back, the
+//!    plausible one (-40 to 150 °C) with the best sensor priority wins (CPU,
+//!    then GPU, then board), the hottest on a tie. Only when no usable
+//!    reading came back does Go go on to step 2. gopsutil's `thermal_zone`
+//!    branch for hosts without hwmon never matches a file (its pattern ends
+//!    in `/`), so such hosts reach step 2.
 //! 2. The fallback reads `thermal_zone*/temp`, `hwmon*/temp*_input` and
 //!    `hwmon*/device/temp*_input` and takes the hottest plausible value.
 //!    Values above 1000 in size are millidegrees.
@@ -37,12 +39,14 @@ pub struct SensorReading {
 
 /// Reads the temperature under `sys` (`/sys` on a real host).
 pub fn read_celsius(sys: &Path) -> Result<f64, TemperatureError> {
-    let sensors = match sensor_readings(sys) {
-        Ok(readings) => match select_preferred(&readings) {
-            Some((celsius, _)) => return Ok(celsius),
-            None => "no usable temperature samples returned".to_owned(),
-        },
-        Err(error) => error,
+    let (readings, warnings) = sensor_readings(sys);
+    if let Some((celsius, _)) = select_preferred(&readings) {
+        return Ok(celsius);
+    }
+    let sensors = if warnings > 0 {
+        format!("Number of warnings: {warnings}")
+    } else {
+        "no usable temperature samples returned".to_owned()
     };
     sysfs_fallback(sys).map_err(|fallback| TemperatureError { sensors, fallback })
 }
@@ -133,9 +137,9 @@ fn hwmon_inputs(sys: &Path, device: bool) -> Vec<PathBuf> {
     glob_two(sys, "hwmon", "hwmon", sub, ("temp", "_input"))
 }
 
-/// gopsutil's `TemperaturesWithContext` on Linux. Any failed read fails the
-/// call, as gopsutil returns its warnings as the error.
-fn sensor_readings(sys: &Path) -> Result<Vec<SensorReading>, String> {
+/// gopsutil's `TemperaturesWithContext` on Linux: the readings it got and
+/// the number of sensors it could not read (its warnings).
+fn sensor_readings(sys: &Path) -> (Vec<SensorReading>, usize) {
     let mut files = hwmon_inputs(sys, false);
     if files.is_empty() {
         files = hwmon_inputs(sys, true);
@@ -171,10 +175,7 @@ fn sensor_readings(sys: &Path) -> Result<Vec<SensorReading>, String> {
             None => warnings += 1,
         }
     }
-    if warnings > 0 {
-        return Err(format!("Number of warnings: {warnings}"));
-    }
-    Ok(readings)
+    (readings, warnings)
 }
 
 /// Go's `readTemperatureFromLinuxSysfs`.

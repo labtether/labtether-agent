@@ -43,7 +43,11 @@ func readCPUSample() (cpuSample, error) {
 			if err != nil {
 				return cpuSample{}, err
 			}
-			total += parsed
+			// Columns 9 and 10 (guest, guest_nice) are already counted in
+			// user and nice, so only the first eight make up the total.
+			if i < 8 {
+				total += parsed
+			}
 			switch i {
 			case 3, 4: // idle + iowait
 				idle += parsed
@@ -68,6 +72,8 @@ func readMemoryUsagePercent() float64 {
 
 	var totalKB uint64
 	var availableKB uint64
+	haveAvailable := false
+	var freeKB, buffersKB, cachedKB uint64
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
@@ -81,11 +87,23 @@ func readMemoryUsagePercent() float64 {
 			totalKB, _ = strconv.ParseUint(fields[1], 10, 64)
 		case "MemAvailable:":
 			availableKB, _ = strconv.ParseUint(fields[1], 10, 64)
+			haveAvailable = true
+		case "MemFree:":
+			freeKB, _ = strconv.ParseUint(fields[1], 10, 64)
+		case "Buffers:":
+			buffersKB, _ = strconv.ParseUint(fields[1], 10, 64)
+		case "Cached:":
+			cachedKB, _ = strconv.ParseUint(fields[1], 10, 64)
 		}
 	}
 
 	if totalKB <= 0 {
 		return 0
+	}
+	if !haveAvailable {
+		// Kernels before 3.14 have no MemAvailable line. Estimate it the
+		// way free(1) did on those kernels instead of reading it as zero.
+		availableKB = min(freeKB+buffersKB+cachedKB, totalKB)
 	}
 	if availableKB >= totalKB {
 		return 0

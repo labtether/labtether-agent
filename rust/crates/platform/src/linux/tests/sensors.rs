@@ -93,10 +93,12 @@ fn temperature_uses_labels_and_falls_back_like_go() {
         "CPU priority beats a hotter disk"
     );
 
-    // One sensor that cannot be read fails gopsutil's whole step, so Go
-    // takes the hottest plausible value of every file instead.
+    // Fault: one sensor that cannot be read (here its input is a directory,
+    // which fails even for root) threw away the other readings, so the
+    // hottest file of any kind (the 70 °C thermal zone) was reported in
+    // place of the CPU's.
     fs::create_dir_all(sys.join("class/hwmon/hwmon1/temp2_input")).unwrap();
-    assert_eq!(read_celsius(&sys), Ok(70.0));
+    assert_eq!(read_celsius(&sys), Ok(41.0), "CPU still chosen");
 }
 
 // Fault: a VM without sensors gets a temperature, or a host whose sensor
