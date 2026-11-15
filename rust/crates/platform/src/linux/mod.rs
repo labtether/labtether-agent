@@ -2,12 +2,16 @@
 
 pub mod disk;
 pub mod host;
+pub mod interfaces;
 mod lookpath;
 pub mod metadata;
+pub mod mounts;
 pub mod netid;
 pub mod netlink;
 pub mod process;
+pub mod processes;
 pub mod procfs;
+pub mod procps;
 pub mod sampler;
 pub mod temperature;
 

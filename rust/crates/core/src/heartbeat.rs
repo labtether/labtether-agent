@@ -3,10 +3,11 @@
 //! read for each heartbeat, the latest sample's metrics with two decimals,
 //! and the connection counters.
 //!
-//! The agent advertises nothing it cannot do: `capabilities` is empty and no
-//! `cap_*`, desktop, WebRTC, power or terminal keys are sent, so the Hub
-//! offers no actions for it. `connectors` is empty too: Go fills it by
-//! probing local ports, which this step does not do.
+//! The agent advertises nothing it cannot do: the `capabilities` list and
+//! the `cap_*` and `*_backend` keys come only from the features built in
+//! (see [`crate::Features`]), so no desktop, WebRTC, power or terminal keys
+//! are sent and the Hub offers no actions for them. `connectors` is empty:
+//! Go fills it by probing local ports, which this agent does not do.
 
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -17,6 +18,7 @@ use labtether_agent_platform::{Sample, heartbeat_disk_available, host_metadata};
 use labtether_protocol::{HeartbeatData, MSG_HEARTBEAT, Message};
 
 use crate::credential::HubIdentity;
+use crate::features::Advertised;
 use crate::identity::DeviceIdentity;
 
 /// Go's transport counters, kept for the life of the process.
@@ -47,12 +49,14 @@ impl Default for LinkStats {
 pub struct HeartbeatTemplate {
     source: String,
     metadata: BTreeMap<String, String>,
+    capabilities: Vec<String>,
 }
 
 impl HeartbeatTemplate {
-    pub fn new(settings: &Settings, device: &DeviceIdentity) -> Self {
+    pub fn new(settings: &Settings, device: &DeviceIdentity, advertised: &Advertised) -> Self {
         let mut metadata =
             host_metadata(&settings.hostname, &settings.source, &settings.search_path);
+        metadata.extend(advertised.metadata.clone());
         let version = settings.version.trim();
         if !version.is_empty() {
             metadata.insert("agent_version".to_owned(), version.to_owned());
@@ -68,6 +72,7 @@ impl HeartbeatTemplate {
         Self {
             source: settings.source.clone(),
             metadata,
+            capabilities: advertised.capabilities.clone(),
         }
     }
 
@@ -77,6 +82,7 @@ impl HeartbeatTemplate {
         Self {
             source: source.to_owned(),
             metadata,
+            capabilities: Vec::new(),
         }
     }
 
@@ -140,7 +146,7 @@ impl HeartbeatTemplate {
             status: "online".to_owned(),
             platform: "linux".to_owned(),
             metadata: self.metadata(sample, stats),
-            capabilities: Vec::new(),
+            capabilities: self.capabilities.clone(),
             connectors: Vec::new(),
         }
     }

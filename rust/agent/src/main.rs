@@ -1,5 +1,6 @@
-//! The LabTether Rust agent for Linux: reads its settings once, starts the
-//! Hub connection and stops cleanly on SIGTERM or Ctrl-C.
+//! The LabTether Rust agent for Linux: reads its settings once, builds its
+//! features, starts the Hub connection and stops cleanly on SIGTERM or
+//! Ctrl-C.
 
 #![forbid(unsafe_code)]
 
@@ -80,7 +81,8 @@ async fn main() -> ExitCode {
         loaded.settings.asset_id
     );
 
-    let agent = match Agent::start(loaded.settings, Timing::default()).await {
+    let features = labtether_agent_capabilities::all(&loaded.settings);
+    let agent = match Agent::start_with(loaded.settings, Timing::default(), features).await {
         Ok(agent) => agent,
         Err(error) => {
             log::error!("cannot start: {error}");

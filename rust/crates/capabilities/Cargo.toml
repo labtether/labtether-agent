@@ -1,0 +1,22 @@
+[package]
+name = "labtether-agent-capabilities"
+description = "The LabTether Rust agent's features: one module per device page, each registering its Hub request handlers and what the heartbeat advertises"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+labtether-agent-config.workspace = true
+labtether-agent-core.workspace = true
+labtether-agent-platform.workspace = true
+labtether-protocol.workspace = true
+
+log.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[lints]
+workspace = true

@@ -15,12 +15,16 @@ use labtether_protocol::{
 
 use crate::credential;
 use crate::dispatch::{Context, Flow, Registry};
+use crate::features::Features;
 use crate::identity::enrollment_proof_payload;
 use crate::state::{valid_asset_id, valid_issued_token};
 
-/// The registry with every handler this agent has.
-pub fn registry() -> Registry {
+/// The registry with `core`'s handlers and the features' request handlers.
+pub fn registry(features: &Features) -> Registry {
     let mut registry = Registry::new();
+    for (kind, work) in features.work() {
+        registry.register_work(kind, work.clone());
+    }
     registry.register(MSG_PING, ping);
     registry.register(MSG_ENROLLMENT_CHALLENGE, enrollment_challenge);
     registry.register(MSG_ENROLLMENT_APPROVED, enrollment_approved);

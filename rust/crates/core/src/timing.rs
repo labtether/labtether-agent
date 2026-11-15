@@ -33,6 +33,9 @@ pub struct Timing {
     pub min_stable_session: Duration,
     /// Telemetry samples kept while offline (Go: 60).
     pub telemetry_buffer: usize,
+    /// Request handlers that may run at once (Go: 20). One more request
+    /// closes the connection, as in Go.
+    pub request_workers: usize,
 }
 
 impl Default for Timing {
@@ -51,6 +54,7 @@ impl Default for Timing {
             send_queue: 64,
             min_stable_session: Duration::from_secs(30),
             telemetry_buffer: crate::telemetry_buffer::CAPACITY,
+            request_workers: crate::workers::GO_HANDLER_LIMIT,
         }
     }
 }

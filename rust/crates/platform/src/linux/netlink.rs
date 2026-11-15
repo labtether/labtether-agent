@@ -1,7 +1,8 @@
 //! The interface list from the route netlink socket, as Go's
 //! `net.Interfaces` and `Interface.Addrs` read it on Linux: one
 //! `RTM_GETLINK` dump for names, flags and MAC addresses and one
-//! `RTM_GETADDR` dump for addresses. Read once at start.
+//! `RTM_GETADDR` dump for addresses. Read once at start for the heartbeat,
+//! and again for each `network.list`.
 
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
@@ -24,6 +25,12 @@ const IFF_UP: u32 = 0x1;
 const IFF_LOOPBACK: u32 = 0x8;
 const IFLA_ADDRESS: u16 = 1;
 const IFLA_IFNAME: u16 = 3;
+const IFLA_MTU: u16 = 4;
+/// Link types whose 4-byte (IPv4) or 16-byte (IPv6) `IFLA_ADDRESS` is a
+/// tunnel end point, not a MAC; Go's `newLink` drops it. ARPHRD_TUNNEL,
+/// ARPHRD_IPGRE, ARPHRD_SIT and ARPHRD_TUNNEL6, ARPHRD_IP6GRE.
+const TUNNEL_V4: [u16; 3] = [768, 778, 776];
+const TUNNEL_V6: [u16; 2] = [769, 823];
 const IFA_ADDRESS: u16 = 1;
 const IFA_LOCAL: u16 = 2;
 const AF_INET: u8 = 2;
@@ -81,9 +88,20 @@ pub fn attributes(payload: &[u8], fixed: usize) -> Vec<(u16, &[u8])> {
     out
 }
 
+/// Go's rule for `IFLA_ADDRESS`: not a tunnel end point and not all zero.
+fn is_mac(link_type: u16, value: &[u8]) -> bool {
+    let tunnel = match value.len() {
+        4 => TUNNEL_V4.contains(&link_type),
+        16 => TUNNEL_V6.contains(&link_type),
+        _ => false,
+    };
+    !tunnel && value.iter().any(|b| *b != 0)
+}
+
 /// An `RTM_NEWLINK` payload as `(index, interface)`. The MAC is kept only
-/// when not all zero, as Go does.
+/// when Go keeps it (see `is_mac`).
 pub fn parse_link(payload: &[u8]) -> Option<(i32, Nic)> {
+    let link_type = u16_at(payload, 2)?;
     let index = i32::from_ne_bytes(payload.get(4..8)?.try_into().ok()?);
     let flags = u32_at(payload, 8)?;
     let mut nic = Nic {
@@ -97,17 +115,20 @@ pub fn parse_link(payload: &[u8]) -> Option<(i32, Nic)> {
                 let end = value.iter().position(|b| *b == 0).unwrap_or(value.len());
                 nic.name = String::from_utf8_lossy(&value[..end]).into_owned();
             }
-            IFLA_ADDRESS if value.iter().any(|b| *b != 0) => nic.mac = value.to_vec(),
+            IFLA_ADDRESS if is_mac(link_type, value) => nic.mac = value.to_vec(),
+            IFLA_MTU => nic.mtu = u32_at(value, 0).unwrap_or(0),
             _ => {}
         }
     }
     Some((index, nic))
 }
 
-/// An `RTM_NEWADDR` payload as `(index, address)`: `IFA_LOCAL` when given
-/// (point-to-point and every IPv4 address), else `IFA_ADDRESS`.
-pub fn parse_address(payload: &[u8]) -> Option<(i32, IpAddr)> {
+/// An `RTM_NEWADDR` payload as `(index, address, prefix length)`:
+/// `IFA_LOCAL` when given (point-to-point and every IPv4 address), else
+/// `IFA_ADDRESS`.
+pub fn parse_address(payload: &[u8]) -> Option<(i32, IpAddr, u8)> {
     let family = *payload.first()?;
+    let prefix = *payload.get(1)?;
     let index = i32::from_ne_bytes(payload.get(4..8)?.try_into().ok()?);
     let attrs = attributes(payload, 8);
     let pick = |want: u16| {
@@ -122,21 +143,20 @@ pub fn parse_address(payload: &[u8]) -> Option<(i32, IpAddr)> {
         AF_INET6 => IpAddr::V6(Ipv6Addr::from(<[u8; 16]>::try_from(value.get(..16)?).ok()?)),
         _ => return None,
     };
-    Some((index, ip))
+    Some((index, ip, prefix))
 }
 
 /// Interfaces in the kernel's order, each with its addresses.
 pub fn interfaces_from(links: &[&[u8]], addresses: &[&[u8]]) -> Vec<Nic> {
-    let addrs: Vec<(i32, IpAddr)> = addresses.iter().filter_map(|p| parse_address(p)).collect();
+    let addrs: Vec<(i32, IpAddr, u8)> = addresses.iter().filter_map(|p| parse_address(p)).collect();
     links
         .iter()
         .filter_map(|payload| parse_link(payload))
         .map(|(index, mut nic)| {
-            nic.ips = addrs
-                .iter()
-                .filter(|(i, _)| *i == index)
-                .map(|(_, ip)| *ip)
-                .collect();
+            for (_, ip, prefix) in addrs.iter().filter(|(i, _, _)| *i == index) {
+                nic.ips.push(*ip);
+                nic.prefixes.push(*prefix);
+            }
             nic
         })
         .collect()
@@ -181,6 +201,17 @@ fn dump(request: u16, want: u16) -> io::Result<Vec<Vec<u8>>> {
             return Ok(out);
         }
     }
+}
+
+/// Every interface for `network.list`. As in Go, a failed link dump is an
+/// error and a failed address dump leaves every interface without
+/// addresses (Go's `Interface.Addrs` error is dropped).
+pub fn interface_list() -> io::Result<Vec<Nic>> {
+    let links = dump(RTM_GETLINK, RTM_NEWLINK)?;
+    let addresses = dump(RTM_GETADDR, RTM_NEWADDR).unwrap_or_default();
+    let links: Vec<&[u8]> = links.iter().map(Vec::as_slice).collect();
+    let addresses: Vec<&[u8]> = addresses.iter().map(Vec::as_slice).collect();
+    Ok(interfaces_from(&links, &addresses))
 }
 
 /// Every interface with its flags, MAC and addresses.

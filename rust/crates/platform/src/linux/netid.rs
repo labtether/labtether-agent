@@ -14,6 +14,10 @@ pub struct Nic {
     pub loopback: bool,
     /// Addresses in the kernel's order (IPv4 before IPv6).
     pub ips: Vec<IpAddr>,
+    /// The prefix length of each entry in `ips`.
+    pub prefixes: Vec<u8>,
+    /// `IFLA_MTU`.
+    pub mtu: u32,
 }
 
 /// Go's `DefaultRouteIP`: the local address the kernel picks to reach a

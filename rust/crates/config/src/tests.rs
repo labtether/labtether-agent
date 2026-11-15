@@ -267,3 +267,21 @@ fn secret_paths_follow_go_agent_secret_paths() {
     assert_eq!(paths[5], "");
     assert!(!paths.contains(&"/srv".to_owned()));
 }
+
+// Fault: `LANG` wins over `LC_ALL` or `LC_CTYPE` (C programs read them in
+// the other order), or `utf8` spelled without the dash is missed. The
+// process list escapes command lines by this, as `ps` does.
+#[test]
+fn utf8_locale_follows_the_c_library_order() {
+    let utf8 =
+        |pairs: &[(&str, &str)]| utf8_locale(&Environment::from_pairs(pairs.iter().copied()));
+    assert!(utf8(&[("LANG", "en_AU.UTF-8")]));
+    assert!(utf8(&[("LC_CTYPE", "C.utf8"), ("LANG", "C")]));
+    assert!(!utf8(&[("LC_ALL", "C"), ("LANG", "en_AU.UTF-8")]));
+    assert!(!utf8(&[
+        ("LC_ALL", " "),
+        ("LC_CTYPE", "POSIX"),
+        ("LANG", "en_AU.UTF-8")
+    ]));
+    assert!(!utf8(&[]));
+}

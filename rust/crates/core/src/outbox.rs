@@ -68,6 +68,11 @@ impl Outbox {
         let _ = self.tx.try_send(Outgoing::Close);
     }
 
+    /// True once the connection's writer has stopped.
+    pub fn is_closed(&self) -> bool {
+        self.tx.is_closed()
+    }
+
     /// True on a socket opened without a token.
     pub fn is_pending_enrollment(&self) -> bool {
         self.pending_enrollment

@@ -125,6 +125,10 @@ pub struct Settings {
     pub log_level: LogLevel,
     /// The rules for commands the agent starts (exec and shell allowlists).
     pub command_security: CommandSecuritySettings,
+    /// Whether the locale (`LC_ALL`, else `LC_CTYPE`, else `LANG`) names a
+    /// UTF-8 character set. The process list escapes command lines by it,
+    /// as the `ps` the Go agent runs does.
+    pub utf8_locale: bool,
 }
 
 impl Settings {
@@ -212,6 +216,20 @@ fn remote_overrides(env: &Environment) -> bool {
 }
 
 /// Reads the settings from `env`, `agent-config.json` and the token files.
+/// The character set C programs such as `ps` use: the first of `LC_ALL`,
+/// `LC_CTYPE` and `LANG` that is set decides. A locale that is named but not
+/// installed falls back to C in `ps`; that is not checked here.
+fn utf8_locale(env: &Environment) -> bool {
+    ["LC_ALL", "LC_CTYPE", "LANG"]
+        .iter()
+        .find_map(|key| env.get(key))
+        .map(|name| {
+            let name = name.to_ascii_lowercase();
+            name.contains("utf-8") || name.contains("utf8")
+        })
+        .unwrap_or(false)
+}
+
 pub fn load(env: &Environment, host: &HostFacts) -> Result<Loaded, ConfigError> {
     let mut warnings = Vec::new();
     let allow_insecure = env.bool_or("LABTETHER_ALLOW_INSECURE_TRANSPORT", false);
@@ -344,6 +362,7 @@ pub fn load(env: &Environment, host: &HostFacts) -> Result<Loaded, ConfigError> 
         search_path: env.get_or("PATH", "").to_owned(),
         log_level,
         command_security,
+        utf8_locale: utf8_locale(env),
     };
     Ok(Loaded { settings, warnings })
 }

@@ -1,6 +1,6 @@
 [package]
 name = "labtether-agent-rs"
-description = "The LabTether Rust agent for Linux (connect step)"
+description = "The LabTether Rust agent for Linux"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -12,6 +12,7 @@ name = "labtether-agent-rs"
 path = "src/main.rs"
 
 [dependencies]
+labtether-agent-capabilities.workspace = true
 labtether-agent-config.workspace = true
 labtether-agent-core.workspace = true
 log.workspace = true

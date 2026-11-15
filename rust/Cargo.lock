@@ -417,6 +417,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3bd1574e617a9a6c1f8f8181bd7e841e1f20e4277607ef28945765188d6284d4"
 
 [[package]]
+name = "labtether-agent-capabilities"
+version = "0.1.0"
+dependencies = [
+ "labtether-agent-config",
+ "labtether-agent-core",
+ "labtether-agent-platform",
+ "labtether-protocol",
+ "log",
+ "serde_json",
+]
+
+[[package]]
 name = "labtether-agent-config"
 version = "0.1.0"
 dependencies = [
@@ -466,6 +478,7 @@ dependencies = [
 name = "labtether-agent-rs"
 version = "0.1.0"
 dependencies = [
+ "labtether-agent-capabilities",
  "labtether-agent-config",
  "labtether-agent-core",
  "log",
