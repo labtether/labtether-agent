@@ -11,6 +11,12 @@ All notable changes to `labtether-agent` are documented in this file.
   waits for approval, keeps a WebSocket connection to the hub with the same
   keepalive and reconnect rules, and sends heartbeats. It reports no
   capabilities. CI checks it when `rust/` changes.
+- The Rust agent sends live metrics: CPU, memory, root disk, network and
+  temperature telemetry with the Go agent's formulas, and the Go agent's
+  hardware, OS and network details in the heartbeat. It keeps up to 60
+  samples while the hub is unreachable and sends them after reconnecting, and
+  it applies collect and heartbeat intervals from the hub (`config.update`)
+  within the Go agent's limits.
 
 ## [2.0.1]
 

@@ -61,8 +61,10 @@ GOOS=linux GOARCH=arm64 go build -o labtether-agent-linux-arm64 ./cmd/labtether-
 
 The agent is being ported to Rust in small steps, in [rust/](rust/README.md).
 The Go agent above is the one that ships. So far the Rust agent enrolls a
-Linux machine, stays connected and sends heartbeats, so the hub lists it as
-online; it offers no terminal, files, metrics or actions yet.
+Linux machine, stays connected, and sends the same heartbeat details and CPU,
+memory, disk, network and temperature telemetry as the Go agent, so the hub
+lists it as online with live metrics. It offers no terminal, files or actions
+yet.
 
 ## Contributing
 

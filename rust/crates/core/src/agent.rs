@@ -10,8 +10,10 @@ use tokio::time::Instant;
 
 use crate::credential::{self, IdentityCell};
 use crate::flow;
-use crate::heartbeat::HeartbeatTemplate;
+use crate::heartbeat::{HeartbeatTemplate, LinkStats};
 use crate::identity::{self, DeviceIdentity, IdentityError};
+use crate::intervals::IntervalControl;
+use crate::outbox::Outbox;
 use crate::state::StateFiles;
 use crate::timing::Timing;
 use crate::tls::{self, TlsError, TrustMode};
@@ -46,6 +48,12 @@ pub struct Agent {
     pub(crate) tls: Arc<ClientConfig>,
     pub(crate) timing: Timing,
     pub(crate) heartbeat: HeartbeatTemplate,
+    /// Collect and heartbeat intervals, changed by the Hub's `config.update`.
+    pub(crate) intervals: IntervalControl,
+    /// The send queue of the current connection, set while one with a token
+    /// is open. The telemetry loop sends through it.
+    pub(crate) link: watch::Sender<Option<Outbox>>,
+    pub(crate) stats: Arc<LinkStats>,
     /// An admin rejected the pending request; wait for a token.
     pub(crate) rejected: AtomicBool,
     pub(crate) re_enroll: Mutex<ReEnroll>,
@@ -89,6 +97,7 @@ impl Agent {
             last_attempt: None,
         };
         let heartbeat = HeartbeatTemplate::new(&settings, &device);
+        let intervals = IntervalControl::new(&settings);
         Ok(Arc::new(Self {
             tls: tls::client_config(&tls_settings)?,
             settings,
@@ -97,14 +106,20 @@ impl Agent {
             identity: IdentityCell::new(identity),
             timing,
             heartbeat,
+            intervals,
+            link: watch::Sender::new(None),
+            stats: Arc::new(LinkStats::default()),
             rejected: AtomicBool::new(false),
             re_enroll: Mutex::new(re_enroll),
         }))
     }
 
-    /// Keeps the agent connected until `shutdown` turns true.
+    /// Keeps the agent connected and sampling until `shutdown` turns true.
+    /// Both loops run on the caller's task, so no thread is added.
     pub async fn run(self: Arc<Self>, shutdown: watch::Receiver<bool>) {
-        crate::reconnect::run(self, shutdown).await;
+        let telemetry = crate::telemetry::run(&self, shutdown.clone());
+        let connection = crate::reconnect::run(self.clone(), shutdown);
+        tokio::join!(telemetry, connection);
     }
 
     pub(crate) fn re_enroll_state(&self) -> MutexGuard<'_, ReEnroll> {

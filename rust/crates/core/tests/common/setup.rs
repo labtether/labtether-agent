@@ -98,6 +98,7 @@ pub fn fast_timing() -> Timing {
         rejected_wait: Duration::from_millis(100),
         send_queue: 64,
         min_stable_session: Duration::from_secs(1),
+        telemetry_buffer: 60,
     }
 }
 

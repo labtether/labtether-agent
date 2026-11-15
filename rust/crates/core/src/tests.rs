@@ -155,6 +155,7 @@ async fn send_queue_stays_bounded_when_the_socket_stalls() {
         queue,
         Duration::from_secs(60),
         write_timeout,
+        std::sync::Arc::default(),
     ));
 
     let payload = "x".repeat(64 * 1024);

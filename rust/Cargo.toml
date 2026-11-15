@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["agent", "crates/config", "crates/core"]
+members = ["agent", "crates/config", "crates/core", "crates/platform"]
 
 [workspace.package]
 version = "0.1.0"
@@ -12,6 +12,7 @@ publish = false
 [workspace.dependencies]
 labtether-agent-config = { path = "crates/config" }
 labtether-agent-core = { path = "crates/core" }
+labtether-agent-platform = { path = "crates/platform" }
 labtether-protocol = { git = "https://github.com/labtether/protocol", rev = "483ffb9afd17b75fd0d5e0d3b1c9d3f41fbfd594" }
 
 data-encoding = "2.11"
@@ -25,6 +26,9 @@ hyper-util = { version = "0.1.21", default-features = false, features = ["tokio"
 log = "0.4.35"
 rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-native-certs = "0.8.5"
+# Safe system calls for the Linux readers: statfs, the route netlink socket,
+# access checks and the CPU affinity count.
+rustix = { version = "1.1.6", default-features = false, features = ["std", "fs", "net", "thread"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 sha2 = "0.11"

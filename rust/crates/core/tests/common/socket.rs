@@ -11,7 +11,7 @@ use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tokio_tungstenite::tungstenite::Message as Frame;
 use tokio_tungstenite::tungstenite::handshake::server::{Request, Response};
 
-use super::{Event, Head, Pending, Prefixed, Shared, emit, kick_receiver, next_id};
+use super::{Event, Head, Pending, Prefixed, Shared, emit, kick_receiver, next_id, push_receiver};
 
 fn bearer(head: &Head) -> Option<String> {
     head.headers
@@ -26,6 +26,20 @@ pub(super) async fn serve_ws<S>(mut stream: Prefixed<S>, head: Head, shared: Arc
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
+    if shared.behaviour.lock().unwrap().refuse_upgrade {
+        emit(
+            &shared,
+            Event::Refused {
+                status: 503,
+                headers: head.headers.clone(),
+            },
+        );
+        let _ = stream
+            .write_all(b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+            .await;
+        let _ = stream.shutdown().await;
+        return;
+    }
     let (accepted, canonical, stall, pending, close_at_once) = {
         let behaviour = shared.behaviour.lock().unwrap();
         let token = bearer(&head);
@@ -83,6 +97,7 @@ where
         },
     );
     let mut kick = kick_receiver(&shared);
+    let mut push = push_receiver(&shared);
     if close_at_once {
         let _ = socket.close(None).await;
         emit(&shared, Event::Closed { id });
@@ -132,6 +147,9 @@ where
             _ = kick.changed() => {
                 let _ = socket.close(None).await;
                 break;
+            }
+            Ok(text) = push.recv() => {
+                let _ = socket.send(Frame::text(text)).await;
             }
         }
     }
