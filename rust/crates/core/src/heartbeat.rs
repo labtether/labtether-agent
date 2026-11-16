@@ -6,8 +6,10 @@
 //! The agent advertises nothing it cannot do: `agent_capability_mode`, the
 //! `cap_*` and `*_backend` keys come only from the features built in (see
 //! [`crate::Features`]), and the `capabilities` list is empty, so the Hub
-//! offers no terminal, files, desktop, WebRTC or power. `connectors` is
-//! empty: Go fills it by probing local ports, which this agent does not do.
+//! offers no terminal, files, desktop, WebRTC or power. `connectors` holds
+//! what the features put there (the Docker endpoint on Linux); Go also
+//! probes local ports for Proxmox, PBS, TrueNAS and Home Assistant, which
+//! this agent does not do.
 
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -18,7 +20,7 @@ use labtether_agent_platform::{PLATFORM, Sample, heartbeat_disk_available, host_
 use labtether_protocol::{HeartbeatData, MSG_HEARTBEAT, Message};
 
 use crate::credential::HubIdentity;
-use crate::features::Advertised;
+use crate::features::{Advertised, Connectors};
 use crate::identity::DeviceIdentity;
 
 /// Go's transport counters, kept for the life of the process.
@@ -44,15 +46,32 @@ impl Default for LinkStats {
     }
 }
 
-/// Static heartbeat values, read once at start.
-#[derive(Debug, Clone)]
+/// Static heartbeat values, read once at start, and the features'
+/// `connectors` sources.
+#[derive(Clone)]
 pub struct HeartbeatTemplate {
     source: String,
     metadata: BTreeMap<String, String>,
+    connectors: Vec<Connectors>,
+}
+
+impl std::fmt::Debug for HeartbeatTemplate {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HeartbeatTemplate")
+            .field("source", &self.source)
+            .field("metadata", &self.metadata)
+            .field("connectors", &self.connectors.len())
+            .finish()
+    }
 }
 
 impl HeartbeatTemplate {
-    pub fn new(settings: &Settings, device: &DeviceIdentity, advertised: &Advertised) -> Self {
+    pub fn new(
+        settings: &Settings,
+        device: &DeviceIdentity,
+        advertised: &Advertised,
+        connectors: Vec<Connectors>,
+    ) -> Self {
         let mut metadata =
             host_metadata(&settings.hostname, &settings.source, &settings.search_path);
         metadata.extend(advertised.metadata.clone());
@@ -71,6 +90,7 @@ impl HeartbeatTemplate {
         Self {
             source: settings.source.clone(),
             metadata,
+            connectors,
         }
     }
 
@@ -80,6 +100,7 @@ impl HeartbeatTemplate {
         Self {
             source: source.to_owned(),
             metadata,
+            connectors: Vec::new(),
         }
     }
 
@@ -144,7 +165,7 @@ impl HeartbeatTemplate {
             platform: PLATFORM.to_owned(),
             metadata: self.metadata(sample, stats),
             capabilities: Vec::new(),
-            connectors: Vec::new(),
+            connectors: self.connectors.iter().flat_map(|list| list()).collect(),
         }
     }
 

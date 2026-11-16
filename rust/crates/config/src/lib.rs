@@ -17,6 +17,7 @@
 #![forbid(unsafe_code)]
 
 pub mod command_security;
+pub mod docker;
 mod env;
 pub mod files;
 pub mod gopath;
@@ -29,6 +30,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 pub use command_security::CommandSecuritySettings;
+pub use docker::{DockerMode, DockerSettings};
 pub use env::{Environment, parse_duration_or, parse_go_bool};
 pub use local_api::{LocalApiSettings, LocalAuth, ParentPid};
 pub use secret::Secret;
@@ -142,6 +144,9 @@ pub struct Settings {
     /// system log to the Hub. On by default, except on macOS, where Go
     /// turns it off by default and this agent has no logs page at all.
     pub log_stream_enabled: bool,
+    /// The Docker mode, endpoint and discovery interval (Linux reads
+    /// Docker; macOS has no Docker page).
+    pub docker: DockerSettings,
     /// Variables an app sets that this agent does not use, when set.
     pub ignored_app_variables: Vec<&'static str>,
 }
@@ -297,8 +302,10 @@ pub fn load(env: &Environment, host: &HostFacts) -> Result<Loaded, ConfigError> 
         ca_only: ca_only(env)?,
     };
 
+    let mut file_docker = docker::FileDocker::default();
     match settings_file::load(&settings_file) {
         Ok(file) => {
+            file_docker = file.docker;
             if let Some(raw) = file.tls_ca_file {
                 tls.ca_file = Some(raw).filter(|raw| !raw.is_empty()).map(PathBuf::from);
             }
@@ -382,6 +389,7 @@ pub fn load(env: &Environment, host: &HostFacts) -> Result<Loaded, ConfigError> 
         local_api: local_api::load(env),
         parent_pid: local_api::parent_pid(env),
         log_stream_enabled: env.bool_or("LABTETHER_LOG_STREAM_ENABLED", !cfg!(target_os = "macos")),
+        docker: docker::load(env, &file_docker, low_power),
         ignored_app_variables: local_api::ignored_variables_set(env),
     };
     Ok(Loaded { settings, warnings })
@@ -389,5 +397,7 @@ pub fn load(env: &Environment, host: &HostFacts) -> Result<Loaded, ConfigError> 
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_docker;
 #[cfg(test)]
 mod tests_local_api;

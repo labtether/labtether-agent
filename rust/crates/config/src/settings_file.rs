@@ -8,6 +8,7 @@ use std::path::Path;
 use serde::Deserialize;
 
 use crate::LogLevel;
+use crate::docker::FileDocker;
 use crate::env::parse_go_bool;
 use crate::files::{self, MAX_STATE_FILE_BYTES};
 
@@ -16,6 +17,9 @@ pub(crate) const KEY_HEARTBEAT_INTERVAL_SEC: &str = "heartbeat_interval_sec";
 pub(crate) const KEY_LOG_LEVEL: &str = "log_level";
 pub(crate) const KEY_TLS_SKIP_VERIFY: &str = "tls_skip_verify";
 pub(crate) const KEY_TLS_CA_FILE: &str = "tls_ca_file";
+pub(crate) const KEY_DOCKER_ENABLED: &str = "docker_enabled";
+pub(crate) const KEY_DOCKER_ENDPOINT: &str = "docker_endpoint";
+pub(crate) const KEY_DOCKER_INTERVAL_SEC: &str = "docker_discovery_interval_sec";
 
 #[derive(Deserialize)]
 struct RawFile {
@@ -32,6 +36,7 @@ pub(crate) struct FileValues {
     pub tls_skip_verify: Option<bool>,
     /// Present means the file sets it, even to the empty string.
     pub tls_ca_file: Option<String>,
+    pub docker: FileDocker,
 }
 
 /// Why the file was not used.
@@ -81,5 +86,16 @@ fn parse_values(values: &BTreeMap<String, String>) -> FileValues {
         log_level: get(KEY_LOG_LEVEL).and_then(LogLevel::parse),
         tls_skip_verify: get(KEY_TLS_SKIP_VERIFY).and_then(parse_go_bool),
         tls_ca_file: get(KEY_TLS_CA_FILE).map(str::to_owned),
+        docker: FileDocker {
+            enabled: get(KEY_DOCKER_ENABLED)
+                .filter(|raw| !raw.is_empty())
+                .map(str::to_owned),
+            endpoint: get(KEY_DOCKER_ENDPOINT)
+                .filter(|raw| !raw.is_empty())
+                .map(str::to_owned),
+            interval_sec: get(KEY_DOCKER_INTERVAL_SEC)
+                .and_then(|raw| raw.parse::<u64>().ok())
+                .filter(|seconds| (5..=3600).contains(seconds)),
+        },
     }
 }

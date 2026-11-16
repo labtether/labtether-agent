@@ -48,6 +48,8 @@ pub(crate) fn settings() -> Settings {
     let env = Environment::from_pairs([
         ("LABTETHER_TOKEN_FILE", path("agent-token")),
         ("LABTETHER_AGENT_SETTINGS_FILE", path("agent-config.json")),
+        // Not the test host's Docker: `docker/tests` covers that page.
+        ("LABTETHER_DOCKER_ENABLED", "false".to_owned()),
     ]);
     let host = HostFacts {
         hostname: "nas01".into(),

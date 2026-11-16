@@ -76,6 +76,9 @@ fn features_with(search_path: &str, extra: &[(&str, &str)]) -> labtether_agent_c
             path("agent-config.json"),
         ),
         ("PATH".to_owned(), search_path.to_owned()),
+        // The Docker page probes the test host's engine; these tests are
+        // about the words of the pages that answer requests.
+        ("LABTETHER_DOCKER_ENABLED".to_owned(), "false".to_owned()),
     ];
     pairs.extend(
         extra

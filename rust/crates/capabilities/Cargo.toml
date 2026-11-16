@@ -17,5 +17,15 @@ labtether-protocol.workspace = true
 log.workspace = true
 serde_json.workspace = true
 
+# Linux only: the Docker page reads the engine over its Unix socket with
+# hyper's HTTP/1 client on a tokio Unix stream.
+[target.'cfg(target_os = "linux")'.dependencies]
+http.workspace = true
+http-body-util.workspace = true
+hyper.workspace = true
+hyper-util.workspace = true
+serde.workspace = true
+tokio = { workspace = true, features = ["macros", "net", "rt", "sync", "time"] }
+
 [lints]
 workspace = true

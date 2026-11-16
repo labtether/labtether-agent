@@ -59,6 +59,16 @@ All notable changes to `labtether-agent` are documented in this file.
   `cap_services`, `cap_packages` (`list`) and `cap_logs`. A page whose
   program is missing is not offered. The macOS build sends
   `agent_edition=monitoring`, which the console shows as "Monitoring only".
+- The Rust agent sends a Linux host's Docker inventory to the hub as the Go
+  agent does: the full inventory (engine, containers, images, networks,
+  volumes, Compose stacks) and its deltas, container stats and engine
+  events, with the Go agent's fields, timers and limits, read from the
+  Docker socket (`LABTETHER_DOCKER_SOCKET`, `/var/run/docker.sock` by
+  default). Its heartbeat lists the Docker endpoint, so the hub sets up its
+  Docker collector for the host. It answers no Docker request that changes
+  anything (container and Compose actions, exec, container logs, the
+  endpoint test) and does not advertise them, so the hub refuses those.
+  `LABTETHER_DOCKER_ENABLED=false` turns it off.
 - The Rust agent builds and runs on macOS as the monitoring edition for the
   Mac App Store app: CPU, memory, disk and network telemetry, the host
   details in the heartbeat, and the disk and network interface lists, read

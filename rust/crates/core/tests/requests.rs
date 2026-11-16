@@ -145,6 +145,43 @@ async fn heartbeat_names_exactly_the_registered_requests() {
     running.stop().await;
 }
 
+// Faults: the heartbeat leaves out what a feature lists in `connectors`
+// (the Hub never sets up its Docker collector for the device), or reads
+// the list once at start (a Docker engine that comes up later is never
+// listed).
+#[tokio::test]
+async fn heartbeat_carries_the_features_connectors() {
+    let mut hub = Hub::start(None).await;
+    let up = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let mut features = disk_features(None);
+    let seen = up.clone();
+    features.heartbeat_connectors(move || {
+        let reachable = seen.load(std::sync::atomic::Ordering::SeqCst);
+        vec![labtether_protocol::ConnectorInfo {
+            r#type: "docker".into(),
+            endpoint: "unix:///var/run/docker.sock".into(),
+            reachable,
+        }]
+    });
+    let (running, _dir) = agent_with(&hub, "connectors", "agent-token", 20, features).await;
+    let first = hub.wait_message("heartbeat", WAIT).await;
+    assert_eq!(
+        first["data"]["connectors"],
+        json!([{"type": "docker", "endpoint": "unix:///var/run/docker.sock", "reachable": false}])
+    );
+    up.store(true, std::sync::atomic::Ordering::SeqCst);
+    // The agent sends two heartbeats at connect; the next ones carry the
+    // change (heartbeats every 5 s here).
+    let deadline = tokio::time::Instant::now() + WAIT;
+    let mut changed = false;
+    while !changed && tokio::time::Instant::now() < deadline {
+        let next = hub.wait_message("heartbeat", WAIT).await;
+        changed = next["data"]["connectors"][0]["reachable"] == true;
+    }
+    assert!(changed, "no heartbeat showed the endpoint as reachable");
+    running.stop().await;
+}
+
 // Faults: a handler runs on the read loop (the ping during the blocked
 // handlers gets no pong), there is no bound (the request past the limit
 // runs), the limit does not close the connection as Go does, or slots are

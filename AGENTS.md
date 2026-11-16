@@ -137,7 +137,12 @@ Read user-facing text once against this list before you ship it.
   only way Rust code may start a process, with `start_streaming` for one
   read while it runs (`rust/clippy.toml` refuses `Command::new`
   elsewhere). A feature that sends without a request adds a producer
-  (`Features::on_start`); it runs on its own thread, not a worker. The
+  (`Features::on_start`); it runs on its own thread, not a worker. On
+  Linux the Docker page (`crates/capabilities/src/docker/`) is only
+  producers: the inventory, deltas, stats and events, read over the
+  Docker socket with hyper, plus the endpoint in the heartbeat's
+  `connectors`; its tests replay recorded engine answers against the Go
+  collector's own output. The
   heartbeat says `agent_capability_mode=explicit` (the Hub refuses what is
   not advertised); a page's `cap_*` word comes only from registering its
   handler (`crates/core/src/offers.rs` copies the Hub's `internal/agentcaps`

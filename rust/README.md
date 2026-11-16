@@ -75,6 +75,34 @@ On Linux, the `labtether-agent-rs` binary:
     more skipped, and a failed `journalctl` started again after 1 s,
     doubling to 32 s, as Go's `LogManager`.
     `LABTETHER_LOG_STREAM_ENABLED=false` turns it off;
+- sends a Linux host's Docker inventory without being asked, as Go's
+  Docker collector does (`crates/capabilities/src/docker/`), reading the
+  engine over its Unix socket (`LABTETHER_DOCKER_SOCKET` or
+  `docker_endpoint` in `agent-config.json`, else `/var/run/docker.sock`;
+  `DOCKER_HOST` is not read, as in Go) with hyper's HTTP/1 client, at
+  unversioned paths, 5 s to connect, 30 s a request, 10 MiB a reply:
+  - `docker.discovery` (the whole inventory) at start, on the first round
+    of each new connection, every full-reconcile period (ten discovery
+    intervals, 5 to 30 min), and after a network, volume or image event
+    when the inventory changed; `docker.discovery.delta` (containers and
+    Compose stacks only) when containers changed, checked every discovery
+    interval (30 s) and soon after a container event (350 ms after a
+    start, stop, die, destroy, create or rename, else 1.2 s; each new event
+    restarts the wait), and a full inventory instead when 200 or more, or
+    most, containers changed; at most 500 containers, Compose stacks from
+    their labels, and a stopped project kept from `compose-projects.json`
+    in the state folder while its files exist;
+  - `docker.stats` for the running containers, each sampled on its own
+    interval (halved while busy, grown while quiet, doubled after a failed
+    read), at most 24 per tick, every half discovery interval (5 to 20 s);
+  - `docker.events` as the engine sends them, the stream reopened after
+    1 s, doubling to 30 s;
+  - the endpoint in each heartbeat's `connectors`, which the Hub reads to
+    set up its Docker collector for the host.
+  `LABTETHER_DOCKER_ENABLED=false` turns it off, `true` lists the endpoint
+  even when it does not answer; the collector starts only when the
+  endpoint answered at start. The discovery leaves out Go's Compose action
+  version, as this agent answers no Docker request;
 - checks the agent token's capability claims before any handler runs, with
   the Go agent's table (`command_authorization.go`); the Hub's opaque tokens
   carry no claims and are not checked, as in Go;
@@ -259,8 +287,9 @@ This binary is not hardened and not a replacement for the Go agent:
 - no outbound rules: the enrollment request and the WebSocket dial do not
   refuse loopback or private addresses the way the Go agent's outbound
   policy does;
-- no Tailscale details beyond whether it is installed, no connector probes,
-  and no `cap_*` words for pages it does not answer;
+- no Tailscale details beyond whether it is installed, no connector probes
+  for Proxmox, PBS, TrueNAS or Home Assistant ports (the Docker endpoint is
+  the only connector), and no `cap_*` words for pages it does not answer;
 - no `df -kP` fallback: when `/proc/mounts` cannot be read, `disk.list`
   replies with an error saying so (Go runs `df` then);
 - no actions: `process.kill`, `network.action`, `service.action`,
@@ -271,7 +300,11 @@ This binary is not hardened and not a replacement for the Go agent:
 - no start without a Hub address: Go runs on and its status page says
   `disconnected`; this agent exits (the apps never start it without one);
 - no Windows parent watch (Go waits on a process handle there);
-- no Docker, web service discovery, terminal, files or Remote View pages;
+- no Docker request that changes anything: container and Compose actions,
+  exec, container logs and the endpoint test are not advertised
+  (`cap_docker=manage`), so the Hub refuses them; Docker is read only over
+  a Unix socket (Go also reads an http(s) endpoint);
+- no web service discovery, terminal, files or Remote View pages;
 - a stream line of 256 KiB or more: this agent skips it and goes on, as
   the Go agent does from its fix for that line; a Go agent without the fix
   stops streaming there until it restarts;
@@ -370,7 +403,10 @@ Scheduled jobs handlers run stand-in programs through the command rules
 the logs query are compared with the Go agent's own answers for the same
 fixtures and stand-in `journalctl` programs
 (`crates/platform/testdata/go/journal-lines.json`,
-`crates/capabilities/src/tests/testdata/go/`). The producer path is tested
+`crates/capabilities/src/tests/testdata/go/`). The Docker page replays
+Docker Engine answers recorded on a lab host and compares every message,
+step by step, with what the Go collector sent for the same answers
+(`crates/capabilities/src/docker/tests/testdata/`). The producer path is tested
 against a Hub that stops reading, drops the connection or is offline
 (`crates/core/tests/producers.rs`). CI
 runs the checks on Linux and on macOS. A test fails when a page is
