@@ -13,6 +13,7 @@ thiserror.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 labtether-agent-macos-sys.workspace = true
+log.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true

@@ -6,8 +6,9 @@
 //!
 //! Go reads the counters by running `netstat -bI <name>` once per interface
 //! and keeping the row with the most bytes, which is the link row; this
-//! reads the same link counters from the interface table without starting
-//! `netstat`.
+//! reads the same link counters from `net.link.generic.ifalldata` without
+//! starting `netstat` (see [`route::links`] for why not the interface
+//! table).
 //!
 //! The MAC: macOS 27 gives a process started under a non-Apple program the
 //! placeholder `02:00:00:00:00:00` for every interface. Go then runs

@@ -89,12 +89,8 @@ pub fn sysctl_u64(name: &str) -> io::Result<u64> {
     }
 }
 
-/// The kernel's interface table with 64-bit counters: the
-/// `sysctl(CTL_NET, PF_ROUTE, 0, 0, NET_RT_IFLIST2, 0)` dump that
-/// `netstat -i` and Go's `net.Interfaces` read. Parse it with the offsets in
-/// [`layout`].
-pub fn interface_table() -> io::Result<Vec<u8>> {
-    let mut mib = [libc::CTL_NET, libc::PF_ROUTE, 0, 0, libc::NET_RT_IFLIST2, 0];
+/// `sysctl(mib)` as raw bytes.
+fn sysctl_mib(mut mib: [c_int; 6]) -> io::Result<Vec<u8>> {
     let mib_len = mib.len() as libc::c_uint;
     sysctl_read(|buf, len| {
         // SAFETY: `mib` holds `mib_len` integers and lives across the call;
@@ -102,4 +98,37 @@ pub fn interface_table() -> io::Result<Vec<u8>> {
         // for `sysctlbyname` above. No new value is set.
         unsafe { libc::sysctl(mib.as_mut_ptr(), mib_len, buf, len, ptr::null_mut(), 0) }
     })
+}
+
+/// The kernel's interface table: the
+/// `sysctl(CTL_NET, PF_ROUTE, 0, 0, NET_RT_IFLIST2, 0)` dump that
+/// `netstat -i` and Go's `net.Interfaces` read. Parse it with the offsets in
+/// [`layout`].
+///
+/// Its byte counters are cut short for this process: the kernel gives a
+/// program that is not part of macOS only their low 32 bits, rounded down
+/// to 1 KiB (`ALIGN_BYTES` in `sysctl_iflist2`, XNU `bsd/net/rtsock.c`), so
+/// they wrap every 4 GiB. Take counters from [`interface_data`].
+pub fn interface_table() -> io::Result<Vec<u8>> {
+    sysctl_mib([libc::CTL_NET, libc::PF_ROUTE, 0, 0, libc::NET_RT_IFLIST2, 0])
+}
+
+/// Every interface's statistics with whole 64-bit counters: the
+/// `sysctl(CTL_NET, PF_LINK, NETLINK_GENERIC, IFMIB_IFALLDATA, 0,
+/// IFDATA_GENERAL)` dump (`net.link.generic.ifalldata`), one
+/// `struct ifmibdata` (`<net/if_mib.h>`) per interface. Parse it with the
+/// `IFMD_*` offsets in [`layout`].
+///
+/// The kernel copies these counters as they are, whoever asks
+/// (`make_ifmibdata`, XNU `bsd/net/if_mib.c`), and the App Sandbox allows
+/// the read without an entitlement.
+pub fn interface_data() -> io::Result<Vec<u8>> {
+    sysctl_mib([
+        libc::CTL_NET,
+        libc::PF_LINK,
+        libc::NETLINK_GENERIC,
+        libc::IFMIB_IFALLDATA,
+        0,
+        libc::IFDATA_GENERAL,
+    ])
 }

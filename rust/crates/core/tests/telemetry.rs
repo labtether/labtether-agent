@@ -174,6 +174,12 @@ async fn pinned_intervals_and_disabled_overrides_are_kept() {
     );
     running.stop().await;
 
+    // The first agent can have sent one more heartbeat after its
+    // config.applied (on macOS its first heartbeat tick often fires after
+    // the connection opens). Taken as the second agent's, it sent the next
+    // update before the second agent was connected, so no agent got it and
+    // the wait below timed out. Only a connection opened from here counts.
+    let second = hub.next_connection();
     let dir = agent_dir("remote-off");
     let config = settings(
         &dir,
@@ -181,7 +187,7 @@ async fn pinned_intervals_and_disabled_overrides_are_kept() {
         &[("LABTETHER_ALLOW_REMOTE_OVERRIDES", "off")],
     );
     let running = start(config, fast_timing()).await.unwrap();
-    hub.wait_message("heartbeat", WAIT).await;
+    hub.wait_message_since(second, "heartbeat", WAIT).await;
     hub.send_to_agents(&update(Some(30), Some(60)));
     let applied = hub.wait_message("config.applied", WAIT).await;
     assert_eq!(
