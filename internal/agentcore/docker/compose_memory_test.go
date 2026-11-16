@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -70,8 +71,14 @@ func TestComposeProjectStaysListedAndCanComeUpAfterDown(t *testing.T) {
 	if _, err := restarted.resolveComposeSelection(context.Background(), req, true); err == nil {
 		t.Fatal("restart needs containers; only up and pull may use the remembered selection")
 	}
-	if info, err := os.Stat(filepath.Join(stateDir, composeMemoryFileName)); err != nil || info.Mode().Perm() != 0o600 {
-		t.Fatalf("memory file in the state folder, mode 0600: %v %v", info, err)
+	info, err := os.Stat(filepath.Join(stateDir, composeMemoryFileName))
+	if err != nil {
+		t.Fatalf("memory file in the state folder: %v", err)
+	}
+	// Windows reports 0666 for every writable file; there the state folder's
+	// access list keeps the file private.
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
+		t.Fatalf("memory file mode=%o, want 600", info.Mode().Perm())
 	}
 
 	for _, file := range selected.Files {

@@ -9,6 +9,7 @@ import sys
 REQUIRED = {"line-limit", "qa-select", "go-checks"}
 CONDITIONAL = {
     "cross-build": "agent_cross_platform",
+    "windows-tests": "agent_cross_platform",
     "installed-container": "agent_installed_container",
 }
 

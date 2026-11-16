@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -260,6 +261,12 @@ func TestTerminalManagerLargeOutputEmitsMultipleDataFrames(t *testing.T) {
 }
 
 func TestTerminalManagerResizeUpdatesPTYSize(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		// creack/pty has no Windows backend, so there is no PTY to measure.
+		// The Windows terminal is a pseudo console; its resize is checked by
+		// remoteaccess TestConsoleTerminalStartsAtAndFollowsRequestedSize.
+		t.Skip("no PTY on Windows; the pseudo console resize is tested in remoteaccess")
+	}
 	shellPath, err := exec.LookPath("sh")
 	if err != nil {
 		t.Skip("sh not available")

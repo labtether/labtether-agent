@@ -54,7 +54,7 @@ func TestHandleConfigUpdateAcknowledgesEffectiveIntervalsOnInvalidUpdate(t *test
 
 func TestHandleConfigUpdateAppliesValidIntervalsAndPersists(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	useTestHome(t, home)
 
 	runtime := newSettingsLifecycleRuntime(t, RuntimeConfig{
 		CollectInterval:      10 * time.Second,
@@ -112,7 +112,7 @@ func TestHandleConfigUpdateAppliesValidIntervalsAndPersists(t *testing.T) {
 
 func TestHandleConfigUpdateClearsLegacyOverridesBackToBaseline(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	useTestHome(t, home)
 
 	runtime := newSettingsLifecycleRuntime(t, RuntimeConfig{
 		CollectInterval:      10 * time.Second,
@@ -168,7 +168,7 @@ func TestHandleConfigUpdateClearsLegacyOverridesBackToBaseline(t *testing.T) {
 
 func TestHandleConfigUpdateDoesNotBypassDisabledRemoteOverrides(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	useTestHome(t, home)
 	runtime := newSettingsLifecycleRuntime(t, RuntimeConfig{
 		CollectInterval:      10 * time.Second,
 		HeartbeatInterval:    20 * time.Second,

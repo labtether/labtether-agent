@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -34,15 +33,12 @@ func newTestAuthorizedKey(t *testing.T) string {
 // has since rotated, so the Hub's key does not keep login access after the
 // agent is gone. User keys, uncommented lines and lines with options stay.
 func TestRecordedHubSSHKeyIsRemovedOnUninstall(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("uses HOME for the authorized_keys location")
-	}
 	transport, messages, cleanup := newAgentcoreCapturedTransport(t)
 	defer cleanup()
 	homeDir := t.TempDir()
-	t.Setenv("HOME", homeDir)
+	useTestHome(t, homeDir)
+	authorizedKeysPath := useTestHubSSHKeyFile(t, homeDir)
 	tokenFile := filepath.Join(t.TempDir(), "agent-token")
-	authorizedKeysPath := filepath.Join(homeDir, ".ssh", "authorized_keys")
 	rotated := newTestAuthorizedKey(t)
 	kept := []string{
 		"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExistingUserKeyForTestsOnly user@example.com",

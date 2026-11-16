@@ -114,6 +114,9 @@ func TestHandleAgentSettingsApplyRejectsFingerprintMismatchAndReportsCurrentStat
 }
 
 func TestHandleAgentSettingsApplyReportsRestartRequiredAndPersistsValues(t *testing.T) {
+	// A Hub interval is saved as applied-config.json; with no token path that
+	// is the home folder, so without a test home every run left one there.
+	useTestHome(t, t.TempDir())
 	runtime := newSettingsLifecycleRuntime(t, RuntimeConfig{
 		AllowRemoteOverrides: true,
 		LogLevel:             "info",

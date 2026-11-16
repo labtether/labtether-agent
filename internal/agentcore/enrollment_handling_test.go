@@ -1,7 +1,6 @@
 package agentcore
 
 import (
-	"os"
 	"path/filepath"
 	"testing"
 )
@@ -23,14 +22,8 @@ func TestSaveAndLoadTokenRoundTrip(t *testing.T) {
 		t.Fatalf("expected 'test-token-abc', got %q", loaded)
 	}
 
-	// Verify restrictive permissions.
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("stat failed: %v", err)
-	}
-	if info.Mode().Perm() != 0600 {
-		t.Fatalf("expected 0600 permissions, got %o", info.Mode().Perm())
-	}
+	// Fault guarded: another local account reading the agent token.
+	assertPrivateFile(t, path)
 }
 
 func TestEnrollmentHeadersWhenNoToken(t *testing.T) {

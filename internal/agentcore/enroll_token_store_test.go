@@ -151,14 +151,8 @@ func TestSaveAndLoadToken(t *testing.T) {
 		t.Fatalf("expected 'test-token-123', got %q", token)
 	}
 
-	// Verify file permissions
-	info, err := os.Stat(tokenFile)
-	if err != nil {
-		t.Fatalf("stat token file: %v", err)
-	}
-	if info.Mode().Perm() != 0600 {
-		t.Fatalf("expected 0600 permissions, got %o", info.Mode().Perm())
-	}
+	// Fault guarded: another local account reading the agent token.
+	assertPrivateFile(t, tokenFile)
 }
 
 func TestSaveTokenToFile_EmptyPath(t *testing.T) {

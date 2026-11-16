@@ -7,6 +7,7 @@ import (
 	"log"
 	"os/exec"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -25,7 +26,19 @@ func preserveWebRTCInputHooks(t *testing.T) {
 	})
 }
 
+// skipLinuxDesktopFakesOnWindows skips a test that fakes gst-inspect, xdotool
+// or ydotool with /bin/sh. The agent offers WebRTC desktop on Linux only
+// (DetectWebRTCCapabilitiesWithConfig refuses other systems), and Windows has
+// no /bin/sh.
+func skipLinuxDesktopFakesOnWindows(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("fakes Linux desktop tools with /bin/sh; WebRTC desktop is Linux only")
+	}
+}
+
 func TestDetectWebRTCCapabilitiesRequiresWorkingInputBackend(t *testing.T) {
+	skipLinuxDesktopFakesOnWindows(t)
 	tests := []struct {
 		name        string
 		session     DesktopSessionInfo
@@ -98,6 +111,7 @@ func TestDetectWebRTCCapabilitiesRequiresWorkingInputBackend(t *testing.T) {
 }
 
 func TestProbeWebRTCInputToolUsesYdotoolDebugAndWaylandSessionEnv(t *testing.T) {
+	skipLinuxDesktopFakesOnWindows(t)
 	preserveWebRTCInputHooks(t)
 	t.Setenv("DISPLAY", ":99")
 	t.Setenv("XAUTHORITY", "/tmp/ambient-xauth")
@@ -131,6 +145,7 @@ func TestProbeWebRTCInputToolUsesYdotoolDebugAndWaylandSessionEnv(t *testing.T) 
 }
 
 func TestProbeWebRTCInputToolUsesDisplayIndependentXdotoolVersionFlag(t *testing.T) {
+	skipLinuxDesktopFakesOnWindows(t)
 	preserveWebRTCInputHooks(t)
 	WebRTCLookPath = func(name string) (string, error) {
 		return "/usr/bin/" + name, nil
@@ -153,6 +168,7 @@ func TestProbeWebRTCInputToolUsesDisplayIndependentXdotoolVersionFlag(t *testing
 }
 
 func TestInjectWaylandInputPreservesMouseDownAndUpState(t *testing.T) {
+	skipLinuxDesktopFakesOnWindows(t)
 	preserveWebRTCInputHooks(t)
 	var commands [][]string
 	NewWebRTCSecurityCommand = func(name string, args ...string) (*exec.Cmd, error) {
@@ -181,6 +197,7 @@ func TestInjectWaylandInputPreservesMouseDownAndUpState(t *testing.T) {
 }
 
 func TestInjectWaylandInputUsesWheelEventsInsteadOfSideButtons(t *testing.T) {
+	skipLinuxDesktopFakesOnWindows(t)
 	preserveWebRTCInputHooks(t)
 	var commands [][]string
 	NewWebRTCSecurityCommand = func(name string, args ...string) (*exec.Cmd, error) {
@@ -208,6 +225,7 @@ func TestInjectWaylandInputUsesWheelEventsInsteadOfSideButtons(t *testing.T) {
 }
 
 func TestInjectSingleInputSurfacesCommandBuildAndRunFailures(t *testing.T) {
+	skipLinuxDesktopFakesOnWindows(t)
 	t.Run("command build", func(t *testing.T) {
 		preserveWebRTCInputHooks(t)
 		NewWebRTCSecurityCommand = func(string, ...string) (*exec.Cmd, error) {

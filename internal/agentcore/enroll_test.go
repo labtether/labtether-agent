@@ -158,13 +158,9 @@ func TestResolveToken_EnrollmentFlow(t *testing.T) {
 	if restarted.APIBaseURL != "http://localhost" {
 		t.Fatalf("restart APIBaseURL=%q", restarted.APIBaseURL)
 	}
-	stateInfo, err := os.Stat(filepath.Join(tmpDir, enrollmentStateFileName))
-	if err != nil {
-		t.Fatalf("stat enrollment state: %v", err)
-	}
-	if stateInfo.Mode().Perm() != 0o600 {
-		t.Fatalf("enrollment state mode=%o, want 600", stateInfo.Mode().Perm())
-	}
+	// Fault guarded: another local account reading the token or its state.
+	assertPrivateFile(t, tokenFile)
+	assertPrivateFile(t, filepath.Join(tmpDir, enrollmentStateFileName))
 }
 
 func TestSelectEnrollmentHostname(t *testing.T) {
