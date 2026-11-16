@@ -77,10 +77,7 @@ func CollectSystemdTimers() ([]protocol.CronEntry, error) {
 		return nil, nil // systemd not available, skip silently
 	}
 
-	out, err := securityruntime.CaptureCombinedOutput(
-		exec.Command("systemctl", "list-timers", "--all", "--no-pager", "--plain"),
-		securityruntime.DefaultCommandOutputLimit,
-	)
+	out, err := securityruntime.CommandCombinedOutput("systemctl", "list-timers", "--all", "--no-pager", "--plain")
 	if err != nil {
 		return nil, err
 	}

@@ -73,6 +73,47 @@ All notable changes to `labtether-agent` are documented in this file.
 - When the hub accepted the agent's connection and closed it straight away,
   the agent reconnected about once a second without backing off. It now waits
   longer after each connection that lasts under 30 seconds.
+- A command the agent runs with a time limit (service, package, network and
+  display commands, among others) now stops with everything it started when
+  the time runs out, on Linux and macOS. Before, a program it had started in
+  the background could keep the call waiting past the limit and keep running
+  afterwards. When such a program still holds the command's output one
+  second after the command ends, the agent now stops waiting and reports
+  "command output did not close after the command ended". Windows is
+  unchanged.
+
+### Security
+
+- A program given with a folder, such as `/tmp/x/bash`, was allowed when its
+  name was on the exec allowlist, so a person who could send commands and
+  put a file on the device could run their own program as the agent. This
+  was reachable through a Hub command when the shell allowlist was turned
+  off, through custom shell rules that name a path, and through the shell
+  field of a terminal request. Now a program with a folder must be the same
+  file the agent's `PATH` finds for that name, and that file is what starts;
+  anything else is refused with "is not the ... found in PATH", and a
+  relative path such as `./ls` with "must be a program name or a full path".
+  If you relied on a path, give the program's name, or the path your `PATH`
+  gives for it (`command -v ls`); a custom shell rule that names a program
+  outside the agent's `PATH` needs that folder added to the agent's `PATH`.
+  Programs the agent picks itself, such as
+  Homebrew in `/opt/homebrew/bin`, are not affected. With the exec allowlist
+  turned off, nothing changes.
+- The read-only `journalctl` check refused `--rotate`, `--vacuum-time` and
+  the other options that change logs only when written in full, but
+  journalctl also takes any unambiguous start of an option (`--rot`,
+  `--vacuum-t=1s`), so a Hub command could rotate or delete the logs. Every
+  start of such an option is now refused, and so is a start journalctl finds
+  ambiguous (`--ro`), which journalctl refuses anyway. `--cursor` is still
+  allowed. Write read options in full.
+- The reboot and shutdown commands, the self-update trial run, the desktop
+  diagnostic probes (`pgrep`, `xdpyinfo`), the process and disk lists (`ps`,
+  `df`) and the systemd timer list started with the agent's whole
+  environment, which can hold its API token, enrollment token or TURN
+  password. They now get the same reduced environment as other commands. The
+  process list, disk list and timer list now also pass the exec allowlist: a
+  custom `LABTETHER_EXEC_ALLOWED_BINARIES` must list `ps`, `df` and
+  `systemctl` for them to keep working (the default list does).
 
 ## [2.0.1]
 

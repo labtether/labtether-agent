@@ -108,6 +108,9 @@ func trialRunStagedExecutable(stagedPath, version string) error {
 	defer cancel()
 	// #nosec G204 -- Runs only the signature-verified binary this updater just staged beside the executable.
 	cmd := exec.CommandContext(ctx, stagedPath, "--version")
+	// The trial run needs none of the agent's own variables (API token,
+	// enrollment token); the staged binary is not on the exec allowlist.
+	cmd.Env = securityruntime.SanitizedChildEnv()
 	cmd.WaitDelay = time.Second
 	output, err := securityruntime.CaptureOutput(cmd, 4096)
 	if err != nil {

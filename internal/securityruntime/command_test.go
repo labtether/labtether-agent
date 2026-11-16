@@ -59,9 +59,15 @@ func TestSharedParseCases(t *testing.T) {
 func TestSharedExecCases(t *testing.T) {
 	for _, group := range loadCommandCases(t).Exec {
 		t.Run(group.Group, func(t *testing.T) {
+			if slices.Contains(group.SkipOS, runtime.GOOS) {
+				t.Skipf("case group does not apply on %s", runtime.GOOS)
+			}
 			applyPolicyEnv(t, group.Env)
+			paths := casePaths(t)
+			applyGroupFiles(t, paths, group)
 			for _, tc := range group.Cases {
-				checkWant(t, fmt.Sprintf("%q", tc.In), ValidateExecBinary(tc.In), tc.Want)
+				name := paths.Replace(tc.In)
+				checkWant(t, fmt.Sprintf("%q", name), ValidateExecBinary(name), paths.Replace(tc.Want))
 			}
 		})
 	}
@@ -77,6 +83,7 @@ func TestSharedShellCases(t *testing.T) {
 			}
 			applyPolicyEnv(t, group.Env)
 			paths := casePaths(t)
+			applyGroupFiles(t, paths, group)
 			protect := make([]string, 0, len(group.Protect))
 			for _, path := range group.Protect {
 				protect = append(protect, paths.Replace(path))

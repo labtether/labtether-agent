@@ -270,30 +270,41 @@ func toSet(values []string, normalize func(string) string) map[string]struct{} {
 	return out
 }
 
+// ValidateExecBinary applies the exec rules to a program name or path: the
+// blocked list, the allowlist (or its accept-risk switch) and, while the
+// allowlist is on, the path rule in command_path.go.
 func ValidateExecBinary(name string) error {
-	normalized := normalizeExecutableName(name)
+	_, err := resolveExecProgram(name)
+	return err
+}
+
+// validateExecName checks the program's name against the blocked list and the
+// allowlist. checkPath is false when the allowlist is off with accept-risk:
+// then any program may run, so its folder is not checked either.
+func validateExecName(name string) (normalized string, checkPath bool, err error) {
+	normalized = normalizeExecutableName(name)
 	if normalized == "" {
-		return fmt.Errorf("command is required")
+		return "", false, fmt.Errorf("command is required")
 	}
 
 	blocked := toSet(parseCSVEnv(envExecBlockedBinaries, nil), normalizeExecutableName)
 	if _, found := blocked[normalized]; found {
-		return fmt.Errorf("command %q blocked by runtime policy", normalized)
+		return normalized, false, fmt.Errorf("command %q blocked by runtime policy", normalized)
 	}
 
 	if !parseBoolEnv(envExecAllowlistMode, true) {
 		if !parseBoolEnv(envExecAllowlistAcceptRisk, false) {
-			return fmt.Errorf("refusing to run %q: %s=false requires %s=true to acknowledge that disabling the exec allowlist removes a significant security control", normalized, envExecAllowlistMode, envExecAllowlistAcceptRisk)
+			return normalized, false, fmt.Errorf("refusing to run %q: %s=false requires %s=true to acknowledge that disabling the exec allowlist removes a significant security control", normalized, envExecAllowlistMode, envExecAllowlistAcceptRisk)
 		}
-		return nil
+		return normalized, false, nil
 	}
 
 	allowed := toSet(parseCSVEnv(envExecAllowedBinaries, defaultAllowedExecBinaries), normalizeExecutableName)
 	if _, found := allowed[normalized]; found {
-		return nil
+		return normalized, true, nil
 	}
 
-	return fmt.Errorf("command %q is not allowlisted", normalized)
+	return normalized, false, fmt.Errorf("command %q is not allowlisted", normalized)
 }
 
 func ValidateShellCommand(command string) error {
@@ -359,22 +370,30 @@ func NewValidatedShellCommandContext(ctx context.Context, command string) (*exec
 	return NewCommandContext(ctx, args[0], args[1:]...)
 }
 
+// NewCommandContext checks name against the exec rules and returns the
+// command with the sanitized environment. A full path starts the file PATH
+// finds for its name (see command_path.go), under the name as given.
 func NewCommandContext(ctx context.Context, name string, args ...string) (*exec.Cmd, error) {
-	if err := ValidateExecBinary(name); err != nil {
+	program, err := resolveExecProgram(name)
+	if err != nil {
 		return nil, err
 	}
 	// #nosec G204 -- command name is validated by ValidateExecBinary allowlist/policy.
-	cmd := exec.CommandContext(ctx, name, args...)
+	cmd := exec.CommandContext(ctx, program, args...)
+	cmd.Args[0] = name
 	cmd.Env = SanitizedChildEnv()
 	return cmd, nil
 }
 
+// NewCommand is NewCommandContext without a context.
 func NewCommand(name string, args ...string) (*exec.Cmd, error) {
-	if err := ValidateExecBinary(name); err != nil {
+	program, err := resolveExecProgram(name)
+	if err != nil {
 		return nil, err
 	}
 	// #nosec G204 -- command name is validated by ValidateExecBinary allowlist/policy.
-	cmd := exec.Command(name, args...)
+	cmd := exec.Command(program, args...)
+	cmd.Args[0] = name
 	cmd.Env = SanitizedChildEnv()
 	return cmd, nil
 }

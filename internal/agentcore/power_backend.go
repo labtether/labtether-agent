@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+
+	"github.com/labtether/labtether-agent/internal/securityruntime"
 )
 
 var errPowerUnsupported = errors.New("power action unsupported")
@@ -27,6 +29,11 @@ func (execPowerCommandRunner) Run(ctx context.Context, executable string, args .
 	// Executable and args are selected exclusively from fixed platform tables.
 	// No shell is involved and no wire-provided value reaches the command line.
 	cmd := exec.CommandContext(ctx, executable, args...) // #nosec G204 -- executable and argv come from fixed powerCommandForPlatform cases.
+	// The power tools need none of the agent's own variables, which can hold
+	// its API token. The exec allowlist is not used here: shutdown and
+	// shutdown.exe are not on it, and a custom list without systemctl would
+	// stop reboots that work today.
+	cmd.Env = securityruntime.SanitizedChildEnv()
 	return cmd.Run()
 }
 

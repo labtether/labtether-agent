@@ -351,39 +351,56 @@
    "cases": [
     {
      "in": "C:\\Windows\\System32\\cmd.exe",
-     "want": "allow",
-     "from": "TestValidateExecBinaryNormalizesWindowsExecutableExtension"
+     "want": "command \"C:\\\\Windows\\\\System32\\\\cmd.exe\" must be a program name or a full path",
+     "from": "TestValidateExecBinaryNormalizesWindowsExecutableExtension",
+     "was": "allow",
+     "fault": "1 (command-rule-faults 2026-11-16): only the name was checked; a Windows path on another system is not a full path"
     },
     {
      "in": "C:\\Windows\\System32\\netsh.exe",
-     "want": "allow",
-     "from": "TestValidateExecBinaryNormalizesWindowsExecutableExtension"
+     "want": "command \"C:\\\\Windows\\\\System32\\\\netsh.exe\" must be a program name or a full path",
+     "from": "TestValidateExecBinaryNormalizesWindowsExecutableExtension",
+     "was": "allow",
+     "fault": "1 (command-rule-faults 2026-11-16): only the name was checked; a Windows path on another system is not a full path"
     },
     {
      "in": "C:\\Windows\\System32\\sc.exe",
-     "want": "allow",
-     "from": "TestValidateExecBinaryNormalizesWindowsExecutableExtension"
+     "want": "command \"C:\\\\Windows\\\\System32\\\\sc.exe\" must be a program name or a full path",
+     "from": "TestValidateExecBinaryNormalizesWindowsExecutableExtension",
+     "was": "allow",
+     "fault": "1 (command-rule-faults 2026-11-16): only the name was checked; a Windows path on another system is not a full path"
     },
     {
      "in": "C:\\Windows\\System32\\schtasks.exe",
-     "want": "allow",
-     "from": "TestValidateExecBinaryNormalizesWindowsExecutableExtension"
+     "want": "command \"C:\\\\Windows\\\\System32\\\\schtasks.exe\" must be a program name or a full path",
+     "from": "TestValidateExecBinaryNormalizesWindowsExecutableExtension",
+     "was": "allow",
+     "fault": "1 (command-rule-faults 2026-11-16): only the name was checked; a Windows path on another system is not a full path"
     },
     {
      "in": "C:\\Windows\\System32\\wevtutil.exe",
-     "want": "allow",
-     "from": "TestValidateExecBinaryNormalizesWindowsExecutableExtension"
+     "want": "command \"C:\\\\Windows\\\\System32\\\\wevtutil.exe\" must be a program name or a full path",
+     "from": "TestValidateExecBinaryNormalizesWindowsExecutableExtension",
+     "was": "allow",
+     "fault": "1 (command-rule-faults 2026-11-16): only the name was checked; a Windows path on another system is not a full path"
     },
     {
      "in": "C:\\Users\\operator\\AppData\\Local\\Microsoft\\WindowsApps\\winget.exe",
-     "want": "allow",
-     "from": "TestValidateExecBinaryNormalizesWindowsExecutableExtension"
+     "want": "command \"C:\\\\Users\\\\operator\\\\AppData\\\\Local\\\\Microsoft\\\\WindowsApps\\\\winget.exe\" must be a program name or a full path",
+     "from": "TestValidateExecBinaryNormalizesWindowsExecutableExtension",
+     "was": "allow",
+     "fault": "1 (command-rule-faults 2026-11-16): only the name was checked; a Windows path on another system is not a full path"
     },
     {
      "in": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.EXE",
-     "want": "allow",
-     "from": "TestValidateExecBinaryNormalizesWindowsExecutableExtension"
+     "want": "command \"C:\\\\Windows\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.EXE\" must be a program name or a full path",
+     "from": "TestValidateExecBinaryNormalizesWindowsExecutableExtension",
+     "was": "allow",
+     "fault": "1 (command-rule-faults 2026-11-16): only the name was checked; a Windows path on another system is not a full path"
     }
+   ],
+   "skip_os": [
+    "windows"
    ]
   },
   {
@@ -416,24 +433,16 @@
      "from": "added"
     },
     {
-     "in": "/usr/bin/bash",
-     "want": "allow",
-     "from": "added"
-    },
-    {
      "in": "Bash.EXE",
      "want": "allow",
      "from": "added"
     },
     {
      "in": "..\\bash",
-     "want": "allow",
-     "from": "added"
-    },
-    {
-     "in": "/tmp/x/bash",
-     "want": "allow",
-     "from": "added"
+     "want": "command \"..\\\\bash\" must be a program name or a full path",
+     "from": "added",
+     "was": "allow",
+     "fault": "1 (command-rule-faults 2026-11-16): only the name was checked"
     },
     {
      "in": "bash.exe.exe",
@@ -637,6 +646,248 @@
      "in": "custom",
      "want": "allow",
      "from": "added"
+    }
+   ]
+  },
+  {
+   "group": "Windows executable names",
+   "env": {},
+   "cases": [
+    {
+     "in": "cmd.exe",
+     "want": "allow",
+     "from": "added",
+     "fault": "kept from the Windows paths group above: the .exe rule as a bare name"
+    },
+    {
+     "in": "netsh.exe",
+     "want": "allow",
+     "from": "added",
+     "fault": "kept from the Windows paths group above: the .exe rule as a bare name"
+    },
+    {
+     "in": "sc.exe",
+     "want": "allow",
+     "from": "added",
+     "fault": "kept from the Windows paths group above: the .exe rule as a bare name"
+    },
+    {
+     "in": "schtasks.exe",
+     "want": "allow",
+     "from": "added",
+     "fault": "kept from the Windows paths group above: the .exe rule as a bare name"
+    },
+    {
+     "in": "wevtutil.exe",
+     "want": "allow",
+     "from": "added",
+     "fault": "kept from the Windows paths group above: the .exe rule as a bare name"
+    },
+    {
+     "in": "winget.exe",
+     "want": "allow",
+     "from": "added",
+     "fault": "kept from the Windows paths group above: the .exe rule as a bare name"
+    },
+    {
+     "in": "powershell.EXE",
+     "want": "allow",
+     "from": "added",
+     "fault": "kept from the Windows paths group above: the .exe rule as a bare name"
+    }
+   ]
+  },
+  {
+   "group": "a program with a folder must be the one PATH finds",
+   "env": {},
+   "skip_os": [
+    "windows"
+   ],
+   "files": [
+    "{tmp}/bin/bash",
+    "{tmp}/bin/ls",
+    "{tmp}/sbin/ls",
+    "{tmp}/plant/bash",
+    "{tmp}/plant/custom"
+   ],
+   "links": {
+    "{tmp}/alias/bash": "{tmp}/bin/bash",
+    "{tmp}/plant/sh": "{tmp}/bin/bash"
+   },
+   "path": "{tmp}/bin:{tmp}/sbin",
+   "cases": [
+    {
+     "in": "{tmp}/bin/bash",
+     "want": "allow",
+     "from": "added",
+     "fault": "1 (command-rule-faults 2026-11-16): only the name was checked"
+    },
+    {
+     "in": "{tmp}/bin/../bin/bash",
+     "want": "allow",
+     "from": "added",
+     "fault": "1 (command-rule-faults 2026-11-16): only the name was checked"
+    },
+    {
+     "in": "{tmp}/alias/bash",
+     "want": "allow",
+     "from": "added",
+     "fault": "1 (command-rule-faults 2026-11-16): only the name was checked; a link to the PATH program"
+    },
+    {
+     "in": "{tmp}/bin/ls",
+     "want": "allow",
+     "from": "added",
+     "fault": "1 (command-rule-faults 2026-11-16): only the name was checked"
+    },
+    {
+     "in": "bash",
+     "want": "allow",
+     "from": "added",
+     "fault": "1 (command-rule-faults 2026-11-16): only the name was checked; a bare name keeps today's rule"
+    },
+    {
+     "in": "{tmp}/plant/bash",
+     "want": "command \"{tmp}/plant/bash\" is not the \"bash\" found in PATH",
+     "from": "added",
+     "fault": "1 (command-rule-faults 2026-11-16): only the name was checked; a planted copy"
+    },
+    {
+     "in": "{tmp}/plant/sh",
+     "want": "command \"{tmp}/plant/sh\" is not the \"sh\" found in PATH",
+     "from": "added",
+     "fault": "1 (command-rule-faults 2026-11-16): only the name was checked; a link to an allowed file under another allowed name"
+    },
+    {
+     "in": "{tmp}/sbin/ls",
+     "want": "command \"{tmp}/sbin/ls\" is not the \"ls\" found in PATH",
+     "from": "added",
+     "fault": "1 (command-rule-faults 2026-11-16): only the name was checked; shadowed by an earlier PATH entry"
+    },
+    {
+     "in": "{tmp}/bin/zsh",
+     "want": "command \"{tmp}/bin/zsh\" is not the \"zsh\" found in PATH",
+     "from": "added",
+     "fault": "1 (command-rule-faults 2026-11-16): only the name was checked; no such program"
+    },
+    {
+     "in": "{tmp}/bin/bash.exe",
+     "want": "command \"{tmp}/bin/bash.exe\" is not the \"bash\" found in PATH",
+     "from": "added",
+     "fault": "1 (command-rule-faults 2026-11-16): only the name was checked"
+    },
+    {
+     "in": "./bash",
+     "want": "command \"./bash\" must be a program name or a full path",
+     "from": "added",
+     "fault": "1 (command-rule-faults 2026-11-16): only the name was checked"
+    },
+    {
+     "in": "bin/bash",
+     "want": "command \"bin/bash\" must be a program name or a full path",
+     "from": "added",
+     "fault": "1 (command-rule-faults 2026-11-16): only the name was checked"
+    },
+    {
+     "in": " {tmp}/bin/bash",
+     "want": "command \" {tmp}/bin/bash\" must be a program name or a full path",
+     "from": "added",
+     "fault": "1 (command-rule-faults 2026-11-16): only the name was checked; exec would read it as a relative path"
+    },
+    {
+     "in": "{tmp}/plant/custom",
+     "want": "command \"custom\" is not allowlisted",
+     "from": "added",
+     "fault": "1 (command-rule-faults 2026-11-16): only the name was checked; the name is checked first"
+    },
+    {
+     "in": "/tmp/x/bash",
+     "want": "command \"/tmp/x/bash\" is not the \"bash\" found in PATH",
+     "from": "added",
+     "was": "allow",
+     "fault": "1 (command-rule-faults 2026-11-16): only the name was checked; moved here from \"names and paths under the default list\", which also runs on Windows, where this is not a full path"
+    }
+   ]
+  },
+  {
+   "group": "a PATH entry that is relative finds nothing for a path",
+   "env": {},
+   "skip_os": [
+    "windows"
+   ],
+   "files": [
+    "{tmp}/bin/bash"
+   ],
+   "path": "../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../{tmp}/bin",
+   "cases": [
+    {
+     "in": "{tmp}/bin/bash",
+     "want": "command \"{tmp}/bin/bash\" is not the \"bash\" found in PATH",
+     "from": "added",
+     "fault": "1 (command-rule-faults 2026-11-16): only the name was checked; Go's exec.ErrDot"
+    },
+    {
+     "in": "bash",
+     "want": "allow",
+     "from": "added",
+     "fault": "1 (command-rule-faults 2026-11-16): only the name was checked; a bare name is checked when it starts"
+    }
+   ]
+  },
+  {
+   "group": "a disabled allowlist does not check the folder",
+   "env": {
+    "LABTETHER_EXEC_ALLOWLIST_MODE": "false",
+    "LABTETHER_EXEC_ALLOWLIST_ACCEPT_RISK": "true"
+   },
+   "skip_os": [
+    "windows"
+   ],
+   "files": [
+    "{tmp}/bin/bash",
+    "{tmp}/plant/bash"
+   ],
+   "path": "{tmp}/bin",
+   "cases": [
+    {
+     "in": "{tmp}/plant/bash",
+     "want": "allow",
+     "from": "added",
+     "fault": "1 (command-rule-faults 2026-11-16): only the name was checked"
+    },
+    {
+     "in": "./custom",
+     "want": "allow",
+     "from": "added",
+     "fault": "1 (command-rule-faults 2026-11-16): only the name was checked"
+    }
+   ]
+  },
+  {
+   "group": "the blocked list is checked before the folder",
+   "env": {
+    "LABTETHER_EXEC_BLOCKED_BINARIES": "bash"
+   },
+   "skip_os": [
+    "windows"
+   ],
+   "files": [
+    "{tmp}/bin/bash",
+    "{tmp}/plant/bash"
+   ],
+   "path": "{tmp}/bin",
+   "cases": [
+    {
+     "in": "{tmp}/bin/bash",
+     "want": "command \"bash\" blocked by runtime policy",
+     "from": "added",
+     "fault": "1 (command-rule-faults 2026-11-16): only the name was checked"
+    },
+    {
+     "in": "{tmp}/plant/bash",
+     "want": "command \"bash\" blocked by runtime policy",
+     "from": "added",
+     "fault": "1 (command-rule-faults 2026-11-16): only the name was checked"
     }
    ]
   }
@@ -1442,13 +1693,525 @@
     },
     {
      "in": "journalctl --rot",
-     "want": "allow",
-     "from": "added"
+     "want": "journalctl --rot can stand for --rotate, which changes system logs, and is not allowed here",
+     "from": "added",
+     "was": "allow",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; journalctl reads --rot as --rotate"
     },
     {
      "in": "journalctl -u x --output=json",
      "want": "allow",
      "from": "added"
+    },
+    {
+     "in": "journalctl -n 5 --cursor-=/tmp/c",
+     "want": "journalctl --cursor- can stand for --cursor-file, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --cursor-file"
+    },
+    {
+     "in": "journalctl -n 5 --cursor-f=/tmp/c",
+     "want": "journalctl --cursor-f can stand for --cursor-file, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --cursor-file"
+    },
+    {
+     "in": "journalctl -n 5 --cursor-fi=/tmp/c",
+     "want": "journalctl --cursor-fi can stand for --cursor-file, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --cursor-file"
+    },
+    {
+     "in": "journalctl -n 5 --cursor-fil=/tmp/c",
+     "want": "journalctl --cursor-fil can stand for --cursor-file, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --cursor-file"
+    },
+    {
+     "in": "journalctl -n 5 --fl",
+     "want": "journalctl --fl can stand for --flush, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --flush"
+    },
+    {
+     "in": "journalctl -n 5 --flu",
+     "want": "journalctl --flu can stand for --flush, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --flush"
+    },
+    {
+     "in": "journalctl -n 5 --flus",
+     "want": "journalctl --flus can stand for --flush, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --flush"
+    },
+    {
+     "in": "journalctl -n 5 --rel",
+     "want": "journalctl --rel can stand for --relinquish-var, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --relinquish-var"
+    },
+    {
+     "in": "journalctl -n 5 --reli",
+     "want": "journalctl --reli can stand for --relinquish-var, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --relinquish-var"
+    },
+    {
+     "in": "journalctl -n 5 --relin",
+     "want": "journalctl --relin can stand for --relinquish-var, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --relinquish-var"
+    },
+    {
+     "in": "journalctl -n 5 --relinq",
+     "want": "journalctl --relinq can stand for --relinquish-var, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --relinquish-var"
+    },
+    {
+     "in": "journalctl -n 5 --relinqu",
+     "want": "journalctl --relinqu can stand for --relinquish-var, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --relinquish-var"
+    },
+    {
+     "in": "journalctl -n 5 --relinqui",
+     "want": "journalctl --relinqui can stand for --relinquish-var, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --relinquish-var"
+    },
+    {
+     "in": "journalctl -n 5 --relinquis",
+     "want": "journalctl --relinquis can stand for --relinquish-var, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --relinquish-var"
+    },
+    {
+     "in": "journalctl -n 5 --relinquish",
+     "want": "journalctl --relinquish can stand for --relinquish-var, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --relinquish-var"
+    },
+    {
+     "in": "journalctl -n 5 --relinquish-",
+     "want": "journalctl --relinquish- can stand for --relinquish-var, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --relinquish-var"
+    },
+    {
+     "in": "journalctl -n 5 --relinquish-v",
+     "want": "journalctl --relinquish-v can stand for --relinquish-var, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --relinquish-var"
+    },
+    {
+     "in": "journalctl -n 5 --relinquish-va",
+     "want": "journalctl --relinquish-va can stand for --relinquish-var, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --relinquish-var"
+    },
+    {
+     "in": "journalctl -n 5 --rot",
+     "want": "journalctl --rot can stand for --rotate, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --rotate"
+    },
+    {
+     "in": "journalctl -n 5 --rota",
+     "want": "journalctl --rota can stand for --rotate, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --rotate"
+    },
+    {
+     "in": "journalctl -n 5 --rotat",
+     "want": "journalctl --rotat can stand for --rotate, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --rotate"
+    },
+    {
+     "in": "journalctl -n 5 --se",
+     "want": "journalctl --se can stand for --setup-keys, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --setup-keys"
+    },
+    {
+     "in": "journalctl -n 5 --set",
+     "want": "journalctl --set can stand for --setup-keys, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --setup-keys"
+    },
+    {
+     "in": "journalctl -n 5 --setu",
+     "want": "journalctl --setu can stand for --setup-keys, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --setup-keys"
+    },
+    {
+     "in": "journalctl -n 5 --setup",
+     "want": "journalctl --setup can stand for --setup-keys, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --setup-keys"
+    },
+    {
+     "in": "journalctl -n 5 --setup-",
+     "want": "journalctl --setup- can stand for --setup-keys, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --setup-keys"
+    },
+    {
+     "in": "journalctl -n 5 --setup-k",
+     "want": "journalctl --setup-k can stand for --setup-keys, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --setup-keys"
+    },
+    {
+     "in": "journalctl -n 5 --setup-ke",
+     "want": "journalctl --setup-ke can stand for --setup-keys, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --setup-keys"
+    },
+    {
+     "in": "journalctl -n 5 --setup-key",
+     "want": "journalctl --setup-key can stand for --setup-keys, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --setup-keys"
+    },
+    {
+     "in": "journalctl -n 5 --sm",
+     "want": "journalctl --sm can stand for --smart-relinquish-var, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --smart-relinquish-var"
+    },
+    {
+     "in": "journalctl -n 5 --sma",
+     "want": "journalctl --sma can stand for --smart-relinquish-var, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --smart-relinquish-var"
+    },
+    {
+     "in": "journalctl -n 5 --smar",
+     "want": "journalctl --smar can stand for --smart-relinquish-var, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --smart-relinquish-var"
+    },
+    {
+     "in": "journalctl -n 5 --smart",
+     "want": "journalctl --smart can stand for --smart-relinquish-var, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --smart-relinquish-var"
+    },
+    {
+     "in": "journalctl -n 5 --smart-",
+     "want": "journalctl --smart- can stand for --smart-relinquish-var, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --smart-relinquish-var"
+    },
+    {
+     "in": "journalctl -n 5 --smart-r",
+     "want": "journalctl --smart-r can stand for --smart-relinquish-var, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --smart-relinquish-var"
+    },
+    {
+     "in": "journalctl -n 5 --smart-re",
+     "want": "journalctl --smart-re can stand for --smart-relinquish-var, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --smart-relinquish-var"
+    },
+    {
+     "in": "journalctl -n 5 --smart-rel",
+     "want": "journalctl --smart-rel can stand for --smart-relinquish-var, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --smart-relinquish-var"
+    },
+    {
+     "in": "journalctl -n 5 --smart-reli",
+     "want": "journalctl --smart-reli can stand for --smart-relinquish-var, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --smart-relinquish-var"
+    },
+    {
+     "in": "journalctl -n 5 --smart-relin",
+     "want": "journalctl --smart-relin can stand for --smart-relinquish-var, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --smart-relinquish-var"
+    },
+    {
+     "in": "journalctl -n 5 --smart-relinq",
+     "want": "journalctl --smart-relinq can stand for --smart-relinquish-var, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --smart-relinquish-var"
+    },
+    {
+     "in": "journalctl -n 5 --smart-relinqu",
+     "want": "journalctl --smart-relinqu can stand for --smart-relinquish-var, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --smart-relinquish-var"
+    },
+    {
+     "in": "journalctl -n 5 --smart-relinqui",
+     "want": "journalctl --smart-relinqui can stand for --smart-relinquish-var, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --smart-relinquish-var"
+    },
+    {
+     "in": "journalctl -n 5 --smart-relinquis",
+     "want": "journalctl --smart-relinquis can stand for --smart-relinquish-var, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --smart-relinquish-var"
+    },
+    {
+     "in": "journalctl -n 5 --smart-relinquish",
+     "want": "journalctl --smart-relinquish can stand for --smart-relinquish-var, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --smart-relinquish-var"
+    },
+    {
+     "in": "journalctl -n 5 --smart-relinquish-",
+     "want": "journalctl --smart-relinquish- can stand for --smart-relinquish-var, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --smart-relinquish-var"
+    },
+    {
+     "in": "journalctl -n 5 --smart-relinquish-v",
+     "want": "journalctl --smart-relinquish-v can stand for --smart-relinquish-var, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --smart-relinquish-var"
+    },
+    {
+     "in": "journalctl -n 5 --smart-relinquish-va",
+     "want": "journalctl --smart-relinquish-va can stand for --smart-relinquish-var, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --smart-relinquish-var"
+    },
+    {
+     "in": "journalctl -n 5 --syn",
+     "want": "journalctl --syn can stand for --sync, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --sync"
+    },
+    {
+     "in": "journalctl -n 5 --up",
+     "want": "journalctl --up can stand for --update-catalog, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --update-catalog"
+    },
+    {
+     "in": "journalctl -n 5 --upd",
+     "want": "journalctl --upd can stand for --update-catalog, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --update-catalog"
+    },
+    {
+     "in": "journalctl -n 5 --upda",
+     "want": "journalctl --upda can stand for --update-catalog, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --update-catalog"
+    },
+    {
+     "in": "journalctl -n 5 --updat",
+     "want": "journalctl --updat can stand for --update-catalog, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --update-catalog"
+    },
+    {
+     "in": "journalctl -n 5 --update",
+     "want": "journalctl --update can stand for --update-catalog, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --update-catalog"
+    },
+    {
+     "in": "journalctl -n 5 --update-",
+     "want": "journalctl --update- can stand for --update-catalog, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --update-catalog"
+    },
+    {
+     "in": "journalctl -n 5 --update-c",
+     "want": "journalctl --update-c can stand for --update-catalog, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --update-catalog"
+    },
+    {
+     "in": "journalctl -n 5 --update-ca",
+     "want": "journalctl --update-ca can stand for --update-catalog, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --update-catalog"
+    },
+    {
+     "in": "journalctl -n 5 --update-cat",
+     "want": "journalctl --update-cat can stand for --update-catalog, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --update-catalog"
+    },
+    {
+     "in": "journalctl -n 5 --update-cata",
+     "want": "journalctl --update-cata can stand for --update-catalog, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --update-catalog"
+    },
+    {
+     "in": "journalctl -n 5 --update-catal",
+     "want": "journalctl --update-catal can stand for --update-catalog, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --update-catalog"
+    },
+    {
+     "in": "journalctl -n 5 --update-catalo",
+     "want": "journalctl --update-catalo can stand for --update-catalog, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --update-catalog"
+    },
+    {
+     "in": "journalctl -n 5 --vacuum-f=1",
+     "want": "journalctl --vacuum-f can stand for --vacuum-files, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --vacuum-files"
+    },
+    {
+     "in": "journalctl -n 5 --vacuum-fi=1",
+     "want": "journalctl --vacuum-fi can stand for --vacuum-files, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --vacuum-files"
+    },
+    {
+     "in": "journalctl -n 5 --vacuum-fil=1",
+     "want": "journalctl --vacuum-fil can stand for --vacuum-files, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --vacuum-files"
+    },
+    {
+     "in": "journalctl -n 5 --vacuum-file=1",
+     "want": "journalctl --vacuum-file can stand for --vacuum-files, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --vacuum-files"
+    },
+    {
+     "in": "journalctl -n 5 --vacuum-s=1K",
+     "want": "journalctl --vacuum-s can stand for --vacuum-size, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --vacuum-size"
+    },
+    {
+     "in": "journalctl -n 5 --vacuum-si=1K",
+     "want": "journalctl --vacuum-si can stand for --vacuum-size, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --vacuum-size"
+    },
+    {
+     "in": "journalctl -n 5 --vacuum-siz=1K",
+     "want": "journalctl --vacuum-siz can stand for --vacuum-size, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --vacuum-size"
+    },
+    {
+     "in": "journalctl -n 5 --vacuum-t=1s",
+     "want": "journalctl --vacuum-t can stand for --vacuum-time, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --vacuum-time"
+    },
+    {
+     "in": "journalctl -n 5 --vacuum-ti=1s",
+     "want": "journalctl --vacuum-ti can stand for --vacuum-time, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --vacuum-time"
+    },
+    {
+     "in": "journalctl -n 5 --vacuum-tim=1s",
+     "want": "journalctl --vacuum-tim can stand for --vacuum-time, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; the VM's journalctl 257 takes it as --vacuum-time"
+    },
+    {
+     "in": "journalctl --ro",
+     "want": "journalctl --ro can stand for --rotate, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; journalctl refuses it as ambiguous"
+    },
+    {
+     "in": "journalctl --sy",
+     "want": "journalctl --sy can stand for --sync, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; journalctl refuses it as ambiguous"
+    },
+    {
+     "in": "journalctl --re",
+     "want": "journalctl --re can stand for --relinquish-var, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; journalctl refuses it as ambiguous"
+    },
+    {
+     "in": "journalctl --s",
+     "want": "journalctl --s can stand for an option that changes system logs and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; journalctl refuses it as ambiguous"
+    },
+    {
+     "in": "journalctl --vacuum=1s",
+     "want": "journalctl --vacuum can stand for an option that changes system logs and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; journalctl refuses it as ambiguous"
+    },
+    {
+     "in": "journalctl --curs=x",
+     "want": "journalctl --curs can stand for --cursor-file, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option; journalctl refuses it as ambiguous"
+    },
+    {
+     "in": "journalctl --ROT",
+     "want": "journalctl --rot can stand for --rotate, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option"
+    },
+    {
+     "in": "journalctl --Vacuum-T=1s",
+     "want": "journalctl --vacuum-t can stand for --vacuum-time, which changes system logs, and is not allowed here",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option"
+    },
+    {
+     "in": "journalctl --cursor=s=abc -n 5",
+     "want": "allow",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option"
+    },
+    {
+     "in": "journalctl --root=/srv/os -n 5",
+     "want": "allow",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option"
+    },
+    {
+     "in": "journalctl --reverse -n 5",
+     "want": "allow",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option"
+    },
+    {
+     "in": "journalctl --system --since=-1h",
+     "want": "allow",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option"
+    },
+    {
+     "in": "journalctl --user-unit=x --utc",
+     "want": "allow",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option"
+    },
+    {
+     "in": "journalctl -r -f -n 5",
+     "want": "allow",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option"
+    },
+    {
+     "in": "journalctl -n 5 --",
+     "want": "allow",
+     "from": "added",
+     "fault": "2 (command-rule-faults 2026-11-16): journalctl takes a shortened long option"
     }
    ]
   },
@@ -1913,6 +2676,61 @@
      "in": "cmd /c echo ok",
      "want": "allow",
      "from": "added"
+    }
+   ]
+  },
+  {
+   "group": "shell allowlist off: the program's folder is still checked",
+   "env": {
+    "LABTETHER_SHELL_COMMAND_ALLOWLIST_MODE": "false",
+    "LABTETHER_SHELL_COMMAND_ALLOWLIST_ACCEPT_RISK": "true"
+   },
+   "skip_os": [
+    "windows"
+   ],
+   "check": "validated",
+   "files": [
+    "{tmp}/bin/bash",
+    "{tmp}/plant/bash"
+   ],
+   "path": "{tmp}/bin",
+   "cases": [
+    {
+     "in": "'{tmp}/plant/bash' -c id",
+     "want": "command \"{tmp}/plant/bash\" is not the \"bash\" found in PATH",
+     "from": "added",
+     "fault": "1 (command-rule-faults 2026-11-16): only the name was checked; was allowed"
+    },
+    {
+     "in": "'{tmp}/bin/bash' -c id",
+     "want": "allow",
+     "from": "added",
+     "fault": "1 (command-rule-faults 2026-11-16): only the name was checked"
+    },
+    {
+     "in": "bash -c id",
+     "want": "allow",
+     "from": "added",
+     "fault": "1 (command-rule-faults 2026-11-16): only the name was checked"
+    }
+   ]
+  },
+  {
+   "group": "default shell rules match the program word as typed",
+   "env": {},
+   "check": "validated",
+   "cases": [
+    {
+     "in": "/tmp/x/cat /etc/hostname",
+     "want": "command not in allowlist",
+     "from": "added",
+     "fault": "who can reach fault 1: a default rule never takes a path"
+    },
+    {
+     "in": "/usr/bin/uptime",
+     "want": "command not in allowlist",
+     "from": "added",
+     "fault": "who can reach fault 1: a default rule never takes a path"
     }
    ]
   }

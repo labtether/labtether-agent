@@ -34,6 +34,8 @@ func TestHandleCommandRequestBoundsInheritedOutputDrain(t *testing.T) {
 				t.Fatal(err)
 			}
 			quoted := strconv.Quote(executable)
+			// A program given by path must be the one PATH finds for its name.
+			t.Setenv("PATH", filepath.Dir(executable)+string(os.PathListSeparator)+os.Getenv("PATH"))
 			t.Setenv("LABTETHER_EXEC_ALLOWED_BINARIES", filepath.Base(executable))
 			t.Setenv("LABTETHER_SHELL_COMMAND_ALLOWLIST_PREFIXES", quoted)
 			ctx, cancel := context.WithCancel(context.Background())
@@ -123,6 +125,8 @@ func TestHandleCommandRequestReportsRealExitCode(t *testing.T) {
 	}
 	quoted := strconv.Quote(executable)
 	const missing = "labtether-missing-command"
+	// A program given by path must be the one PATH finds for its name.
+	t.Setenv("PATH", filepath.Dir(executable)+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("LABTETHER_EXEC_ALLOWED_BINARIES", filepath.Base(executable)+","+missing)
 	t.Setenv("LABTETHER_SHELL_COMMAND_ALLOWLIST_PREFIXES", quoted+","+missing)
 	helper := quoted + " -test.run=^TestRemoteCommandOutputHelper$ -- "

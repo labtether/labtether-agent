@@ -174,6 +174,10 @@ pub const JOURNALCTL_CHANGING_OPTIONS: &[&str] = &[
     "--cursor-file",
 ];
 
+/// Go's `journalctlReadOptionsLikeChanging`: read-only options whose whole
+/// name begins a changing option's name.
+pub const JOURNALCTL_READ_OPTIONS_LIKE_CHANGING: &[&str] = &["--cursor"];
+
 /// Go's `builtinProtectedReadPaths`.
 pub const BUILTIN_PROTECTED_READ_PATHS: &[&str] = &[
     "/etc/shadow",

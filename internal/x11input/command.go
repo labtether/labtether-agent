@@ -68,5 +68,9 @@ func NewCommand(args ...string) (*exec.Cmd, error) {
 	if err != nil {
 		return nil, fmt.Errorf("locate X11 helper executable: %w", err)
 	}
-	return exec.Command(executable, append([]string{CommandFlag}, args...)...), nil // #nosec G204 -- Only this executable and validated physical keycodes can be passed.
+	cmd := exec.Command(executable, append([]string{CommandFlag}, args...)...) // #nosec G204 -- Only this executable and validated physical keycodes can be passed.
+	// Callers add DISPLAY and XAUTHORITY; the helper needs none of the
+	// agent's own variables.
+	cmd.Env = securityruntime.SanitizedChildEnv()
+	return cmd, nil
 }

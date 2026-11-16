@@ -51,8 +51,8 @@ fn a_refused_program_never_starts() {
     assert!(!Path::new(&marker).exists(), "touch ran");
 }
 
-// Fault: a timeout stops only the direct child (as Go's plain helpers do),
-// so a background process of the command keeps running.
+// Fault: a timeout stops only the direct child (as Go's plain helpers did
+// before 2026-11-16), so a background process of the command keeps running.
 #[test]
 fn a_timeout_stops_the_whole_process_group() {
     let policy = policy(&BTreeMap::new(), &[], &[("PATH", &path())]);
@@ -141,8 +141,9 @@ fn the_child_sees_only_the_sanitized_environment() {
 
 // Fault: with the default request a command that ends but leaves a
 // background process holding its output (a started daemon) keeps the
-// caller waiting until that process ends. Go's remote command path bounds
-// this with a 1 s WaitDelay.
+// caller waiting until that process ends. Go bounds this with a 1 s
+// WaitDelay on the remote command path and, on Linux and macOS, in its plain
+// helpers.
 #[test]
 fn the_default_request_does_not_wait_for_a_background_holder() {
     let policy = policy(&BTreeMap::new(), &[], &[("PATH", &path())]);

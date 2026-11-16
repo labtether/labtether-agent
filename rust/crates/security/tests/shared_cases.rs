@@ -42,7 +42,33 @@ struct CaseGroup {
     skip_os: Vec<String>,
     #[serde(default)]
     check: String,
+    #[serde(default)]
+    files: Vec<String>,
+    #[serde(default)]
+    links: BTreeMap<String, String>,
+    path: Option<String>,
     cases: Vec<PolicyCase>,
+}
+
+impl CaseGroup {
+    fn skipped(&self) -> bool {
+        self.skip_os.iter().any(|os| os == std::env::consts::OS)
+    }
+
+    /// Makes the group's programs and links; returns `PATH` for the policy
+    /// (the group's own, or this process's).
+    fn prepare(&self, paths: &CasePaths) -> String {
+        for file in &self.files {
+            paths.program(&paths.replace(file));
+        }
+        for (link, target) in &self.links {
+            paths.link(&paths.replace(target), &paths.replace(link));
+        }
+        match &self.path {
+            Some(path) => paths.replace(path),
+            None => std::env::var("PATH").unwrap_or_default(),
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -96,13 +122,19 @@ fn parse_cases_match_go() {
 fn exec_cases_match_go() {
     let mut failures = Vec::new();
     for group in command_cases().exec {
-        let policy = policy(&group.env, &[], &[]);
+        if group.skipped() {
+            continue;
+        }
+        let paths = CasePaths::new();
+        let search_path = group.prepare(&paths);
+        let policy = policy(&group.env, &[], &[("PATH", &search_path)]);
         for case in &group.cases {
-            let label = format!("[{}] {:?}", group.group, case.r#in);
+            let name = paths.replace(&case.r#in);
+            let label = format!("[{}] {name:?}", group.group);
             failures.extend(mismatch(
                 &label,
-                policy.validate_exec_binary(&case.r#in),
-                &case.want,
+                policy.validate_exec_binary(&name),
+                &paths.replace(&case.want),
             ));
         }
     }
@@ -115,12 +147,13 @@ fn exec_cases_match_go() {
 fn shell_cases_match_go() {
     let mut failures = Vec::new();
     for group in command_cases().shell {
-        if group.skip_os.iter().any(|os| os == std::env::consts::OS) {
+        if group.skipped() {
             continue;
         }
         let paths = CasePaths::new();
+        let search_path = group.prepare(&paths);
         let protect: Vec<String> = group.protect.iter().map(|p| paths.replace(p)).collect();
-        let policy = policy(&group.env, &protect, &[]);
+        let policy = policy(&group.env, &protect, &[("PATH", &search_path)]);
         for case in &group.cases {
             let command = paths.replace(&case.r#in);
             let result = match group.check.as_str() {

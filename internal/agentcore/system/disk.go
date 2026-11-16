@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"log"
 	"os"
-	"os/exec"
 	"runtime"
 	"strconv"
 	"strings"
@@ -166,10 +165,7 @@ func collectMountsLinux() ([]protocol.MountInfo, error) {
 //	Filesystem  1024-blocks  Used  Available  Use%  Mounted on
 //	0           1            2     3          4     5
 func collectMountsDF() ([]protocol.MountInfo, error) {
-	out, err := securityruntime.CaptureCombinedOutput(
-		exec.Command("df", "-kP"),
-		securityruntime.DefaultCommandOutputLimit,
-	)
+	out, err := securityruntime.CommandCombinedOutput("df", "-kP")
 	if err != nil {
 		return nil, err
 	}

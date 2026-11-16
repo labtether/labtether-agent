@@ -88,6 +88,22 @@ impl CasePaths {
         Self { root, pairs }
     }
 
+    /// A small executable script at `path`, with its folders.
+    pub fn program(&self, path: &str) {
+        use std::os::unix::fs::PermissionsExt;
+        let path = Path::new(path);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, "#!/bin/sh\nexit 0\n").unwrap();
+        fs::set_permissions(path, fs::Permissions::from_mode(0o700)).unwrap();
+    }
+
+    /// A symlink at `link` to `target`, with its folders.
+    pub fn link(&self, target: &str, link: &str) {
+        let link = Path::new(link);
+        fs::create_dir_all(link.parent().unwrap()).unwrap();
+        std::os::unix::fs::symlink(target, link).unwrap();
+    }
+
     pub fn replace(&self, text: &str) -> String {
         let mut out = text.to_owned();
         for (placeholder, value) in &self.pairs {
