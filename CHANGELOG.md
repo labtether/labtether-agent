@@ -100,6 +100,14 @@ All notable changes to `labtether-agent` are documented in this file.
   A token the Hub refuses (used, expired or revoked) is not offered again
   this way, and the agent waits for approval as before.
 - Rust agent: the same, so both agents behave alike.
+- After that late enrollment the agent trusts the CA the Hub returned from
+  its next connection, as it does after enrolling at start. Before, an agent
+  started with `LABTETHER_TLS_SKIP_VERIFY=true` and no CA file saved the CA
+  but went on accepting any certificate until it restarted, so another
+  server at the Hub's address received its agent token. This covers the
+  WebSocket, the HTTP heartbeat and update checks in the Go agent and the
+  WebSocket in the Rust agent. A CA file you set and
+  `LABTETHER_TLS_CA_ONLY` work as at start.
 - Rust agent: a one-use enrollment token is kept when the first enrollment
   fails, as in the Go agent. Before, a first try that found no Hub, or that
   the Hub refused, dropped the token, so an agent the Hub then refused (a

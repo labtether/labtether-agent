@@ -115,6 +115,8 @@ impl Default for Behaviour {
 
 pub struct Shared {
     pub behaviour: Mutex<Behaviour>,
+    /// The TLS setup for the next connection; `None` serves plain TCP.
+    acceptor: Mutex<Option<TlsAcceptor>>,
     events: mpsc::UnboundedSender<Event>,
     next_id: AtomicUsize,
     kick: watch::Sender<u64>,
@@ -146,10 +148,25 @@ impl Hub {
     /// `behaviour` in place before the first connection, so an agent can be
     /// started while no Hub listens there.
     pub async fn start_at(addr: SocketAddr, behaviour: Behaviour) -> Self {
+        Self::start_tls_at(addr, None, behaviour).await
+    }
+
+    /// As [`Hub::start_at`], with TLS when `acceptor` is given.
+    pub async fn start_tls_at(
+        addr: SocketAddr,
+        acceptor: Option<TlsAcceptor>,
+        behaviour: Behaviour,
+    ) -> Self {
         let listener = TcpListener::bind(addr)
             .await
             .expect("the reserved Hub address is still free");
-        Self::serve_on(listener, None, behaviour)
+        Self::serve_on(listener, acceptor, behaviour)
+    }
+
+    /// Presents another certificate from the next connection on, as another
+    /// server at the Hub's address would.
+    pub fn use_certificate(&self, acceptor: TlsAcceptor) {
+        *self.shared.acceptor.lock().unwrap() = Some(acceptor);
     }
 
     fn serve_on(
@@ -159,19 +176,20 @@ impl Hub {
     ) -> Self {
         let addr = listener.local_addr().unwrap();
         let (tx, events) = mpsc::unbounded_channel();
+        let tls = acceptor.is_some();
         let shared = Arc::new(Shared {
             behaviour: Mutex::new(behaviour),
+            acceptor: Mutex::new(acceptor),
             events: tx,
             next_id: AtomicUsize::new(1),
             kick: watch::channel(0).0,
             push: broadcast::channel(16).0,
         });
-        let tls = acceptor.is_some();
         let task_shared = shared.clone();
         tokio::spawn(async move {
             while let Ok((tcp, _)) = listener.accept().await {
                 let shared = task_shared.clone();
-                let acceptor = acceptor.clone();
+                let acceptor = shared.acceptor.lock().unwrap().clone();
                 tokio::spawn(async move {
                     match acceptor {
                         Some(acceptor) => {

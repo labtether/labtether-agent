@@ -3,6 +3,7 @@ package agentcore
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/labtether/labtether-agent/internal/assets"
@@ -22,35 +24,53 @@ func NewHeartbeatPublisher(cfg RuntimeConfig, staticMetadata map[string]string) 
 }
 
 func newHeartbeatPublisherWithRuntimeIdentity(cfg RuntimeConfig, staticMetadata map[string]string, identity *runtimeIdentitySource) HeartbeatPublisher {
-	transport := &http.Transport{
-		MaxIdleConns:        2,
-		MaxIdleConnsPerHost: 1,
-		IdleConnTimeout:     90 * time.Second,
-	}
-	if tlsCfg := buildTLSConfig(&cfg); tlsCfg != nil {
-		transport.TLSClientConfig = tlsCfg
-	}
 	scheme := "https"
 	if endpoint, err := url.Parse(cfg.APIBaseURL); err == nil && endpoint.Scheme != "" {
 		scheme = endpoint.Scheme
 	}
 
 	return &apiHeartbeatPublisher{
-		client: securityruntime.NewReusableOutboundHTTPClient(&http.Client{
-			Timeout:   6 * time.Second,
-			Transport: transport,
-		}, scheme),
+		client:   heartbeatHTTPClient(buildTLSConfig(&cfg), scheme),
+		scheme:   scheme,
 		source:   cfg.Source,
 		meta:     cloneStringMap(staticMetadata),
 		identity: identity,
 	}
 }
 
+func heartbeatHTTPClient(tlsCfg *tls.Config, scheme string) *http.Client {
+	transport := &http.Transport{
+		MaxIdleConns:        2,
+		MaxIdleConnsPerHost: 1,
+		IdleConnTimeout:     90 * time.Second,
+	}
+	if tlsCfg != nil {
+		transport.TLSClientConfig = tlsCfg
+	}
+	return securityruntime.NewReusableOutboundHTTPClient(&http.Client{
+		Timeout:   6 * time.Second,
+		Transport: transport,
+	}, scheme)
+}
+
 type apiHeartbeatPublisher struct {
-	client   *http.Client
+	mu       sync.Mutex
+	client   *http.Client // replaced by useHubTLSConfig
+	scheme   string
 	source   string
 	meta     map[string]string
 	identity *runtimeIdentitySource
+}
+
+// useHubTLSConfig makes the next heartbeat connect with tlsCfg, after a late
+// enrollment saved the Hub's CA.
+func (p *apiHeartbeatPublisher) useHubTLSConfig(tlsCfg *tls.Config) {
+	next := heartbeatHTTPClient(tlsCfg, p.scheme)
+	p.mu.Lock()
+	previous := p.client
+	p.client = next
+	p.mu.Unlock()
+	previous.CloseIdleConnections()
 }
 
 var errHeartbeatCredentialsUnavailable = errors.New("heartbeat credentials are not available")
@@ -90,7 +110,10 @@ func (p *apiHeartbeatPublisher) Publish(ctx context.Context, sample TelemetrySam
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+identity.BearerToken)
 
-	resp, err := securityruntime.DoOutboundRequest(p.client, req)
+	p.mu.Lock()
+	client := p.client
+	p.mu.Unlock()
+	resp, err := securityruntime.DoOutboundRequest(client, req)
 	if err != nil {
 		return fmt.Errorf("send heartbeat: %w", err)
 	}

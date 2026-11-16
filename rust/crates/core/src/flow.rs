@@ -150,7 +150,7 @@ pub async fn re_enroll(agent: &Agent, staged: &EnrollmentToken) -> Result<String
         group_id: &current.group_id,
         proof: ProofVersion::V2,
     };
-    let enrolled = enroll::enroll(&input, &agent.device, &agent.tls).await?;
+    let enrolled = enroll::enroll(&input, &agent.device, &agent.tls()).await?;
     let mut next = current.clone();
     next.token = Some(enrolled.token.clone());
     next.asset_id = enrolled.asset_id.clone();

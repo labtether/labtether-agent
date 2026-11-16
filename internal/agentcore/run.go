@@ -170,7 +170,7 @@ func Run(ctx context.Context, cfg RuntimeConfig, provider TelemetryProvider) err
 		// Start-up enrollment found no Hub: enroll with the token once the
 		// Hub answers, before connecting as a device awaiting approval.
 		if enrollWhenReachable {
-			armEnrollmentWhenHubReachable(cfg, transport)
+			armEnrollmentWhenHubReachable(cfg, transport, httpPublisher)
 		}
 
 		// Start network change monitor.

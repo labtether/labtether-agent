@@ -1,5 +1,6 @@
 //! Start-up and the shared state every connection uses.
 
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -54,7 +55,9 @@ pub struct Agent {
     pub(crate) device: DeviceIdentity,
     pub(crate) files: StateFiles,
     pub(crate) identity: IdentityCell,
-    pub(crate) tls: Arc<ClientConfig>,
+    /// The TLS setup for the next connection to the Hub; see
+    /// [`Agent::use_saved_ca`].
+    tls: Mutex<Arc<ClientConfig>>,
     pub(crate) timing: Timing,
     pub(crate) heartbeat: HeartbeatTemplate,
     /// Collect and heartbeat intervals, changed by the Hub's `config.update`.
@@ -156,7 +159,7 @@ impl Agent {
         let workers = Workers::new(timing.request_workers);
         let intervals = IntervalControl::new(&settings);
         Ok(Arc::new(Self {
-            tls: tls::client_config(&tls_settings)?,
+            tls: Mutex::new(tls::client_config(&tls_settings)?),
             settings,
             device,
             files,
@@ -189,6 +192,38 @@ impl Agent {
         tokio::join!(telemetry, connection);
         stop.stop();
         crate::producers::join(producers, self.timing.write_timeout).await;
+    }
+
+    pub(crate) fn tls(&self) -> Arc<ClientConfig> {
+        self.tls
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+    }
+
+    /// Trusts the Hub CA that enrollment from the reconnect loop saved, from
+    /// the next connection. Start-up enrollment runs before the TLS setup is
+    /// built, so it trusts that CA at once, and the CA turns certificate
+    /// checks back on for an agent started with LABTETHER_TLS_SKIP_VERIFY and
+    /// no CA file. `flow::save_hub_ca` saves a CA only when start-up would:
+    /// never with CA-only on or over a CA file the person set.
+    pub(crate) fn use_saved_ca(&self, ca_file: PathBuf) {
+        let mut tls_settings = self.settings.tls.clone();
+        tls_settings.ca_file = Some(ca_file);
+        match tls::client_config(&tls_settings) {
+            Ok(config) => {
+                if self.settings.tls.skip_verify {
+                    log::info!(
+                        "the Hub CA saved at enrollment takes priority; LABTETHER_TLS_SKIP_VERIFY is ignored"
+                    );
+                }
+                *self
+                    .tls
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner()) = config;
+            }
+            Err(error) => log::error!("cannot trust the Hub CA saved at enrollment: {error}"),
+        }
     }
 
     pub(crate) fn re_enroll_state(&self) -> MutexGuard<'_, ReEnroll> {

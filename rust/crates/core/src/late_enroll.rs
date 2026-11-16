@@ -42,13 +42,18 @@ pub(crate) async fn try_enroll(agent: &Agent) -> LateEnrollment {
         &agent.settings,
         &agent.files,
         &agent.device,
-        &agent.tls,
+        &agent.tls(),
         &configured,
         &staged,
     )
     .await
     {
         Ok(done) => {
+            // As at start: the CA the Hub returned is trusted before the
+            // issued token is used.
+            if let Some(ca_file) = done.saved_ca {
+                agent.use_saved_ca(ca_file);
+            }
             agent.identity.replace(done.identity);
             {
                 let mut state = agent.re_enroll_state();
