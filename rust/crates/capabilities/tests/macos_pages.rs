@@ -26,7 +26,10 @@ fn macos_builds_only_the_sandbox_pages() {
         hostname: "nas01".into(),
         version: "0.1.0".into(),
     };
-    let features = all(&load(&env, &host).unwrap().settings);
+    let features = all(
+        &load(&env, &host).unwrap().settings,
+        &labtether_agent_capabilities::Commands::none(),
+    );
     let mut handled = features.message_types();
     handled.sort_unstable();
     assert_eq!(handled, ["disk.list", "network.list"]);

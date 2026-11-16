@@ -11,11 +11,10 @@ publish.workspace = true
 labtether-agent-config.workspace = true
 labtether-agent-core.workspace = true
 labtether-agent-platform.workspace = true
+labtether-agent-security.workspace = true
 labtether-protocol.workspace = true
 
 log.workspace = true
-
-[dev-dependencies]
 serde_json.workspace = true
 
 [lints]

@@ -17,7 +17,26 @@ use serde_json::{Value, json};
 
 #[cfg(target_os = "linux")]
 use crate::processes;
-use crate::{disks, network};
+use crate::{Commands, disks, network};
+
+#[cfg(target_os = "linux")]
+pub(crate) mod fakebin;
+#[cfg(target_os = "linux")]
+mod services;
+
+/// The command rules over the test machine's usual `PATH`.
+#[cfg(target_os = "linux")]
+pub(crate) fn commands() -> Commands {
+    let env = Environment::from_pairs([("PATH", "/usr/local/bin:/usr/bin:/bin")]);
+    let policy = labtether_agent_security::CommandPolicy::new(&settings().command_security, &env);
+    Commands::new(policy)
+}
+
+/// The macOS build starts no program.
+#[cfg(target_os = "macos")]
+pub(crate) fn commands() -> Commands {
+    Commands::none()
+}
 
 pub(crate) fn settings() -> Settings {
     let dir = std::env::temp_dir().join("lt-capabilities-unused");
@@ -181,12 +200,17 @@ fn list_replies_carry_every_field() {
 // the test machine.
 #[test]
 fn registered_handlers_reply_with_their_types() {
-    let features = crate::all(&settings());
+    // It starts the real tools; no fake script may be open for writing then.
+    #[cfg(target_os = "linux")]
+    let _serial = fakebin::serial();
+    let features = crate::all(&settings(), &commands());
     for (request, reply) in [
         ("disk.list", "disk.listed"),
         ("network.list", "network.listed"),
         #[cfg(target_os = "linux")]
         ("process.list", "process.listed"),
+        #[cfg(target_os = "linux")]
+        ("service.list", "service.listed"),
     ] {
         let handler = features
             .handler(request)
@@ -203,5 +227,23 @@ fn registered_handlers_reply_with_their_types() {
         let bad: Message =
             serde_json::from_value(json!({"type": request, "data": {"request_id": 5}})).unwrap();
         assert!(handler(&bad).is_none(), "{request} answered a bad request");
+    }
+    // package.list answers every request (see packages/tests.rs); a good
+    // one gets the real installed list of the test machine.
+    #[cfg(target_os = "linux")]
+    {
+        let handler = features.handler("package.list").unwrap();
+        let message: Message = serde_json::from_value(
+            json!({"type": "package.list", "id": "q8", "data": {"request_id": "q8"}}),
+        )
+        .unwrap();
+        let answer = handler(&message).unwrap();
+        assert_eq!(
+            (answer.r#type.as_str(), answer.id.as_str()),
+            ("package.listed", "q8")
+        );
+        let data: Value = answer.decode().unwrap();
+        assert_eq!(data["error"], Value::Null, "{data}");
+        assert!(!data["packages"].as_array().unwrap().is_empty());
     }
 }

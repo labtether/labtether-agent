@@ -10,7 +10,9 @@
 //! [`PAGES`]. The token check and the worker bound in `core` apply to it
 //! without further code. `tests/advertised.rs` fails when a page's
 //! advertisement and handlers do not match; add a row to its table when a
-//! page brings a new `cap_*` value.
+//! page brings a new `cap_*` value. A page that starts a program goes in
+//! [`COMMAND_PAGES`] instead and is also given the [`Commands`] it must
+//! start programs through.
 //!
 //! On macOS the agent is the monitoring edition the Mac App Store app
 //! bundles: it runs in the App Sandbox and starts no program. Only the pages
@@ -20,13 +22,20 @@
 
 #![forbid(unsafe_code)]
 
+mod commands;
 mod disks;
 mod network;
 #[cfg(target_os = "linux")]
+mod packages;
+#[cfg(target_os = "linux")]
 mod processes;
+#[cfg(target_os = "linux")]
+mod services;
 
 use labtether_agent_config::Settings;
 use labtether_agent_core::Features;
+
+pub use commands::Commands;
 
 /// One registration function per page, in no particular order.
 pub const PAGES: &[fn(&mut Features, &Settings)] = &[
@@ -36,12 +45,24 @@ pub const PAGES: &[fn(&mut Features, &Settings)] = &[
     processes::register,
 ];
 
+/// The pages that start programs, each given the command rules. Linux
+/// only: the macOS edition starts no program.
+#[cfg(target_os = "linux")]
+pub const COMMAND_PAGES: &[fn(&mut Features, &Settings, &Commands)] =
+    &[packages::register, services::register];
+
 /// Every feature in this build.
-pub fn all(settings: &Settings) -> Features {
+pub fn all(settings: &Settings, commands: &Commands) -> Features {
     let mut features = Features::new();
     for register in PAGES {
         register(&mut features, settings);
     }
+    #[cfg(target_os = "linux")]
+    for register in COMMAND_PAGES {
+        register(&mut features, settings, commands);
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = commands;
     features
 }
 

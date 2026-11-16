@@ -14,6 +14,7 @@ pub mod procfs;
 pub mod procps;
 pub mod sampler;
 pub mod temperature;
+pub mod tool_output;
 
 pub use lookpath::{LookPathError, command_exists, look_path};
 pub use metadata::{heartbeat_disk_available, host_metadata};

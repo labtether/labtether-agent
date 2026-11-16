@@ -51,6 +51,9 @@ pub struct RunRequest {
     /// can be forever (a started daemon); after a timeout the wait is
     /// bounded by [`DEFAULT_WAIT_DELAY`] even then.
     pub wait_delay: Option<Duration>,
+    /// Variables set for this command on top of the sanitized environment;
+    /// a name already there gets this value. Empty by default.
+    pub env_overrides: Vec<(String, String)>,
 }
 
 impl RunRequest {
@@ -66,6 +69,7 @@ impl RunRequest {
             output_limit: DEFAULT_COMMAND_OUTPUT_LIMIT,
             timeout: None,
             wait_delay: Some(DEFAULT_WAIT_DELAY),
+            env_overrides: Vec::new(),
         }
     }
 }
@@ -145,6 +149,12 @@ impl CommandPolicy {
             .args(&request.args)
             .env_clear()
             .envs(self.child_env.iter().map(|(key, value)| (key, value)))
+            .envs(
+                request
+                    .env_overrides
+                    .iter()
+                    .map(|(key, value)| (key, value)),
+            )
             .stdin(Stdio::null())
             .process_group(0);
 

@@ -40,6 +40,19 @@ On Linux, the `labtether-agent-rs` binary:
   - `process.list`: `/proc`, with the columns and rounding of the
     `ps -axo user=,pid=,%cpu=,%mem=,rss=,command=` the Go agent runs, then
     Go's sort (CPU or memory) and limit (25 by default);
+- answers the service list and both package lists by running the programs
+  the Go agent runs, with its arguments, timeouts, output limits and error
+  replies, each through the command rules (see "Command rules"):
+  - `service.list`: `systemctl list-unit-files` (10 s) for the unit file
+    states and `systemctl list-units --all` (15 s) for the units, plus the
+    installed services `list-units` leaves out;
+  - `package.list`: the installed list from `dpkg-query`, `rpm`,
+    `pacman -Q` or `apk info -v` (the database of the first package manager
+    found), or with `inventory: upgradable` the available updates from
+    `apt-get --just-print upgrade`, `dnf`/`yum check-update` with `rpm`,
+    `zypper list-updates`, `pacman -Qu` or `apk version -l <` (45 s for
+    the whole list, 2 MiB of output, `LC_ALL=C`); at most 10,000 entries
+    and an 8 MiB reply, as in Go;
 - checks the agent token's capability claims before any handler runs, with
   the Go agent's table (`command_authorization.go`); the Hub's opaque tokens
   carry no claims and are not checked, as in Go;
@@ -52,8 +65,15 @@ On Linux, the `labtether-agent-rs` binary:
 
 The heartbeat advertises `cap_network=list`, `network_backend=ifconfig` and
 `network_action_backend=none`, Go's values for a Linux host without
-`netplan` or `nmcli`. The `capabilities` list stays empty, so the Hub offers
-no terminal, desktop, files or power for it. Heartbeat details the Go agent
+`netplan` or `nmcli`. With `systemctl` in the agent's `PATH` it sends
+`cap_services=list` and `service_backend=systemd`; with a package tool,
+`cap_packages=list` and `package_backend` set to the tool Go would name
+(`apt-get`, `dnf`, `yum`, `zypper`, `pacman`, `apk`, else `dpkg-query` or
+`rpm`). Go sends `list,action` for both; this agent has no service or
+package actions, so it sends `list`, the value Go itself uses for a host
+with only a query tool. Without the tool it sends Go's empty value and
+`none`. Both agents decide these once at start. The `capabilities` list
+stays empty, so the Hub offers no terminal, desktop, files or power for it. Heartbeat details the Go agent
 learns by running a program (`tailscale status`) are not sent.
 
 ## macOS: the monitoring edition
@@ -94,8 +114,10 @@ arithmetic, host details) is safe code in `crates/platform/src/macos/`.
 ## Command rules
 
 `crates/security` holds the Go agent's rules for every command the agent
-starts (`internal/securityruntime`). Nothing calls it yet; the read-only
-pages will be its first users.
+starts (`internal/securityruntime`). The binary builds one `CommandPolicy`
+at start from the settings and the environment it read, and hands it to
+`capabilities::all` inside a `Commands` value; the service and package
+pages start every program through it, on their worker threads.
 
 - Exec allowlist: Go's default program list, `LABTETHER_EXEC_ALLOWLIST_MODE`
   with `LABTETHER_EXEC_ALLOWLIST_ACCEPT_RISK`, `LABTETHER_EXEC_ALLOWED_BINARIES`
@@ -115,6 +137,12 @@ pages will be its first users.
   outlives the call.
   `rust/clippy.toml` makes `std::process::Command::new` fail clippy in every
   other place.
+- `RunRequest::env_overrides` sets variables for one command on top of the
+  sanitized environment (the package queries' `LC_ALL=C`, as Go does).
+- `go_outcome` turns a run into what Go's capture helpers return: the kept
+  output and Go's error text (`exit status 1`, `signal: killed`, the output
+  limit message), with the exit code and whether the timeout or the limit
+  was hit.
 
 Settings are read once at start into `CommandSecuritySettings`; the variable
 names, defaults and parsing are Go's. Error text is Go's, word for word.
@@ -180,18 +208,19 @@ This binary is not hardened and not a replacement for the Go agent:
   refuse loopback or private addresses the way the Go agent's outbound
   policy does;
 - no Tailscale details beyond whether it is installed, no connector probes,
-  and no `cap_*` keys other than `cap_network`;
+  and no `cap_*` keys other than `cap_network`, `cap_services` and
+  `cap_packages`;
 - no `df -kP` fallback: when `/proc/mounts` cannot be read, `disk.list`
   replies with an error saying so (Go runs `df` then);
-- no actions: `process.kill`, `network.action` and every other request
-  without a handler is ignored and logged once at debug level;
+- no actions: `process.kill`, `network.action`, `service.action`,
+  `package.action` and every other request without a handler is ignored
+  and logged once at debug level;
 - no HTTP heartbeat while the WebSocket is down;
 - no start without a Hub address: Go runs on and its status page says
   `disconnected`; this agent exits (the apps never start it without one);
 - no Windows parent watch (Go waits on a process handle there);
-- no users, cron, services, packages, logs, Docker, web service discovery,
-  terminal, files or Remote View pages (the command rules exist but nothing
-  runs a command);
+- no users, cron, logs, Docker, web service discovery, terminal, files or
+  Remote View pages;
 - no self-update, installer, systemd unit or container image;
 - Linux and macOS only; macOS has the monitoring set above.
 
@@ -200,7 +229,7 @@ This binary is not hardened and not a replacement for the Go agent:
 | Folder | Holds |
 |---|---|
 | `crates/config` | The settings, read from the environment and `agent-config.json` |
-| `crates/platform` | Linux readers (`linux/`): `/proc`, `/sys`, `statfs`, the interface list from netlink, the mount and process lists, the PATH lookup, process-group stop. macOS readers (`macos/`): telemetry, host details, the interface table and mount list, on top of `crates/macos-sys` |
+| `crates/platform` | Linux readers (`linux/`): `/proc`, `/sys`, `statfs`, the interface list from netlink, the mount and process lists, the PATH lookup, process-group stop, and the parsers of `systemctl` and package-tool output (`linux/tool_output/`). macOS readers (`macos/`): telemetry, host details, the interface table and mount list, on top of `crates/macos-sys` |
 | `crates/macos-sys` | macOS only: the system calls behind safe functions (`sysctl`, the interface table, Mach host statistics, `getfsstat`, `getattrlist`, `gethostuuid`); the one crate with `unsafe` |
 | `crates/security` | The command rules and `CommandPolicy::run`, the one way to start a process |
 | `crates/core` | Device key, TLS, enrollment, connection, reconnect, token check, dispatch, request workers, heartbeat, telemetry loop, offline buffer, `config.update` |
@@ -221,6 +250,11 @@ This binary is not hardened and not a replacement for the Go agent:
    helper sends it with the request's ID and drops a request that does not
    decode, as Go does. Advertise `cap_*` keys with `features.advertise`.
 3. Add the module and one line to `PAGES` in `crates/capabilities/src/lib.rs`.
+   A page that starts a program takes a third argument, `&Commands`, starts
+   every program with `commands.policy.run`, and goes in `COMMAND_PAGES`
+   (Linux only). Go replies to some requests it cannot use (`package.list`
+   does); such a page uses `features.on_message`, which gets the whole
+   message, instead of `on_request`.
 4. If the page brings a new `cap_*` value, add its row to
    `crates/capabilities/tests/advertised.rs`.
 

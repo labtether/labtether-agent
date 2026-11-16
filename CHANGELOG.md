@@ -26,6 +26,12 @@ All notable changes to `labtether-agent` are documented in this file.
   units, order and limits, reading `/proc`, `/sys`, `statfs` and netlink
   without running any program. It advertises network listing only, so the
   hub offers no network or process actions for it.
+- The Rust agent answers the hub's service list and both package lists
+  (`service.list`, `package.list` installed and upgradable) on Linux by
+  running `systemctl` and the package tools with the Go agent's arguments,
+  timeouts, limits and error replies, each through its command rules. It
+  advertises `cap_services=list` and `cap_packages=list`; service and
+  package actions are not in it.
 - The Rust agent serves the Go agent's local API (`/agent/status`,
   `/agent/info`, `/agent/telemetry`, `/metrics`, `/healthz`, `/readyz`,
   `/version`) with the same port, bind address, bearer token rules, bodies,
