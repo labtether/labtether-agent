@@ -1,6 +1,7 @@
 //! The Users page: `users.list`, ported from Go's `HandleUsersList` and
-//! `collectUserSessionsWho` (`internal/agentcore/system/users.go`). Go
-//! advertises nothing for it; the Hub offers it for every Linux agent.
+//! `collectUserSessionsWho` (`internal/agentcore/system/users.go`).
+//! Advertised as `cap_users=list`; Go advertises nothing for it and the
+//! Hub offers it to every Linux Go agent.
 //!
 //! Go runs `who` with no arguments, with the cleaned child environment, the
 //! 8 MiB combined output limit and no timeout, and parses its output (see

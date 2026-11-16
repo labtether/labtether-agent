@@ -85,21 +85,29 @@ On Linux, the `labtether-agent-rs` binary:
 - stops when the process in `LABTETHER_PARENT_PID` is gone, as the Go agent
   does for the macOS and Windows apps that start it.
 
-The heartbeat advertises `cap_network=list`, `network_backend=ifconfig` and
-`network_action_backend=none`, Go's values for a Linux host without
-`netplan` or `nmcli`. With `systemctl` in the agent's `PATH` it sends
-`cap_services=list` and `service_backend=systemd`; with a package tool,
-`cap_packages=list` and `package_backend` set to the tool Go would name
-(`apt-get`, `dnf`, `yum`, `zypper`, `pacman`, `apk`, else `dpkg-query` or
-`rpm`). Go sends `list,action` for both; this agent has no service or
-package actions, so it sends `list`, the value Go itself uses for a host
-with only a query tool. Without the tool it sends Go's empty value and
-`none`. Both agents decide these once at start. On Linux it always sends
-`cap_schedules=list`, as Go does. With `journalctl` it sends
-`cap_logs=stored,query,stream` and `log_backend=journalctl`, without it
-`cap_logs=stored` and `none`, as Go does. The `capabilities` list
-stays empty, so the Hub offers no terminal, desktop, files or power for it. Heartbeat details the Go agent
-learns by running a program (`tailscale status`) are not sent.
+The heartbeat says `agent_capability_mode=explicit`, so the Hub sends this
+agent only the requests it advertises and answers every other one itself
+with 422 `agent_unsupported` (the Hub's `internal/agentcaps`). Each `cap_*`
+word comes with the handler that answers it: registering a handler adds the
+Hub's word for that request (`crates/core/src/offers.rs`), and no page can
+set a `cap_*` key itself. On Linux that is `cap_disks=list`,
+`cap_network=list`, `cap_processes=list`, `cap_users=list` and
+`cap_schedules=list`; with `systemctl` in the agent's `PATH`
+`cap_services=list`; with a package tool `cap_packages=list`; with
+`journalctl` `cap_logs=stored,query,stream`, without it `cap_logs=stored`.
+A page whose program is missing is not registered and sends no `cap_*` key
+(Go sends an empty value and answers with an error). Go sends `list,action`
+for services and packages; this agent has no actions, so it sends `list`.
+The host keys are Go's: `network_backend=ifconfig` and
+`network_action_backend=none` (a Linux host without `netplan` or `nmcli`),
+`service_backend` (`systemd` or `none`), `package_backend` (the tool Go would
+name: `apt-get`, `dnf`, `yum`, `zypper`, `pacman`, `apk`, else `dpkg-query`
+or `rpm`, or `none`) and `log_backend` (`journalctl` or `none`). Both agents
+decide these once at start. The `capabilities` list stays empty, so the Hub
+offers no terminal, desktop, files or power. Linux sends no `agent_edition`:
+the Hub reports an edition only for `monitoring`, and the console shows none
+without it. Heartbeat details the Go agent learns by running a program
+(`tailscale status`) are not sent.
 
 ## macOS: the monitoring edition
 
@@ -137,7 +145,9 @@ address when macOS 27 gives the placeholder `02:00:00:00:00:00` (the Go
 agent asks `networksetup`; this agent sends no MAC then). The heartbeat
 carries `disk_root_available_bytes`, which the Go agent sends on Linux only.
 `crates/security` is empty on macOS, so nothing in the macOS build can start
-a process.
+a process. The heartbeat says `agent_capability_mode=explicit`,
+`agent_edition=monitoring` (the console shows "Monitoring only"),
+`cap_disks=list` and `cap_network=list`.
 
 The system calls live in `crates/macos-sys`, the only crate allowed
 `unsafe`: each block holds one call and a `SAFETY` comment, and the crate
@@ -250,13 +260,13 @@ This binary is not hardened and not a replacement for the Go agent:
   refuse loopback or private addresses the way the Go agent's outbound
   policy does;
 - no Tailscale details beyond whether it is installed, no connector probes,
-  and no `cap_*` keys other than `cap_network`, `cap_services` and
-  `cap_packages`;
+  and no `cap_*` words for pages it does not answer;
 - no `df -kP` fallback: when `/proc/mounts` cannot be read, `disk.list`
   replies with an error saying so (Go runs `df` then);
 - no actions: `process.kill`, `network.action`, `service.action`,
-  `package.action` and every other request without a handler is ignored
-  and logged once at debug level;
+  `package.action` and every other request without a handler is not
+  advertised, so the Hub does not send it; one that arrives anyway is
+  ignored and logged once at debug level;
 - no HTTP heartbeat while the WebSocket is down;
 - no start without a Hub address: Go runs on and its status page says
   `disconnected`; this agent exits (the apps never start it without one);
@@ -295,7 +305,10 @@ This binary is not hardened and not a replacement for the Go agent:
    `features.on_request(request_type, reply_type, request_id, answer)`:
    `answer` takes the decoded request and returns the reply payload; the
    helper sends it with the request's ID and drops a request that does not
-   decode, as Go does. Advertise `cap_*` keys with `features.advertise`.
+   decode, as Go does. Registering the handler advertises the Hub's word
+   for the request; `features.advertise` is for host keys such as
+   `service_backend` only. Register a handler only where the page answers
+   (not when its program is missing).
 3. Add the module and one line to `PAGES` in `crates/capabilities/src/lib.rs`.
    A page that starts a program takes a third argument, `&Commands`, starts
    every program with `commands.policy.run`, and goes in `COMMAND_PAGES`
@@ -312,7 +325,9 @@ This binary is not hardened and not a replacement for the Go agent:
    writer does.
    The `Stop` it is given is set when the agent stops; `stop.on_stop` ends a
    program the producer started.
-4. If the page brings a new `cap_*` value, add its row to
+4. If the request has no row in `crates/core/src/offers.rs`, registering it
+   panics: copy the Hub's word from `messageNeeds` in the Hub's
+   `internal/agentcaps/agentcaps.go` to that table and to the table in
    `crates/capabilities/tests/advertised.rs`.
 
 The token check and the worker limit apply without further code.

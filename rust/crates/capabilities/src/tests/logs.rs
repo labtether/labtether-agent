@@ -13,7 +13,7 @@ use serde_json::{Value, json};
 
 use super::fakebin::{FakeBin, serial};
 use crate::Commands;
-use crate::logs::query::{answer, query_args};
+use crate::logs::query::{GO_TIMEOUT, answer, query_args};
 
 const FIXTURE: &[u8] = include_bytes!("../../../platform/testdata/journal-lines.jsonl");
 const GO_LINES: &str = include_str!("../../../platform/testdata/go/journal-lines.json");
@@ -192,11 +192,17 @@ fn refused_missing_and_slow_journalctl_match_go() {
         "a blocked journalctl ran"
     );
 
+    // Without journalctl at start the query is not registered; this is
+    // journalctl gone after start.
     let empty = FakeBin::new();
-    let rust = handle(
-        Commands::new(empty.policy(&[])),
-        r#"{"request_id":"q3","limit":7}"#,
-    );
+    let request = JournalQueryData {
+        request_id: "q3".into(),
+        limit: 7,
+        ..JournalQueryData::default()
+    };
+    let reply = answer(&empty.policy(&[]), request, GO_TIMEOUT);
+    let rust = serde_json::to_value(Message::with_data(MSG_JOURNAL_ENTRIES, "q3", &reply).unwrap())
+        .unwrap();
     assert_same("missing", &go("missing")[0], &rust);
 
     let bin = bin_with("exec /bin/sleep 5");

@@ -1,6 +1,7 @@
 //! The Disks page: `disk.list`, ported from Go's `HandleDiskList`
-//! (`internal/agentcore/system/disk.go`). Go advertises nothing for it; the
-//! Hub sends it to every agent.
+//! (`internal/agentcore/system/disk.go`). Advertised as `cap_disks=list`,
+//! the Hub's word for an explicit agent; Go sends nothing for it and the
+//! Hub sends it to every Go agent.
 //!
 //! Gap: when `/proc/mounts` cannot be read, Go runs `df -kP`. This agent
 //! runs no outside commands yet, so it replies with an error that says so

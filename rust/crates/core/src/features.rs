@@ -20,6 +20,10 @@ use labtether_protocol::{
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
+use crate::offers::{
+    EDITION_KEY, EDITION_MONITORING, MODE_EXPLICIT, MODE_KEY, is_no_request_token, is_reserved_key,
+    request_word,
+};
 use crate::producers::{HubSender, Producer, Stop};
 
 /// A handler run on a worker thread: the request in, the reply (if any) out.
@@ -35,11 +39,12 @@ const CORE_TYPES: [&str; 6] = [
     MSG_ENROLLMENT_REJECTED,
 ];
 
-/// What the heartbeat says this agent can do: Go's `capabilities` list and
-/// its `cap_*` and `*_backend` metadata.
+/// What the heartbeat metadata says this agent can do: the capability
+/// mode, the edition, the `cap_*` words and the `*_backend` keys. The
+/// heartbeat's `capabilities` list is always empty: no request this agent
+/// answers needs a word there.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Advertised {
-    pub capabilities: Vec<String>,
     pub metadata: BTreeMap<String, String>,
 }
 
@@ -48,7 +53,12 @@ pub struct Advertised {
 pub struct Features {
     work: Vec<(&'static str, Work)>,
     producers: Vec<(&'static str, Producer)>,
-    advertised: Advertised,
+    /// `(key, token)` in the order added: the words of the registered
+    /// handlers and the tokens that make the Hub send nothing.
+    words: Vec<(&'static str, &'static str)>,
+    /// Keys that describe the host, such as `service_backend`.
+    facts: BTreeMap<String, String>,
+    monitoring: bool,
 }
 
 impl std::fmt::Debug for Features {
@@ -56,7 +66,7 @@ impl std::fmt::Debug for Features {
         f.debug_struct("Features")
             .field("handles", &self.message_types())
             .field("producers", &self.producer_names())
-            .field("advertised", &self.advertised)
+            .field("advertised", &self.advertised())
             .finish()
     }
 }
@@ -71,8 +81,9 @@ impl Features {
     /// `req.RequestID`, not the envelope ID).
     ///
     /// # Panics
-    /// When `request` already has a handler or is a type `core` handles: a
-    /// build mistake the capability tests catch.
+    /// When `request` already has a handler, is a type `core` handles, or
+    /// has no word in the Hub's rule ([`crate::offers`]): a build mistake
+    /// the capability tests catch.
     pub fn on_request<Req, Rep>(
         &mut self,
         request: &'static str,
@@ -121,7 +132,10 @@ impl Features {
             !CORE_TYPES.contains(&request) && !self.handles(request),
             "{request} has two handlers"
         );
+        let word = request_word(request)
+            .unwrap_or_else(|| panic!("{request} has no word in the Hub's rule (offers.rs)"));
         self.work.push((request, Arc::new(answer)));
+        self.add_word(word);
     }
 
     /// Runs `produce` on its own thread while the agent runs, for a feature
@@ -152,16 +166,42 @@ impl Features {
         self.producers.iter()
     }
 
-    /// Adds a heartbeat metadata key, such as `cap_network`.
+    /// Adds a heartbeat metadata key that describes the host, such as
+    /// `service_backend`.
+    ///
+    /// # Panics
+    /// For a `cap_*` key, the capability mode or the edition: those come
+    /// only from registered handlers and [`Features::advertise_token`] and
+    /// [`Features::monitoring_edition`].
     pub fn advertise(&mut self, key: &str, value: &str) {
-        self.advertised
-            .metadata
-            .insert(key.to_owned(), value.to_owned());
+        assert!(!is_reserved_key(key), "{key} comes from the handlers");
+        self.facts.insert(key.to_owned(), value.to_owned());
     }
 
-    /// Adds a name to the heartbeat's `capabilities` list.
-    pub fn advertise_capability(&mut self, name: &str) {
-        self.advertised.capabilities.push(name.to_owned());
+    /// Adds a `cap_*` token that makes the Hub send no request, such as
+    /// `cap_logs=stored`.
+    ///
+    /// # Panics
+    /// For a token the Hub sends a request for: that one comes with its
+    /// handler.
+    pub fn advertise_token(&mut self, key: &'static str, token: &'static str) {
+        assert!(
+            is_no_request_token(key, token),
+            "{key}={token} needs a handler"
+        );
+        self.add_word((key, token));
+    }
+
+    /// Marks this build as the monitoring edition: the heartbeat says
+    /// `agent_edition=monitoring`.
+    pub fn monitoring_edition(&mut self) {
+        self.monitoring = true;
+    }
+
+    fn add_word(&mut self, word: (&'static str, &'static str)) {
+        if !self.words.contains(&word) {
+            self.words.push(word);
+        }
     }
 
     pub fn handles(&self, request: &str) -> bool {
@@ -180,8 +220,23 @@ impl Features {
         self.work.iter().map(|(kind, _)| *kind).collect()
     }
 
-    pub fn advertised(&self) -> &Advertised {
-        &self.advertised
+    /// The heartbeat metadata for this build: `agent_capability_mode`,
+    /// `agent_edition` for the monitoring edition, one `cap_*` key per page
+    /// with its tokens comma-joined in the order added, and the host keys.
+    pub fn advertised(&self) -> Advertised {
+        let mut metadata = self.facts.clone();
+        metadata.insert(MODE_KEY.to_owned(), MODE_EXPLICIT.to_owned());
+        if self.monitoring {
+            metadata.insert(EDITION_KEY.to_owned(), EDITION_MONITORING.to_owned());
+        }
+        for (key, token) in &self.words {
+            let value = metadata.entry((*key).to_owned()).or_default();
+            if !value.is_empty() {
+                value.push(',');
+            }
+            value.push_str(token);
+        }
+        Advertised { metadata }
     }
 
     pub(crate) fn work(&self) -> impl Iterator<Item = &(&'static str, Work)> {

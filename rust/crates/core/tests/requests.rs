@@ -119,6 +119,32 @@ async fn typed_reply_uses_the_request_id_and_bad_requests_get_none() {
     running.stop().await;
 }
 
+// Faults: the heartbeat leaves out `agent_capability_mode=explicit` (the
+// Hub then offers every page, as to a Go agent), leaves out the word of a
+// registered handler (the Hub refuses a page the agent answers), names a
+// page with no handler, sends an edition this build is not, or fills the
+// `capabilities` list (terminal, files, desktop, power, WebRTC).
+#[tokio::test]
+async fn heartbeat_names_exactly_the_registered_requests() {
+    let mut hub = Hub::start(None).await;
+    let (running, _dir) = agent_with(&hub, "words", "agent-token", 20, disk_features(None)).await;
+    let heartbeat = hub.wait_message("heartbeat", WAIT).await;
+    let data = &heartbeat["data"];
+    let metadata = data["metadata"].as_object().unwrap();
+    let words: Vec<(&str, &str)> = metadata
+        .iter()
+        .filter(|(key, _)| key.starts_with("cap_") || key.starts_with("agent_ca"))
+        .map(|(key, value)| (key.as_str(), value.as_str().unwrap()))
+        .collect();
+    assert_eq!(
+        words,
+        [("agent_capability_mode", "explicit"), ("cap_disks", "list")]
+    );
+    assert!(!metadata.contains_key("agent_edition"), "{metadata:?}");
+    assert!(data.get("capabilities").is_none(), "{data}");
+    running.stop().await;
+}
+
 // Faults: a handler runs on the read loop (the ping during the blocked
 // handlers gets no pong), there is no bound (the request past the limit
 // runs), the limit does not close the connection as Go does, or slots are

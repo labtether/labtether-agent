@@ -8,11 +8,13 @@
 //! `systemctl list-units` (15 s; when it fails the reply carries the error
 //! and no services).
 //!
-//! Advertised as Go's Linux agent does, without the action part: with
-//! `systemctl` in the agent's `PATH`, `cap_services=list` and
-//! `service_backend=systemd` (Go says `list,action`); without it Go's
-//! `cap_services=""` and `service_backend=none`. `service.action` is not in
-//! this agent, is not registered and is not advertised.
+//! Registered only with `systemctl` in the agent's `PATH`: then
+//! `cap_services=list` and `service_backend=systemd` (Go says
+//! `list,action`). Without it the list is not registered, no `cap_services`
+//! is sent (Go sends `""` and still answers with an error) and
+//! `service_backend=none`, so the Hub does not offer the page.
+//! `service.action` is not in this agent, is not registered and is not
+//! advertised.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -46,26 +48,17 @@ pub(crate) const GO_TIMEOUTS: Timeouts = Timeouts {
 
 pub fn register(features: &mut Features, _settings: &Settings, commands: &Commands) {
     let policy = Arc::clone(&commands.policy);
-    let found = command_exists("systemctl", policy.search_path());
+    if !command_exists("systemctl", policy.search_path()) {
+        features.advertise("service_backend", "none");
+        return;
+    }
     features.on_request(
         MSG_SERVICE_LIST,
         MSG_SERVICE_LISTED,
         request_id,
         move |request| answer(request, list_services(&policy, GO_TIMEOUTS)),
     );
-    let (capability, backend) = advertisement(found);
-    features.advertise("cap_services", capability);
-    features.advertise("service_backend", backend);
-}
-
-/// `cap_services` and `service_backend` for a host with or without
-/// `systemctl`.
-pub(crate) fn advertisement(systemctl_found: bool) -> (&'static str, &'static str) {
-    if systemctl_found {
-        ("list", "systemd")
-    } else {
-        ("", "none")
-    }
+    features.advertise("service_backend", "systemd");
 }
 
 fn request_id(request: &ServiceListData) -> &str {

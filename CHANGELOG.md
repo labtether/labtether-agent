@@ -52,6 +52,13 @@ All notable changes to `labtether-agent` are documented in this file.
   agent contract. It stops when the process in `LABTETHER_PARENT_PID` is
   gone, as the Go agent does for the macOS and Windows apps. It keeps alerts
   the hub pushes for the status page.
+- The Rust agent tells the hub it advertises everything it answers
+  (`agent_capability_mode=explicit`), so the hub refuses every other request
+  without sending it. Each page's word comes with its request handler:
+  `cap_disks`, `cap_network`, `cap_processes`, `cap_users`, `cap_schedules`,
+  `cap_services`, `cap_packages` (`list`) and `cap_logs`. A page whose
+  program is missing is not offered. The macOS build sends
+  `agent_edition=monitoring`, which the console shows as "Monitoring only".
 - The Rust agent builds and runs on macOS as the monitoring edition for the
   Mac App Store app: CPU, memory, disk and network telemetry, the host
   details in the heartbeat, and the disk and network interface lists, read

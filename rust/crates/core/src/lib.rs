@@ -27,6 +27,7 @@ pub mod identity;
 pub mod intervals;
 pub mod link_status;
 mod net;
+pub mod offers;
 pub mod outbox;
 mod post;
 pub mod producers;
