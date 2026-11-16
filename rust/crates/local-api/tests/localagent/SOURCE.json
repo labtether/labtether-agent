@@ -1,0 +1,51 @@
+{
+  "repository": "labtether/protocol",
+  "path": "localagent",
+  "commit": "6ab77e6f05f1368c18e612c90a19fa2aa598e434",
+  "files": [
+    {
+      "name": "codes.v1.json",
+      "sha256": "05577620aee78d8e2cd0088364c1cb66008bab7982cda2ab8aaf5ce0cc6c63eb"
+    },
+    {
+      "name": "fixtures/status/alerts-with-temperature.json",
+      "sha256": "3b49313fb45b01d4bebc3831824664ecfa52f1a68573083d954bb37479ca40ff"
+    },
+    {
+      "name": "fixtures/status/auth-failed-enrollment-token-rejected.json",
+      "sha256": "51b269e0a42c998f47ca988eaa831cd923fcd8352b4a2b7cb21b01e2d757caeb"
+    },
+    {
+      "name": "fixtures/status/auth-failed-token-rejected.json",
+      "sha256": "3a76b888396c3271726c960d853e5ddcce19041669cd37b6a875f0e1804a05ed"
+    },
+    {
+      "name": "fixtures/status/connected-token-persistence-failed.json",
+      "sha256": "2f5afceff8c4bb9a2af386eb3b1bd06587c8eddbc84761afae4f854604995dbd"
+    },
+    {
+      "name": "fixtures/status/connected.json",
+      "sha256": "93694198ac78d7631eac373138bb291df7c5b0243b29f196e009b36d5ac13170"
+    },
+    {
+      "name": "fixtures/status/connecting-transient-host-unreachable.json",
+      "sha256": "1741a196838ea8be53ee34f9ffb472706763962c203047ca4a3be7cfa289ffed"
+    },
+    {
+      "name": "fixtures/status/disconnected-no-transport.json",
+      "sha256": "60c7fbf70386e52ed41ea9baa60a6a2bd3b7bdb9d1b66cbb19f47a94ee2d1a70"
+    },
+    {
+      "name": "fixtures/status/enrollment-pending.json",
+      "sha256": "b686cf5d0fbba7b17a07556f8304c74d1d99c901ee1d48a33d744597148b55f5"
+    },
+    {
+      "name": "fixtures/status/enrollment-refused-hub-words.json",
+      "sha256": "ec18f45d0cd818333a9d06197bc5e1033309c40f33be287e0e539348e84ce5ea"
+    },
+    {
+      "name": "fixtures/status/minimal-optional-fields-absent.json",
+      "sha256": "95ba049647ffe9c153f3e301543696136ed18a408f06496d276ddf90c6bc6fdf"
+    }
+  ]
+}

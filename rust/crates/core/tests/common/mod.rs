@@ -78,6 +78,10 @@ pub struct Behaviour {
     pub close_at_once: bool,
     /// Answer every upgrade with 503, as a Hub that is down behind a proxy.
     pub refuse_upgrade: bool,
+    /// The Hub's words when it refuses a one-use token (401).
+    pub enroll_refusal: String,
+    /// The group in the enrollment answer.
+    pub enroll_group: String,
 }
 
 impl Default for Behaviour {
@@ -91,6 +95,8 @@ impl Default for Behaviour {
             stall: false,
             close_at_once: false,
             refuse_upgrade: false,
+            enroll_refusal: "enrollment token is invalid or used".to_owned(),
+            enroll_group: String::new(),
         }
     }
 }
@@ -361,14 +367,14 @@ fn enroll_answer(shared: &Shared, body: &[u8]) -> (&'static str, String) {
     let Some(answer) = behaviour.enroll.remove(&token) else {
         return (
             "401 Unauthorized",
-            json!({"error": "enrollment token is invalid or used"}).to_string(),
+            json!({"error": behaviour.enroll_refusal}).to_string(),
         );
     };
     behaviour.accepted_tokens.insert(answer.agent_token.clone());
     let mut reply = json!({
         "agent_token": answer.agent_token,
         "asset_id": answer.asset_id,
-        "group_id": "",
+        "group_id": behaviour.enroll_group,
         "hub_ws_url": "wss://hub.example.invalid:8443/ws/agent",
         "hub_api_url": "https://hub.example.invalid:8443",
     });

@@ -13,8 +13,8 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use labtether_protocol::{
-    MSG_CONFIG_UPDATE, MSG_ENROLLMENT_APPROVED, MSG_ENROLLMENT_CHALLENGE, MSG_ENROLLMENT_REJECTED,
-    MSG_PING, Message,
+    MSG_ALERT_NOTIFY, MSG_CONFIG_UPDATE, MSG_ENROLLMENT_APPROVED, MSG_ENROLLMENT_CHALLENGE,
+    MSG_ENROLLMENT_REJECTED, MSG_PING, Message,
 };
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -23,7 +23,8 @@ use serde::de::DeserializeOwned;
 pub type Work = Arc<dyn Fn(&Message) -> Option<Message> + Send + Sync>;
 
 /// Message types `core` handles itself; a feature cannot take them.
-const CORE_TYPES: [&str; 5] = [
+const CORE_TYPES: [&str; 6] = [
+    MSG_ALERT_NOTIFY,
     MSG_PING,
     MSG_CONFIG_UPDATE,
     MSG_ENROLLMENT_CHALLENGE,

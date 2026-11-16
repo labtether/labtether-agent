@@ -7,16 +7,19 @@ use std::sync::atomic::Ordering;
 use labtether_agent_config::Secret;
 use labtether_agent_config::urls;
 use labtether_protocol::{
-    ConfigUpdateData, EnrollmentApprovedData, EnrollmentChallengeData, EnrollmentProofData,
-    EnrollmentRejectedData, MSG_CONFIG_APPLIED, MSG_CONFIG_UPDATE, MSG_ENROLLMENT_APPROVED,
-    MSG_ENROLLMENT_CHALLENGE, MSG_ENROLLMENT_PROOF, MSG_ENROLLMENT_REJECTED, MSG_PING, MSG_PONG,
-    Message,
+    AlertNotifyData, ConfigUpdateData, EnrollmentApprovedData, EnrollmentChallengeData,
+    EnrollmentProofData, EnrollmentRejectedData, MSG_ALERT_NOTIFY, MSG_CONFIG_APPLIED,
+    MSG_CONFIG_UPDATE, MSG_ENROLLMENT_APPROVED, MSG_ENROLLMENT_CHALLENGE, MSG_ENROLLMENT_PROOF,
+    MSG_ENROLLMENT_REJECTED, MSG_PING, MSG_PONG, Message,
 };
 
-use crate::credential;
+use crate::alerts::Alert;
+use crate::credential::{self, CommitOutcome};
 use crate::dispatch::{Context, Flow, Registry};
+use crate::enroll::MAX_REFUSAL_CHARS;
 use crate::features::Features;
 use crate::identity::enrollment_proof_payload;
+use crate::link_status::{TOKEN_PERSISTENCE_FAILED, printable_one_line};
 use crate::state::{valid_asset_id, valid_issued_token};
 
 /// The registry with `core`'s handlers and the features' request handlers.
@@ -30,7 +33,25 @@ pub fn registry(features: &Features) -> Registry {
     registry.register(MSG_ENROLLMENT_APPROVED, enrollment_approved);
     registry.register(MSG_ENROLLMENT_REJECTED, enrollment_rejected);
     registry.register(MSG_CONFIG_UPDATE, config_update);
+    registry.register(MSG_ALERT_NOTIFY, alert_notify);
     registry
+}
+
+/// Go's `handleAlertNotify`: keeps the alert for the local status page.
+fn alert_notify(message: &Message, context: &Context<'_>) -> Flow {
+    let Ok(data) = message.decode::<AlertNotifyData>() else {
+        log::warn!("invalid alert.notify");
+        return Flow::Continue;
+    };
+    log::info!(
+        "alert {} [{}] {}: {}",
+        data.id,
+        data.severity,
+        data.state,
+        data.title
+    );
+    context.agent.alerts.push(Alert::from(data));
+    Flow::Continue
 }
 
 /// Go's `configUpdateValue`: the value, or "unchanged" when not sent.
@@ -131,7 +152,17 @@ fn enrollment_approved(message: &Message, context: &Context<'_>) -> Flow {
     next.group_known = true;
     agent.identity.replace(next.clone());
     agent.rejected.store(false, Ordering::Relaxed);
-    credential::commit(&agent.files, &next, Vec::new());
+    let outcome = credential::commit(&agent.files, &next, Vec::new());
+    // Go sets the warning (or clears it) and clears the start-up refusal
+    // of the one-use token; the Hub's words stay until a working token.
+    agent
+        .link_status
+        .set_persistence(if outcome == CommitOutcome::MemoryOnly {
+            TOKEN_PERSISTENCE_FAILED
+        } else {
+            ""
+        });
+    agent.link_status.set_credential_rejected(false);
     Flow::Reconnect
 }
 
@@ -140,13 +171,16 @@ fn enrollment_rejected(message: &Message, context: &Context<'_>) -> Flow {
         log::warn!("invalid enrollment.rejected payload");
         return Flow::Continue;
     };
-    let reason = rejected.reason.trim().to_owned();
+    // Go keeps the trimmed reason as sent; the status contract allows one
+    // printable line of at most 300 characters, so it is cut to that.
+    let reason = printable_one_line(&rejected.reason, MAX_REFUSAL_CHARS);
     let reason = if reason.is_empty() {
         "An admin rejected this device in LabTether.".to_owned()
     } else {
         reason
     };
     context.agent.rejected.store(true, Ordering::Relaxed);
+    context.agent.link_status.set_refusal(&reason);
     log::warn!(
         "LabTether refused the enrollment: {reason} The agent waits for an enrollment token from Devices, Add device."
     );

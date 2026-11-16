@@ -1,12 +1,15 @@
 //! The LabTether Rust agent for Linux: reads its settings once, builds its
-//! features, starts the Hub connection and stops cleanly on SIGTERM or
-//! Ctrl-C.
+//! features, starts the Hub connection and the local API, and stops cleanly
+//! on SIGTERM, Ctrl-C or when the process named by `LABTETHER_PARENT_PID`
+//! is gone.
 
 #![forbid(unsafe_code)]
 
 mod logger;
+mod parent;
 
 use std::process::ExitCode;
+use std::sync::Arc;
 
 use labtether_agent_config::{ConfigWarning, Environment, HostFacts};
 use labtether_agent_core::{Agent, Timing};
@@ -73,6 +76,25 @@ async fn main() -> ExitCode {
     };
     logger::init(loaded.settings.log_level);
     loaded.warnings.iter().for_each(log_warning);
+    // Go checks the parent before anything else runs: a wrapper that set
+    // one must not end up with an orphan agent.
+    let parent_pid = match parent::check(
+        loaded.settings.parent_pid,
+        std::process::id(),
+        parent::probe,
+    ) {
+        Ok(pid) => pid,
+        Err(error) => {
+            log::error!("parent lifecycle unavailable: {error}");
+            return ExitCode::FAILURE;
+        }
+    };
+    if !loaded.settings.ignored_app_variables.is_empty() {
+        log::debug!(
+            "set but not used by this agent: {}",
+            loaded.settings.ignored_app_variables.join(", ")
+        );
+    }
     if loaded.settings.allow_insecure_transport {
         log::warn!("insecure transport is allowed (LABTETHER_ALLOW_INSECURE_TRANSPORT=true)");
     }
@@ -82,6 +104,8 @@ async fn main() -> ExitCode {
     );
 
     let features = labtether_agent_capabilities::all(&loaded.settings);
+    let name = loaded.settings.name.clone();
+    let local_api = loaded.settings.local_api.clone();
     let agent = match Agent::start_with(loaded.settings, Timing::default(), features).await {
         Ok(agent) => agent,
         Err(error) => {
@@ -90,10 +114,27 @@ async fn main() -> ExitCode {
         }
     };
     let (shutdown, receiver) = watch::channel(false);
+    let source: Arc<dyn labtether_agent_local_api::Source> = agent.clone();
+    let local = tokio::spawn({
+        let receiver = receiver.clone();
+        async move { labtether_agent_local_api::run(&name, &local_api, source, receiver).await }
+    });
     let run = tokio::spawn(agent.run(receiver));
-    wait_for_signal().await;
-    log::info!("stopping");
+    let parent_gone = async {
+        match parent_pid {
+            Some(pid) => {
+                parent::wait_gone(pid, parent::POLL, parent::probe).await;
+                log::info!("configured parent PID {pid} exited; stopping");
+            }
+            None => std::future::pending().await,
+        }
+    };
+    tokio::select! {
+        () = wait_for_signal() => log::info!("stopping"),
+        () = parent_gone => {}
+    }
     let _ = shutdown.send(true);
     let _ = run.await;
+    let _ = local.await;
     ExitCode::SUCCESS
 }

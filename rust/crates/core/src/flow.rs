@@ -11,10 +11,11 @@ use labtether_protocol::canonical_enrollment_asset_id;
 use rustls::ClientConfig;
 
 use crate::agent::Agent;
-use crate::credential::{self, HubIdentity};
+use crate::credential::{self, CommitOutcome, HubIdentity};
 use crate::enroll::{self, EnrollError, EnrollRequestInput, Enrolled, enrollment_hostname};
 use crate::fsutil::{self, PUBLIC};
 use crate::identity::{DeviceIdentity, ProofVersion};
+use crate::link_status::{TOKEN_CLEANUP_FAILED, TOKEN_PERSISTENCE_FAILED};
 use crate::state::{StateFiles, merge_origins};
 use crate::tls;
 
@@ -24,6 +25,8 @@ pub struct StartEnrollment {
     pub identity: HubIdentity,
     /// The Hub's CA, saved as `ca.crt`, to trust from now on.
     pub saved_ca: Option<PathBuf>,
+    /// The token could not be written and is kept in memory only.
+    pub memory_only: bool,
 }
 
 /// Enrolls with the staged token and commits the answer.
@@ -80,13 +83,17 @@ pub async fn enroll_at_start(
             &enrolled.hub_api_url,
         ],
     );
-    credential::commit(files, &identity, origins);
+    let outcome = credential::commit(files, &identity, origins);
     if let Err(error) = files.discard_used_enrollment_token(staged) {
         log::error!("cleanup of the used enrollment token failed: {error}");
     }
     let saved_ca = save_hub_ca(settings, files, &enrolled);
     log::info!("enrolled as {}", identity.asset_id);
-    Ok(StartEnrollment { identity, saved_ca })
+    Ok(StartEnrollment {
+        identity,
+        saved_ca,
+        memory_only: outcome == CommitOutcome::MemoryOnly,
+    })
 }
 
 /// Go keeps a CA the user configured (for a TLS proxy in front of the Hub),
@@ -124,8 +131,9 @@ fn save_hub_ca(settings: &Settings, files: &StateFiles, enrolled: &Enrolled) -> 
 
 /// Re-enrolls against the Hub address that just refused the token, with the
 /// v2 proof bound to the Hub's asset ID. On success the new identity is in
-/// use and the one-use token is spent.
-pub async fn re_enroll(agent: &Agent, staged: &EnrollmentToken) -> Result<(), EnrollError> {
+/// use and the one-use token is spent; the result is Go's credential
+/// warning for the status page ("" when the token and clean-up were saved).
+pub async fn re_enroll(agent: &Agent, staged: &EnrollmentToken) -> Result<String, EnrollError> {
     let insecure = agent.settings.allow_insecure_transport;
     let current = agent.identity.snapshot();
     let asset_id = canonical_enrollment_asset_id(&current.asset_id);
@@ -152,9 +160,16 @@ pub async fn re_enroll(agent: &Agent, staged: &EnrollmentToken) -> Result<(), En
     }
     agent.identity.replace(next.clone());
     let origins = merge_origins(&[], &[&enrolled.hub_ws_url, &enrolled.hub_api_url]);
-    credential::commit(&agent.files, &next, origins);
+    let mut warning = String::new();
+    if credential::commit(&agent.files, &next, origins) == CommitOutcome::MemoryOnly {
+        warning.push_str(TOKEN_PERSISTENCE_FAILED);
+    }
     if let Err(error) = agent.files.discard_used_enrollment_token(staged) {
         log::error!("cleanup of the used re-enrollment token failed: {error}");
+        if !warning.is_empty() {
+            warning.push(',');
+        }
+        warning.push_str(TOKEN_CLEANUP_FAILED);
     }
-    Ok(())
+    Ok(warning)
 }

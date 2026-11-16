@@ -10,6 +10,7 @@ use crate::agent::Agent;
 use crate::backoff::{AuthWait, Backoff};
 use crate::connection::{self, ConnectError};
 use crate::flow;
+use crate::link_status::FailureKind;
 use crate::session::{self, SessionEnd};
 use crate::timing::jitter;
 
@@ -40,13 +41,24 @@ async fn try_re_enroll(agent: &Agent) -> bool {
     };
     log::info!("trying re-enrollment after repeated refused credentials");
     match flow::re_enroll(agent, &staged).await {
-        Ok(()) => {
+        Ok(warning) => {
             agent.re_enroll_state().token = None;
+            // Go: the warning is set in the re-enrollment, then
+            // `updateToken` clears the failure, the refusal and the
+            // rejection.
+            agent.link_status.set_persistence(&warning);
+            agent.link_status.token_replaced();
+            agent
+                .rejected
+                .store(false, std::sync::atomic::Ordering::Relaxed);
             log::info!("re-enrollment succeeded; connecting again");
             true
         }
         Err(error) => {
             log::warn!("re-enrollment failed: {error}");
+            if let Some(words) = error.hub_words() {
+                agent.link_status.set_refusal(words);
+            }
             false
         }
     }
@@ -97,7 +109,12 @@ async fn after_failure(
 }
 
 /// Keeps one connection open until `shutdown` turns true.
-pub async fn run(agent: Arc<Agent>, mut shutdown: watch::Receiver<bool>) {
+pub async fn run(agent: Arc<Agent>, shutdown: watch::Receiver<bool>) {
+    keep_connected(&agent, shutdown).await;
+    agent.link_status.loop_stopped();
+}
+
+async fn keep_connected(agent: &Arc<Agent>, mut shutdown: watch::Receiver<bool>) {
     let mut backoff = Backoff::new(&agent.timing, jitter);
     loop {
         if *shutdown.borrow() {
@@ -109,15 +126,17 @@ pub async fn run(agent: Arc<Agent>, mut shutdown: watch::Receiver<bool>) {
             }
             continue;
         }
-        match connection::connect(&agent).await {
+        match connection::connect(agent).await {
             Ok(connection) => {
                 agent
                     .stats
                     .connects
                     .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                agent.link_status.opened(connection.pending_enrollment);
                 backoff.connected();
                 let opened = Instant::now();
-                let end = session::run(&agent, connection, &mut shutdown).await;
+                let end = session::run(agent, connection, &mut shutdown).await;
+                agent.link_status.closed();
                 match end {
                     SessionEnd::Shutdown => return,
                     SessionEnd::Reconnect => {
@@ -144,7 +163,13 @@ pub async fn run(agent: Arc<Agent>, mut shutdown: watch::Receiver<bool>) {
                 }
             }
             Err(error) => {
-                if let Some(duration) = after_failure(&agent, &mut backoff, &error).await
+                let kind = if error.is_auth() {
+                    FailureKind::Auth
+                } else {
+                    FailureKind::Transient
+                };
+                agent.link_status.failed(kind, error.reason());
+                if let Some(duration) = after_failure(agent, &mut backoff, &error).await
                     && !wait(duration, &mut shutdown).await
                 {
                     return;

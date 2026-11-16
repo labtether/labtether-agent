@@ -1,6 +1,7 @@
 //! One TCP (and TLS) dial used by both enrollment and the WebSocket.
 
 use std::io;
+use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -9,7 +10,7 @@ use http::Uri;
 use rustls::ClientConfig;
 use rustls::pki_types::ServerName;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
-use tokio::net::TcpStream;
+use tokio::net::{TcpStream, lookup_host};
 use tokio_rustls::TlsConnector;
 use tokio_rustls::client::TlsStream;
 
@@ -18,6 +19,8 @@ use tokio_rustls::client::TlsStream;
 pub enum DialError {
     #[error("the Hub address has no usable host or scheme")]
     BadAddress,
+    #[error("cannot find the Hub's address: {0}")]
+    Lookup(io::Error),
     #[error("cannot reach the Hub: {0}")]
     Connect(io::Error),
     #[error("the Hub's certificate is not trusted: {0}")]
@@ -64,7 +67,19 @@ impl Endpoint {
 
 /// Connects to `endpoint`, with TLS when it is secure.
 pub async fn dial(endpoint: &Endpoint, tls: &Arc<ClientConfig>) -> Result<HubStream, DialError> {
-    let tcp = TcpStream::connect((endpoint.host.as_str(), endpoint.port))
+    // The name is looked up first so a failed lookup is told apart from a
+    // failed connect (Go's `name_lookup_failed` on the status page).
+    let addresses: Vec<SocketAddr> = lookup_host((endpoint.host.as_str(), endpoint.port))
+        .await
+        .map_err(DialError::Lookup)?
+        .collect();
+    if addresses.is_empty() {
+        return Err(DialError::Lookup(io::Error::new(
+            io::ErrorKind::NotFound,
+            "no address found",
+        )));
+    }
+    let tcp = TcpStream::connect(&addresses[..])
         .await
         .map_err(DialError::Connect)?;
     let _ = tcp.set_nodelay(true);
