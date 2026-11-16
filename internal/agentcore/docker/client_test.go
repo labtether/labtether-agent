@@ -56,11 +56,18 @@ func newSecureDockerClientFixture(t *testing.T, handler http.HandlerFunc) (*http
 func newUnixDockerClientFixture(t *testing.T, handler http.HandlerFunc) *dockerClient {
 	t.Helper()
 
-	// A short folder keeps the socket path under the Unix limit (104 bytes on
-	// macOS). Windows has AF_UNIX sockets but may have no /tmp.
+	// A short folder keeps the socket path under the socket path limit (104
+	// bytes on macOS, 108 on Linux and Windows). Windows has AF_UNIX sockets
+	// but may have no /tmp, and t.TempDir() there is too long (the test's
+	// name is in it), so make a short folder in the system temp folder.
 	socketDir := "/tmp"
 	if runtime.GOOS == "windows" {
-		socketDir = t.TempDir()
+		dir, err := os.MkdirTemp("", "ltd")
+		if err != nil {
+			t.Fatalf("create socket folder: %v", err)
+		}
+		t.Cleanup(func() { _ = os.RemoveAll(dir) })
+		socketDir = dir
 	}
 	socketFile, err := os.CreateTemp(socketDir, "labtether-docker-*.sock")
 	if err != nil {
