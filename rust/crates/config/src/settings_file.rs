@@ -20,6 +20,7 @@ pub(crate) const KEY_TLS_CA_FILE: &str = "tls_ca_file";
 pub(crate) const KEY_DOCKER_ENABLED: &str = "docker_enabled";
 pub(crate) const KEY_DOCKER_ENDPOINT: &str = "docker_endpoint";
 pub(crate) const KEY_DOCKER_INTERVAL_SEC: &str = "docker_discovery_interval_sec";
+pub(crate) const KEY_SERVICES_DOCKER_ENABLED: &str = "services_discovery_docker_enabled";
 
 #[derive(Deserialize)]
 struct RawFile {
@@ -37,6 +38,8 @@ pub(crate) struct FileValues {
     /// Present means the file sets it, even to the empty string.
     pub tls_ca_file: Option<String>,
     pub docker: FileDocker,
+    /// `services_discovery_docker_enabled`, read with Go's `ParseBool`.
+    pub services_docker_enabled: Option<bool>,
 }
 
 /// Why the file was not used.
@@ -97,5 +100,6 @@ fn parse_values(values: &BTreeMap<String, String>) -> FileValues {
                 .and_then(|raw| raw.parse::<u64>().ok())
                 .filter(|seconds| (5..=3600).contains(seconds)),
         },
+        services_docker_enabled: get(KEY_SERVICES_DOCKER_ENABLED).and_then(parse_go_bool),
     }
 }

@@ -24,11 +24,11 @@
 mod compose;
 mod compose_memory;
 mod discovery;
-mod engine;
+pub(crate) mod engine;
 mod events;
 mod inventory;
-mod raw;
-mod schedule;
+pub(crate) mod raw;
+pub(crate) mod schedule;
 mod stats;
 
 use std::path::PathBuf;
@@ -126,12 +126,14 @@ impl Collector {
     }
 }
 
-pub fn register(features: &mut Features, settings: &Settings) {
+/// Adds the page; returns the engine's socket when the collector runs (the
+/// web service page lists containers through it then, as Go's).
+pub fn register(features: &mut Features, settings: &Settings) -> Option<Socket> {
     let docker = &settings.docker;
     let name = &settings.name;
     if docker.mode == DockerMode::Off {
         log::info!("{name}: Docker collector disabled by configuration");
-        return;
+        return None;
     }
     let socket = socket_path(&docker.endpoint).map(Socket);
     if socket.is_none() {
@@ -168,14 +170,14 @@ pub fn register(features: &mut Features, settings: &Settings) {
                 "{name}: Docker collector explicitly enabled but endpoint unavailable: {}",
                 docker.endpoint
             );
-            return;
+            return None;
         }
         _ => {
             log::info!(
                 "{name}: Docker endpoint not available at {}, Docker collector disabled",
                 docker.endpoint
             );
-            return;
+            return None;
         }
     };
     let mode = if docker.mode == DockerMode::On {
@@ -187,7 +189,8 @@ pub fn register(features: &mut Features, settings: &Settings) {
         "{name}: Docker collector enabled ({mode}): {}",
         docker.endpoint
     );
-    start_collector(features, settings, socket);
+    start_collector(features, settings, socket.clone());
+    Some(socket)
 }
 
 fn start_collector(features: &mut Features, settings: &Settings, socket: Socket) {

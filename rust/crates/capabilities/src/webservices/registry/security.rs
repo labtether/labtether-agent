@@ -1,0 +1,78 @@
+//! The security service catalog, as the Go agent's `registry_security.go`.
+
+use super::{KnownService, SECURITY};
+
+pub(super) const SERVICES: &[KnownService] = &[
+    KnownService {
+        key: "vaultwarden",
+        name: "Vaultwarden",
+        category: SECURITY,
+        icon_key: "vaultwarden",
+        default_port: 8080,
+        health_path: "/alive",
+        docker_images: &["vaultwarden/server"],
+    },
+    KnownService {
+        key: "authelia",
+        name: "Authelia",
+        category: SECURITY,
+        icon_key: "authelia",
+        default_port: 9091,
+        health_path: "/api/health",
+        docker_images: &["authelia/authelia"],
+    },
+    KnownService {
+        key: "crowdsec",
+        name: "CrowdSec",
+        category: SECURITY,
+        icon_key: "crowdsec",
+        default_port: 8080,
+        health_path: "/v1/decisions",
+        docker_images: &["crowdsecurity/crowdsec"],
+    },
+    KnownService {
+        key: "authentik",
+        name: "Authentik",
+        category: SECURITY,
+        icon_key: "authentik",
+        default_port: 9000,
+        health_path: "/api/v3/root/config/",
+        docker_images: &["ghcr.io/goauthentik/server"],
+    },
+    KnownService {
+        key: "keycloak",
+        name: "Keycloak",
+        category: SECURITY,
+        icon_key: "keycloak",
+        default_port: 8080,
+        health_path: "/health",
+        docker_images: &["quay.io/keycloak/keycloak"],
+    },
+    KnownService {
+        key: "oauth2-proxy",
+        name: "OAuth2 Proxy",
+        category: SECURITY,
+        icon_key: "oauth2-proxy",
+        default_port: 4180,
+        health_path: "/ping",
+        docker_images: &["quay.io/oauth2-proxy/oauth2-proxy"],
+    },
+    KnownService {
+        key: "lldap",
+        name: "LLDAP",
+        category: SECURITY,
+        icon_key: "lldap",
+        default_port: 17170,
+        health_path: "/",
+        docker_images: &["lldap/lldap"],
+    },
+    KnownService {
+        key: "zitadel",
+        name: "ZITADEL",
+        category: SECURITY,
+        icon_key: "zitadel",
+        default_port: 8080,
+        health_path: "/debug/healthz",
+        docker_images: &["ghcr.io/zitadel/zitadel"],
+    },
+];

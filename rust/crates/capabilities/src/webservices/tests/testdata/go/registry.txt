@@ -1,0 +1,233 @@
+service	actual-budget	Actual Budget	Productivity	actual-budget	5006	/	actualbudget/actual-server	actual-budget/actual-budget	actual-budget,actual-budget,actual-budget
+service	adguardhome	AdGuard Home	Networking	adguardhome	3000	/control/status	adguard/adguardhome	adguardhome/adguardhome	adguardhome,adguardhome,adguardhome
+service	adminer	Adminer	Databases	adminer	8080	/	adminer	adminer/adminer	adminer,adminer,adminer
+service	airsonic	Airsonic-Advanced	Media	airsonic	4040	/rest/ping	linuxserver/airsonic-advanced	airsonic/airsonic	airsonic,airsonic,airsonic
+service	amp	AMP	Gaming	amp	8080	/	cubecoders/amp	amp/amp	amp,amp,amp
+service	aria2	Aria2	Downloads	aria2	6800	/jsonrpc	p3terx/aria2-pro,hurlenko/aria2-ariang	aria2/aria2,aria2/aria2	aria2,aria2,aria2
+service	audiobookshelf	Audiobookshelf	Media	audiobookshelf	13378	/healthcheck	ghcr.io/advplyr/audiobookshelf	audiobookshelf/audiobookshelf	audiobookshelf,audiobookshelf,audiobookshelf
+service	authelia	Authelia	Security	authelia	9091	/api/health	authelia/authelia	authelia/authelia	authelia,authelia,authelia
+service	authentik	Authentik	Security	authentik	9000	/api/v3/root/config/	ghcr.io/goauthentik/server	authentik/authentik	authentik,authentik,authentik
+service	bazarr	Bazarr	Media	bazarr	6767	/api/system/status	linuxserver/bazarr,hotio/bazarr	bazarr/bazarr,bazarr/bazarr	bazarr,bazarr,bazarr
+service	beszel	Beszel	Monitoring	beszel	8090	/	henrygd/beszel	beszel/beszel	beszel,beszel,beszel
+service	blocky	Blocky	Networking	blocky	4000	/api/blocking/status	spx01/blocky	blocky/blocky	blocky,blocky,blocky
+service	bookstack	BookStack	Productivity	bookstack	80	/status	linuxserver/bookstack,solidnerd/bookstack	bookstack/bookstack,bookstack/bookstack	bookstack,bookstack,bookstack
+service	caddy	Caddy	Networking	caddy	443	/	caddy,lucaslorentz/caddy-docker-proxy	caddy/caddy,caddy/caddy	caddy,caddy,caddy
+service	calibre-web	Calibre-Web	Media	calibre-web	8083	/	linuxserver/calibre-web	calibre-web/calibre-web	calibre-web,calibre-web,calibre-web
+service	changedetection	changedetection.io	Monitoring	changedetection	5000	/	ghcr.io/dgtlmoon/changedetection.io	changedetection/changedetection	changedetection,changedetection,changedetection
+service	cloudbeaver	CloudBeaver	Databases	cloudbeaver	8978	/status	dbeaver/cloudbeaver	cloudbeaver/cloudbeaver	cloudbeaver,cloudbeaver,cloudbeaver
+service	cloudflare-ddns	Cloudflare DDNS	Networking	cloudflare	0		oznu/cloudflare-ddns	cloudflare-ddns/cloudflare-ddns	cloudflare-ddns,cloudflare-ddns,cloudflare-ddns
+service	cockpit	Cockpit	Management	cockpit	9090	/	cockpit/ws	cockpit/cockpit	cockpit,cockpit,cockpit
+service	codeserver	code-server	Development	codeserver	8443	/healthz	linuxserver/code-server,codercom/code-server	codeserver/codeserver,codeserver/codeserver	codeserver,codeserver,codeserver
+service	crafty	Crafty Controller	Gaming	crafty-controller	8443	/	registry.gitlab.com/crafty-controller/crafty-4	crafty/crafty	crafty,crafty,crafty
+service	crowdsec	CrowdSec	Security	crowdsec	8080	/v1/decisions	crowdsecurity/crowdsec	crowdsec/crowdsec	crowdsec,crowdsec,crowdsec
+service	dashy	Dashy	Management	dashy	8080	/	lissy93/dashy	dashy/dashy	dashy,dashy,dashy
+service	dbgate	DbGate	Databases	dbgate	3000	/	dbgate/dbgate	dbgate/dbgate	dbgate,dbgate,dbgate
+service	ddns-updater	DDNS Updater	Networking	ddns-updater	8000	/	qmcgaw/ddns-updater	ddns-updater/ddns-updater	ddns-updater,ddns-updater,ddns-updater
+service	deconz	deCONZ	Home Automation	deconz	80	/api/config	deconzcommunity/deconz	deconz/deconz	deconz,deconz,deconz
+service	deluge	Deluge	Downloads	deluge	8112	/json	linuxserver/deluge,binhex/arch-delugevpn	deluge/deluge,deluge/deluge	deluge,deluge,deluge
+service	dockge	Dockge	Management	dockge	5001	/	louislam/dockge	dockge/dockge	dockge,dockge,dockge
+service	docmost	Docmost	Productivity	docmost	3000	/	docmost/docmost	docmost/docmost	docmost,docmost,docmost
+service	double-take	Double Take	Home Automation	double-take	3000	/api/config	jakowenko/double-take	double-take/double-take	double-take,double-take,double-take
+service	dozzle	Dozzle	Monitoring	dozzle	8080	/healthcheck	amir20/dozzle	dozzle/dozzle	dozzle,dozzle,dozzle
+service	drone	Drone	Development	drone	80	/healthz	drone/drone	drone/drone	drone,drone,drone
+service	duplicati	Duplicati	Storage	duplicati	8200	/	linuxserver/duplicati	duplicati/duplicati	duplicati,duplicati,duplicati
+service	emby	Emby	Media	emby	8096	/emby/system/info/public	emby/embyserver,linuxserver/emby	emby/emby,emby/emby	emby,emby,emby
+service	esphome	ESPHome	Home Automation	esphome	6052	/	ghcr.io/esphome/esphome,esphome/esphome	esphome/esphome,esphome/esphome	esphome,esphome,esphome
+service	etherpad	Etherpad	Productivity	etherpad	9001	/api/	etherpad/etherpad	etherpad/etherpad	etherpad,etherpad,etherpad
+service	filebrowser	File Browser	Storage	filebrowser	8080	/api/health	filebrowser/filebrowser	filebrowser/filebrowser	filebrowser,filebrowser,filebrowser
+service	firefly-iii	Firefly III	Productivity	firefly-iii	8080	/api/v1/about	fireflyiii/core	firefly-iii/firefly-iii	firefly-iii,firefly-iii,firefly-iii
+service	flame	Flame	Management	flame	5005	/	pawelmalak/flame	flame/flame	flame,flame,flame
+service	flaresolverr	FlareSolverr	Media	flaresolverr	8191	/health	ghcr.io/flaresolverr/flaresolverr	flaresolverr/flaresolverr	flaresolverr,flaresolverr,flaresolverr
+service	flood	Flood	Downloads	flood	3000	/api/auth/verify	jesec/flood	flood/flood	flood,flood,flood
+service	forgejo	Forgejo	Development	forgejo	3000	/api/v1/version	codeberg.org/forgejo/forgejo	forgejo/forgejo	forgejo,forgejo,forgejo
+service	frigate	Frigate	Media	frigate	5000	/api/version	ghcr.io/blakeblackshear/frigate	frigate/frigate	frigate,frigate,frigate
+service	gitea	Gitea	Development	gitea	3000	/api/v1/version	gitea/gitea	gitea/gitea	gitea,gitea,gitea
+service	gitlab	GitLab	Development	gitlab	80	/-/health	gitlab/gitlab-ce,gitlab/gitlab-ee	gitlab/gitlab,gitlab/gitlab	gitlab,gitlab,gitlab
+service	glances	Glances	Monitoring	glances	61208	/api/3/quicklook	nicolargo/glances	glances/glances	glances,glances,glances
+service	gluetun	Gluetun	Networking	gluetun	8000	/v1/publicip/ip	qmcgaw/gluetun	gluetun/gluetun	gluetun,gluetun,gluetun
+service	go2rtc	go2rtc	Media	go2rtc	1984	/api/ws	alexxit/go2rtc	go2rtc/go2rtc	go2rtc,go2rtc,go2rtc
+service	gotify	Gotify	Monitoring	gotify	80	/health	gotify/server	gotify/gotify	gotify,gotify,gotify
+service	grafana	Grafana	Monitoring	grafana	3000	/api/health	grafana/grafana,grafana/grafana-oss	grafana/grafana,grafana/grafana	grafana,grafana,grafana
+service	graylog	Graylog	Monitoring	graylog	9000	/api/system	graylog/graylog	graylog/graylog	graylog,graylog,graylog
+service	grocy	Grocy	Productivity	grocy	80	/	linuxserver/grocy	grocy/grocy	grocy,grocy,grocy
+service	guacamole	Apache Guacamole	Management	guacamole	8080	/	guacamole/guacamole,jwetzell/guacamole	guacamole/guacamole,guacamole/guacamole	guacamole,guacamole,guacamole
+service	haproxy	HAProxy	Networking	haproxy	8404	/stats	haproxy	haproxy/haproxy	haproxy,haproxy,haproxy
+service	healthchecks	Healthchecks	Monitoring	healthchecks	8000	/api/v3/checks/	linuxserver/healthchecks	healthchecks/healthchecks	healthchecks,healthchecks,healthchecks
+service	hedgedoc	HedgeDoc	Productivity	hedgedoc	3000	/status	quay.io/hedgedoc/hedgedoc	hedgedoc/hedgedoc	hedgedoc,hedgedoc,hedgedoc
+service	heimdall	Heimdall	Management	heimdall	80	/	linuxserver/heimdall	heimdall/heimdall	heimdall,heimdall,heimdall
+service	homarr	Homarr	Management	homarr	7575	/api/health	ghcr.io/ajnart/homarr	homarr/homarr	homarr,homarr,homarr
+service	homeassistant	Home Assistant	Home Automation	homeassistant	8123	/api/	ghcr.io/home-assistant/home-assistant,homeassistant/home-assistant	homeassistant/homeassistant,homeassistant/homeassistant	homeassistant,homeassistant,homeassistant
+service	homepage	Homepage	Management	homepage	3000	/api/health	ghcr.io/gethomepage/homepage	homepage/homepage	homepage,homepage,homepage
+service	homer	Homer	Management	homer	8080	/	b4bz/homer	homer/homer	homer,homer,homer
+service	huginn	Huginn	Development	huginn	3000	/	ghcr.io/huginn/huginn	huginn/huginn	huginn,huginn,huginn
+service	immich	Immich	Productivity	immich	2283	/api/server-info/ping	ghcr.io/immich-app/immich-server	immich/immich	immich,immich,immich
+service	influxdb	InfluxDB	Monitoring	influxdb	8086	/health	influxdb	influxdb/influxdb	influxdb,influxdb,influxdb
+service	jdownloader	JDownloader	Downloads	jdownloader	5800	/	jlesage/jdownloader-2	jdownloader/jdownloader	jdownloader,jdownloader,jdownloader
+service	jellyfin	Jellyfin	Media	jellyfin	8096	/health	jellyfin/jellyfin,linuxserver/jellyfin	jellyfin/jellyfin,jellyfin/jellyfin	jellyfin,jellyfin,jellyfin
+service	jellyseerr	Jellyseerr	Media	jellyseerr	5055	/api/v1/status	fallenbagel/jellyseerr	jellyseerr/jellyseerr	jellyseerr,jellyseerr,jellyseerr
+service	jenkins	Jenkins	Development	jenkins	8080	/login	jenkins/jenkins	jenkins/jenkins	jenkins,jenkins,jenkins
+service	kavita	Kavita	Media	kavita	5000	/api/health	jvmilazz0/kavita	kavita/kavita	kavita,kavita,kavita
+service	keycloak	Keycloak	Security	keycloak	8080	/health	quay.io/keycloak/keycloak	keycloak/keycloak	keycloak,keycloak,keycloak
+service	komga	Komga	Media	komga	25600	/api/v1/series	gotson/komga	komga/komga	komga,komga,komga
+service	komodo	Komodo	Management	komodo	9120	/	ghcr.io/mbecker20/komodo	komodo/komodo	komodo,komodo,komodo
+service	kopia	Kopia	Storage	kopia	51515	/api/v1/repo/status	kopia/kopia	kopia/kopia	kopia,kopia,kopia
+service	labtether	LabTether	Management		8443	/healthz	labtether/labtether,ghcr.io/labtether/labtether	labtether/labtether,labtether/labtether	labtether,labtether,-
+service	lidarr	Lidarr	Media	lidarr	8686	/api/v1/system/status	linuxserver/lidarr,hotio/lidarr	lidarr/lidarr,lidarr/lidarr	lidarr,lidarr,lidarr
+service	lldap	LLDAP	Security	lldap	17170	/	lldap/lldap	lldap/lldap	lldap,lldap,lldap
+service	loki	Loki	Monitoring	loki	3100	/ready	grafana/loki	loki/loki	loki,loki,loki
+service	mealie	Mealie	Productivity	mealie	9925	/api/app/about	ghcr.io/mealie-recipes/mealie,hkotel/mealie	mealie/mealie,mealie/mealie	mealie,mealie,mealie
+service	meshcentral	MeshCentral	Management	meshcentral	443	/	typhonragewind/meshcentral	meshcentral/meshcentral	meshcentral,meshcentral,meshcentral
+service	metube	MeTube	Media	metube	8081	/	ghcr.io/alexta69/metube,alexta69/metube	metube/metube,metube/metube	metube,metube,metube
+service	minio	MinIO	Storage	minio	9000	/minio/health/live	minio/minio,quay.io/minio/minio	minio/minio,minio/minio	minio,minio,minio
+service	mongo-express	Mongo Express	Databases	mongodb	8081	/	mongo-express	mongo-express/mongo-express	mongo-express,mongo-express,mongo-express
+service	monica	Monica	Productivity	monica	80	/	monica	monica/monica	monica,monica,monica
+service	mqtt	Mosquitto MQTT	Home Automation	mqtt	1883		eclipse-mosquitto	mqtt/mqtt	mqtt,mqtt,mqtt
+service	mylar3	Mylar3	Media	mylar3	8090	/	linuxserver/mylar3	mylar3/mylar3	mylar3,mylar3,mylar3
+service	n8n	n8n	Development	n8n	5678	/healthz	n8nio/n8n	n8n/n8n	n8n,n8n,n8n
+service	navidrome	Navidrome	Media	navidrome	4533	/api/ping	deluan/navidrome	navidrome/navidrome	navidrome,navidrome,navidrome
+service	netdata	Netdata	Monitoring	netdata	19999	/api/v1/info	netdata/netdata	netdata/netdata	netdata,netdata,netdata
+service	nextcloud	Nextcloud	Storage	nextcloud	443	/status.php	nextcloud,linuxserver/nextcloud	nextcloud/nextcloud,nextcloud/nextcloud	nextcloud,nextcloud,nextcloud
+service	nginx	Nginx	Networking	nginx	80	/	nginx,linuxserver/nginx	nginx/nginx,nginx/nginx	nginx,nginx,nginx
+service	nginx-proxy-manager	Nginx Proxy Manager	Networking	nginx-proxy-manager	81	/api/	jc21/nginx-proxy-manager	nginx-proxy-manager/nginx-proxy-manager	nginx-proxy-manager,nginx-proxy-manager,nginx-proxy-manager
+service	nodered	Node-RED	Home Automation	nodered	1880	/	nodered/node-red	nodered/nodered	nodered,nodered,nodered
+service	ntfy	ntfy	Monitoring	ntfy	80	/v1/health	binwiederhier/ntfy	ntfy/ntfy	ntfy,ntfy,ntfy
+service	ntopng	ntopng	Networking	ntopng	3000	/	ntop/ntopng	ntopng/ntopng	ntopng,ntopng,ntopng
+service	nzbget	NZBGet	Downloads	nzbget	6789	/	linuxserver/nzbget	nzbget/nzbget	nzbget,nzbget,nzbget
+service	nzbhydra	NZBHydra 2	Downloads	nzbhydra2	5076	/	linuxserver/nzbhydra2	nzbhydra/nzbhydra	nzbhydra,nzbhydra,nzbhydra
+service	oauth2-proxy	OAuth2 Proxy	Security	oauth2-proxy	4180	/ping	quay.io/oauth2-proxy/oauth2-proxy	oauth2-proxy/oauth2-proxy	oauth2-proxy,oauth2-proxy,oauth2-proxy
+service	ocis	ownCloud Infinite Scale	Storage	owncloud	9200	/	owncloud/ocis	ocis/ocis	ocis,ocis,ocis
+service	openspeedtest	OpenSpeedTest	Networking	openspeedtest	3000	/	openspeedtest/latest	openspeedtest/openspeedtest	openspeedtest,openspeedtest,openspeedtest
+service	opnsense	OPNsense	Networking	opnsense	443	/			opnsense,opnsense,opnsense
+service	organizr	Organizr	Management	organizr	80	/	organizr/organizr	organizr/organizr	organizr,organizr,organizr
+service	outline	Outline	Productivity	outline	3000	/api/auth.config	outlinewiki/outline	outline/outline	outline,outline,outline
+service	overseerr	Overseerr	Media	overseerr	5055	/api/v1/status	linuxserver/overseerr,sctx/overseerr	overseerr/overseerr,overseerr/overseerr	overseerr,overseerr,overseerr
+service	owncloud	ownCloud	Storage	owncloud	8080	/status.php	owncloud/server	owncloud/owncloud	ocis,ocis,ocis
+service	pairdrop	PairDrop	Networking	pairdrop	3000	/	linuxserver/pairdrop,schlagmichdansen/pairdrop	pairdrop/pairdrop,pairdrop/pairdrop	pairdrop,pairdrop,pairdrop
+service	paperless	Paperless-ngx	Productivity	paperless	8000	/api/	ghcr.io/paperless-ngx/paperless-ngx	paperless/paperless	paperless,paperless,paperless
+service	pelican	Pelican Panel	Gaming	pelican-panel	80	/	ghcr.io/pelican-dev/panel	pelican/pelican	pelican,pelican,pelican
+service	pfsense	pfSense	Networking	pfsense	443	/			pfsense,pfsense,pfsense
+service	pgadmin	pgAdmin	Databases	pgadmin	80	/misc/ping	dpage/pgadmin4	pgadmin/pgadmin	pgadmin,pgadmin,pgadmin
+service	photoprism	PhotoPrism	Media	photoprism	2342	/api/v1/status	photoprism/photoprism	photoprism/photoprism	photoprism,photoprism,photoprism
+service	phpmyadmin	phpMyAdmin	Databases	phpmyadmin	80	/	phpmyadmin	phpmyadmin/phpmyadmin	phpmyadmin,phpmyadmin,phpmyadmin
+service	pihole	Pi-hole	Networking	pihole	53	/admin/api.php	pihole/pihole	pihole/pihole	pihole,pihole,pihole
+service	planka	Planka	Productivity	planka	1337	/	ghcr.io/plankanban/planka	planka/planka	planka,planka,planka
+service	plex	Plex	Media	plex	32400	/web/index.html	linuxserver/plex,plexinc/pms-docker	plex/plex,plex/plex	plex,plex,plex
+service	portainer	Portainer	Management	portainer	9443	/api/status	portainer/portainer-ce,portainer/portainer-ee	portainer/portainer,portainer/portainer	portainer,portainer,portainer
+service	prometheus	Prometheus	Monitoring	prometheus	9090	/-/healthy	prom/prometheus	prometheus/prometheus	prometheus,prometheus,prometheus
+service	prowlarr	Prowlarr	Media	prowlarr	9696	/api/v1/health	linuxserver/prowlarr,hotio/prowlarr	prowlarr/prowlarr,prowlarr/prowlarr	prowlarr,prowlarr,prowlarr
+service	proxmox	Proxmox VE	Management	proxmox	8006	/api2/json/version			proxmox,proxmox,proxmox
+service	proxmox-backup	Proxmox Backup Server	Storage	proxmox	8007	/api2/json/version			proxmox-backup,proxmox-backup,proxmox
+service	pterodactyl	Pterodactyl	Gaming	pterodactyl	80	/	ghcr.io/pterodactyl/panel	pterodactyl/pterodactyl	pterodactyl,pterodactyl,pterodactyl
+service	pufferpanel	PufferPanel	Gaming	pufferpanel	8080	/api/health	pufferpanel/pufferpanel	pufferpanel/pufferpanel	pufferpanel,pufferpanel,pufferpanel
+service	pyload	pyLoad	Downloads	pyload	8000	/api/login	linuxserver/pyload-ng	pyload/pyload	pyload,pyload,pyload
+service	qbittorrent	qBittorrent	Downloads	qbittorrent	8080	/api/v2/app/version	linuxserver/qbittorrent,hotio/qbittorrent	qbittorrent/qbittorrent,qbittorrent/qbittorrent	qbittorrent,qbittorrent,qbittorrent
+service	qnap	QNAP QTS	Storage	qnap	8080	/			qnap,qnap,qnap
+service	radarr	Radarr	Media	radarr	7878	/api/v3/system/status	linuxserver/radarr,hotio/radarr	radarr/radarr,radarr/radarr	radarr,radarr,radarr
+service	readarr	Readarr	Media	readarr	8787	/api/v1/system/status	linuxserver/readarr,hotio/readarr	readarr/readarr,readarr/readarr	readarr,readarr,readarr
+service	redis-commander	Redis Commander	Databases	redis	8081	/	rediscommander/redis-commander	redis-commander/redis-commander	redis-commander,redis-commander,redis-commander
+service	registry	Docker Registry	Development	docker	5000	/v2/	registry	registry/registry	registry,registry,registry
+service	requestrr	Requestrr	Media	requestrr	4545	/	thomst08/requestrr	requestrr/requestrr	requestrr,requestrr,requestrr
+service	romm	RomM	Gaming	romm	8080	/api/heartbeat	zurdi15/romm,rommapp/romm	romm/romm,romm/romm	romm,romm,romm
+service	rtorrent	rTorrent/ruTorrent	Downloads	rutorrent	8080	/	crazymax/rtorrent-rutorrent,linuxserver/rutorrent	rtorrent/rtorrent,rtorrent/rtorrent	rtorrent,rtorrent,rtorrent
+service	rustdesk	RustDesk	Management	rustdesk	21118	/	rustdesk/rustdesk-server	rustdesk/rustdesk	rustdesk,rustdesk,rustdesk
+service	sabnzbd	SABnzbd	Downloads	sabnzbd	8080	/api	linuxserver/sabnzbd	sabnzbd/sabnzbd	sabnzbd,sabnzbd,sabnzbd
+service	scrutiny	Scrutiny	Monitoring	scrutiny	8080	/api/health	ghcr.io/analogj/scrutiny	scrutiny/scrutiny	scrutiny,scrutiny,scrutiny
+service	scrypted	Scrypted	Home Automation	scrypted	10443	/	koush/scrypted	scrypted/scrypted	scrypted,scrypted,scrypted
+service	seafile	Seafile	Storage	seafile	80	/api2/ping/	seafileltd/seafile-mc	seafile/seafile	seafile,seafile,seafile
+service	semaphore	Semaphore	Management	semaphore	3000	/api/ping	semaphoreui/semaphore	semaphore/semaphore	semaphore,semaphore,semaphore
+service	sftpgo	SFTPGo	Storage	sftpgo	8080	/api/v2/healthz	drakkan/sftpgo	sftpgo/sftpgo	sftpgo,sftpgo,sftpgo
+service	sonarqube	SonarQube	Development	sonarqube	9000	/api/system/status	sonarqube	sonarqube/sonarqube	sonarqube,sonarqube,sonarqube
+service	sonarr	Sonarr	Media	sonarr	8989	/api/v3/system/status	linuxserver/sonarr,hotio/sonarr	sonarr/sonarr,sonarr/sonarr	sonarr,sonarr,sonarr
+service	speedtest-tracker	Speedtest Tracker	Networking	speedtest-tracker	8080	/api/healthcheck	linuxserver/speedtest-tracker,henrywhitaker3/speedtest-tracker	speedtest-tracker/speedtest-tracker,speedtest-tracker/speedtest-tracker	speedtest-tracker,speedtest-tracker,speedtest-tracker
+service	stash	Stash	Media	stash	9999	/	stashapp/stash	stash/stash	stash,stash,stash
+service	stirling-pdf	Stirling PDF	Productivity	stirling-pdf	8080	/api/v1/info/status	frooodle/s-pdf	stirling-pdf/stirling-pdf	stirling-pdf,stirling-pdf,stirling-pdf
+service	streammaster	StreamMaster	Media	streammaster	7095	/	senexcrenshaw/streammaster	streammaster/streammaster	streammaster,streammaster,streammaster
+service	syncthing	Syncthing	Storage	syncthing	8384	/rest/noauth/health	syncthing/syncthing,linuxserver/syncthing	syncthing/syncthing,syncthing/syncthing	syncthing,syncthing,syncthing
+service	synology	Synology DSM	Storage	synology	5000	/			synology,synology,synology
+service	tailscale	Tailscale	Networking	tailscale	41641		tailscale/tailscale	tailscale/tailscale	tailscale,tailscale,tailscale
+service	tandoor	Tandoor Recipes	Productivity	tandoor-recipes	8080	/	vabene1111/recipes	tandoor/tandoor	tandoor,tandoor,tandoor
+service	tautulli	Tautulli	Media	tautulli	8181	/api/v2	linuxserver/tautulli,tautulli/tautulli	tautulli/tautulli,tautulli/tautulli	tautulli,tautulli,tautulli
+service	tdarr	Tdarr	Media	tdarr	8265	/api/v2/status	ghcr.io/haveagitgat/tdarr	tdarr/tdarr	tdarr,tdarr,tdarr
+service	technitium	Technitium DNS	Networking	technitium	5380	/	technitium/dns-server	technitium/technitium	technitium,technitium,technitium
+service	traefik	Traefik	Networking	traefik	80	/api/overview	traefik	traefik/traefik	traefik,traefik,traefik
+service	transmission	Transmission	Downloads	transmission	9091	/transmission/web/	linuxserver/transmission,haugene/transmission-openvpn	transmission/transmission,transmission/transmission	transmission,transmission,transmission
+service	truenas	TrueNAS	Storage	truenas	80	/api/v2.0/system/version			truenas,truenas,truenas
+service	unifi	UniFi Controller	Networking	unifi	8443	/status	linuxserver/unifi-controller,jacobalberty/unifi	unifi/unifi,unifi/unifi	unifi,unifi,unifi
+service	unmanic	Unmanic	Media	unmanic	8888	/unmanic/api/v2/version	josh5/unmanic	unmanic/unmanic	unmanic,unmanic,unmanic
+service	uptime-kuma	Uptime Kuma	Monitoring	uptime-kuma	3001	/api/status-page/heartbeat	louislam/uptime-kuma	uptime-kuma/uptime-kuma	uptime-kuma,uptime-kuma,uptime-kuma
+service	vault	Vault	Development	vault	8200	/v1/sys/health	hashicorp/vault	vault/vault	vault,vault,vault
+service	vaultwarden	Vaultwarden	Security	vaultwarden	8080	/alive	vaultwarden/server	vaultwarden/vaultwarden	vaultwarden,vaultwarden,vaultwarden
+service	vikunja	Vikunja	Productivity	vikunja	3456	/api/v1/info	vikunja/vikunja	vikunja/vikunja	vikunja,vikunja,vikunja
+service	watchtower	Watchtower	Management	watchtower	8080	/v1/update	containrrr/watchtower	watchtower/watchtower	watchtower,watchtower,watchtower
+service	wekan	WeKan	Productivity	wekan	8080	/	wekanteam/wekan	wekan/wekan	wekan,wekan,wekan
+service	wg-easy	WG Easy	Networking	wg-easy	51821	/	ghcr.io/wg-easy/wg-easy	wg-easy/wg-easy	wg-easy,wg-easy,wg-easy
+service	whisparr	Whisparr	Media	whisparr	6969	/api/v3/system/status	hotio/whisparr	whisparr/whisparr	whisparr,whisparr,whisparr
+service	wikijs	Wiki.js	Productivity	wikijs	3000	/healthz	linuxserver/wikijs,ghcr.io/requarks/wiki	wikijs/wikijs,wikijs/wikijs	wikijs,wikijs,wikijs
+service	wireguard	WireGuard	Networking	wireguard	51820		linuxserver/wireguard	wireguard/wireguard	wireguard,wireguard,wireguard
+service	woodpecker	Woodpecker CI	Development	woodpecker-ci	8000	/healthz	woodpeckerci/woodpecker-server	woodpecker/woodpecker	woodpecker,woodpecker,woodpecker
+service	wyze-bridge	Wyze Bridge	Home Automation	wyze	5000	/	mrlt8/wyze-bridge	wyze-bridge/wyze-bridge	wyze-bridge,wyze-bridge,wyze-bridge
+service	yacht	Yacht	Management	yacht	8000	/api/	selfhostedpro/yacht	yacht/yacht	yacht,yacht,yacht
+service	zigbee2mqtt	Zigbee2MQTT	Home Automation	zigbee2mqtt	8080	/api/health	koenkk/zigbee2mqtt	zigbee2mqtt/zigbee2mqtt	zigbee2mqtt,zigbee2mqtt,zigbee2mqtt
+service	zitadel	ZITADEL	Security	zitadel	8080	/debug/healthz	ghcr.io/zitadel/zitadel	zitadel/zitadel	zitadel,zitadel,zitadel
+service	zwavejs	Z-Wave JS UI	Home Automation	zwave-js-ui	8091	/health	zwavejs/zwave-js-ui	zwavejs/zwavejs	zwavejs,zwavejs,zwavejs
+image	nginx:1.27-alpine	nginx
+image	lscr.io/linuxserver/jellyfin:latest	jellyfin
+image	localhost:5000/linuxserver/jellyfin:ltqa-a2f	jellyfin
+image	ghcr.io/louislam/uptime-kuma:1	uptime-kuma
+image	registry-1.docker.io/library/traefik:v3	traefik
+image	index.docker.io/portainer/portainer-ce	portainer
+image	docker.io/library/postgres@sha256:abc	-
+image	Traefik:V3.0	traefik
+image	registry.gitlab.com:443/crafty-controller/crafty-4:latest	crafty
+image	ltqa-labtether:2.0-0fee01af67ee	-
+image	node:24.22.1-slim	-
+image		-
+image	  	-
+image	nginx:ltqa-a2f	nginx
+image	ltqa-a2f/app:1	-
+image	library/redis	-
+image	my.registry:5000/library/nginx:1	nginx
+image	ghcr.io/labtether/labtether:v2.0.0	labtether
+image	docker.io/jc21/nginx-proxy-manager:latest	nginx-proxy-manager
+image	homeassistant/home-assistant:stable	homeassistant
+image	localhost/grafana/grafana	grafana
+image	Plexinc/PMS-Docker	plex
+hint	ltqa-2-0-labtether-1	labtether
+hint	ltqa-2-0-console-ingress-1	-
+hint	ltqa-a2f-grafana	grafana
+hint	ltqa-a2f-multi	-
+hint	https://plex.home.lab:32400/web	plex
+hint	user@sonarr.local	sonarr
+hint	http://[::1]:8989	-
+hint	jellyfin.example.com	jellyfin
+hint	Home Assistant	homeassistant
+hint	NPM	nginx-proxy-manager
+hint	my_qbittorrent_app	qbittorrent
+hint	pi-hole	pihole
+hint	code-server	codeserver
+hint	ltqa-labtether:2.0-0fee01af67ee	labtether
+hint	node:24.22.1-slim	-
+hint	ltqa-a2f/app:1	-
+hint	a.b	-
+hint	.hidden	-
+hint		-
+hint	grafana/grafana-oss:10	grafana
+hint	Ｇrafana	-
+hint	http://user:pw@wiki.lan:8080/x	wikijs
+hint	proxmox.lan	proxmox
+hint	pbs	proxmox-backup
+hint	zwave-js-ui	zwavejs
+hint	DiskStation	synology
+hint	ltqa-a2f-labtether-ui	labtether
+hint	ltqa-a2f-labtether-api	labtether
+hint	ltqa-a2f-web	-
+hint	ltqa-a2f-tls	-
+hint	ltqa-a2f-labels	-
+hint	localhost:5000/linuxserver/jellyfin:ltqa-a2f	jellyfin
+hint	traefik.http.routers.app	traefik
+hint	https://	-
+hint	[::1]	-
+hint	a:b:c	-
+hint	x/y/z/	-
+hint	uptime_kuma	uptime-kuma
+hint	Uptime Kuma	uptime-kuma

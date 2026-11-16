@@ -1,0 +1,206 @@
+{
+ "host_ip": "192.0.2.10",
+ "interval_s": 60,
+ "engine": {
+  "a": {
+   "file": "containers-a.json"
+  },
+  "b": {
+   "file": "containers-b.json"
+  },
+  "many": {
+   "file": "row-many.json",
+   "repeat": 20
+  },
+  "fail": {
+   "status": 500
+  }
+ },
+ "probes": {
+  "base": {
+   "GET http://192.0.2.10:10443": 200,
+   "GET http://192.0.2.10:18101/": 200,
+   "GET http://192.0.2.10:18102": 200,
+   "GET http://192.0.2.10:18103": 200,
+   "GET http://192.0.2.10:18107": 200,
+   "GET http://192.0.2.10:18112/api/health": 200,
+   "GET http://192.0.2.10:18113/healthz": 200,
+   "GET http://192.0.2.10:18114": 503,
+   "GET http://192.0.2.10:18115": 200,
+   "GET http://192.0.2.10:18116": 302,
+   "GET http://192.0.2.10:18117": 400,
+   "GET http://192.0.2.10:18118/health": 200,
+   "GET http://localhost:18109": 200,
+   "GET https://192.0.2.10:18106": 200,
+   "GET https://192.0.2.10:7443": 200,
+   "HEAD http://192.0.2.10:10443": 200,
+   "HEAD http://192.0.2.10:18101/": 200,
+   "HEAD http://192.0.2.10:18102": 200,
+   "HEAD http://192.0.2.10:18103": 200,
+   "HEAD http://192.0.2.10:18107": 200,
+   "HEAD http://192.0.2.10:18112/api/health": 200,
+   "HEAD http://192.0.2.10:18113/healthz": 200,
+   "HEAD http://192.0.2.10:18114": 503,
+   "HEAD http://192.0.2.10:18116": 302,
+   "HEAD http://192.0.2.10:18117": 400,
+   "HEAD http://192.0.2.10:18118/health": 200,
+   "HEAD http://localhost:18109": 200,
+   "HEAD https://192.0.2.10:18106": 200,
+   "HEAD https://192.0.2.10:7443": 200
+  },
+  "later": {
+   "GET http://192.0.2.10:10443": 200,
+   "GET http://192.0.2.10:18101/": 503,
+   "GET http://192.0.2.10:18102": 200,
+   "GET http://192.0.2.10:18103": 200,
+   "GET http://192.0.2.10:18107": 200,
+   "GET http://192.0.2.10:18108": 200,
+   "GET http://192.0.2.10:18112/api/health": 200,
+   "GET http://192.0.2.10:18113/healthz": 200,
+   "GET http://192.0.2.10:18114": 503,
+   "GET http://192.0.2.10:18115": 503,
+   "GET http://192.0.2.10:18116": 302,
+   "GET http://192.0.2.10:18117": 400,
+   "GET http://192.0.2.10:18118/health": 200,
+   "GET http://localhost:18109": 200,
+   "GET https://192.0.2.10:18106": 200,
+   "GET https://192.0.2.10:18117": 503,
+   "GET https://192.0.2.10:7443": 200,
+   "HEAD http://192.0.2.10:10443": 200,
+   "HEAD http://192.0.2.10:18101/": 503,
+   "HEAD http://192.0.2.10:18102": 200,
+   "HEAD http://192.0.2.10:18103": 200,
+   "HEAD http://192.0.2.10:18107": 200,
+   "HEAD http://192.0.2.10:18108": 200,
+   "HEAD http://192.0.2.10:18112/api/health": 200,
+   "HEAD http://192.0.2.10:18113/healthz": 200,
+   "HEAD http://192.0.2.10:18114": 503,
+   "HEAD http://192.0.2.10:18115": 503,
+   "HEAD http://192.0.2.10:18116": 302,
+   "HEAD http://192.0.2.10:18117": 400,
+   "HEAD http://192.0.2.10:18118/health": 200,
+   "HEAD http://localhost:18109": 200,
+   "HEAD https://192.0.2.10:18106": 200,
+   "HEAD https://192.0.2.10:18117": 503,
+   "HEAD https://192.0.2.10:7443": 200
+  },
+  "base-b": {
+   "GET http://192.0.2.10:10443": 200,
+   "GET http://192.0.2.10:18101/": 200,
+   "GET http://192.0.2.10:18102": 200,
+   "GET http://192.0.2.10:18103": 200,
+   "GET http://192.0.2.10:18107": 200,
+   "GET http://192.0.2.10:18112/api/health": 200,
+   "GET http://192.0.2.10:18113/healthz": 200,
+   "GET http://192.0.2.10:18114": 503,
+   "GET http://192.0.2.10:18115": 200,
+   "GET http://192.0.2.10:18116": 302,
+   "GET http://192.0.2.10:18117": 400,
+   "GET http://192.0.2.10:18118/health": 200,
+   "GET http://192.0.2.10:18120/api/status-page/heartbeat": 200,
+   "GET http://192.0.2.10:18124": 200,
+   "GET http://192.0.2.10:18125": 400,
+   "GET http://192.0.2.20:18123": 200,
+   "GET http://[2001:db8::5]:18122": 302,
+   "GET http://localhost:18109": 200,
+   "GET http://localhost:18121": 200,
+   "GET http://localhost:3000/healthz": 200,
+   "GET https://192.0.2.10:18106": 200,
+   "GET https://192.0.2.10:7443": 200,
+   "HEAD http://192.0.2.10:10443": 200,
+   "HEAD http://192.0.2.10:18101/": 200,
+   "HEAD http://192.0.2.10:18102": 200,
+   "HEAD http://192.0.2.10:18103": 200,
+   "HEAD http://192.0.2.10:18107": 200,
+   "HEAD http://192.0.2.10:18112/api/health": 200,
+   "HEAD http://192.0.2.10:18113/healthz": 200,
+   "HEAD http://192.0.2.10:18114": 503,
+   "HEAD http://192.0.2.10:18116": 302,
+   "HEAD http://192.0.2.10:18117": 400,
+   "HEAD http://192.0.2.10:18118/health": 200,
+   "HEAD http://192.0.2.10:18120/api/status-page/heartbeat": 200,
+   "HEAD http://192.0.2.10:18124": 200,
+   "HEAD http://192.0.2.10:18125": 400,
+   "HEAD http://[2001:db8::5]:18122": 302,
+   "HEAD http://localhost:18109": 200,
+   "HEAD http://localhost:18121": 200,
+   "HEAD http://localhost:3000/healthz": 200,
+   "HEAD https://192.0.2.10:18106": 200,
+   "HEAD https://192.0.2.10:7443": 200
+  }
+ },
+ "runs": [
+  {
+   "name": "main",
+   "docker": "on",
+   "steps": [
+    {
+     "at": 0,
+     "engine": "a",
+     "probes": "base"
+    },
+    {
+     "at": 60
+    },
+    {
+     "at": 121,
+     "probes": "later"
+    },
+    {
+     "at": 182
+    },
+    {
+     "at": 190,
+     "engine": "fail"
+    },
+    {
+     "at": 200,
+     "reconnect": true
+    },
+    {
+     "at": 210,
+     "online": false,
+     "engine": "a"
+    },
+    {
+     "at": 220,
+     "online": true,
+     "asset": "nas02",
+     "engine": "b",
+     "probes": "base-b"
+    },
+    {
+     "at": 230,
+     "engine": "many"
+    },
+    {
+     "at": 240,
+     "asset": "nas01",
+     "engine": "a"
+    }
+   ]
+  },
+  {
+   "name": "docker-off",
+   "docker": "off",
+   "steps": [
+    {
+     "at": 0,
+     "engine": "a",
+     "probes": "base"
+    }
+   ]
+  },
+  {
+   "name": "no-collector",
+   "docker": "none",
+   "steps": [
+    {
+     "at": 0,
+     "engine": "a",
+     "probes": "base"
+    }
+   ]
+  }
+ ]
+}

@@ -18,14 +18,24 @@ log.workspace = true
 serde_json.workspace = true
 
 # Linux only: the Docker page reads the engine over its Unix socket with
-# hyper's HTTP/1 client on a tokio Unix stream.
+# hyper's HTTP/1 client on a tokio Unix stream; the web service page probes
+# services with the same client over TCP and rustls (core's TLS settings)
+# and names them with SHA-256 IDs, as Go.
 [target.'cfg(target_os = "linux")'.dependencies]
+futures-util.workspace = true
 http.workspace = true
 http-body-util.workspace = true
 hyper.workspace = true
 hyper-util.workspace = true
+rustls.workspace = true
 serde.workspace = true
+sha2.workspace = true
 tokio = { workspace = true, features = ["macros", "net", "rt", "sync", "time"] }
+tokio-rustls.workspace = true
+
+# Test-only: certificates for the stand-in HTTPS services.
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+rcgen.workspace = true
 
 [lints]
 workspace = true
