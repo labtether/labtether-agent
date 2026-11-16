@@ -382,7 +382,7 @@ func runtimeConfigWithCurrentIdentity(cfg RuntimeConfig, transport *wsTransport)
 	cfg.AssetID = identity.AssetID
 	cfg.WSBaseURL = identity.WSBaseURL
 	cfg.APIBaseURL = identity.APIBaseURL
-	return cfg
+	return transport.withEnrolledHubTrust(cfg)
 }
 
 // handleAlertNotify processes an alert notification from the hub and caches it locally.

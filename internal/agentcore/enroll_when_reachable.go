@@ -2,10 +2,12 @@ package agentcore
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"log"
 	"math"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -44,19 +46,21 @@ func startEnrollmentUnanswered(cfg RuntimeConfig, startErr error) bool {
 }
 
 // armEnrollmentWhenHubReachable gives the reconnect loop the start-up
-// enrollment to try again.
-func armEnrollmentWhenHubReachable(cfg RuntimeConfig, transport *wsTransport) {
+// enrollment to try again. fallback is the HTTP heartbeat publisher Run
+// built, which a late enrollment gives the new TLS settings too.
+func armEnrollmentWhenHubReachable(cfg RuntimeConfig, transport *wsTransport, fallback HeartbeatPublisher) {
 	transport.mu.Lock()
 	transport.enrollFn = func(ctx context.Context) (string, error) {
-		return enrollWhenHubReachable(ctx, cfg, transport)
+		return enrollWhenHubReachable(ctx, cfg, transport, fallback)
 	}
 	transport.mu.Unlock()
 }
 
 // enrollWhenHubReachable runs the start-up enrollment again and puts the
 // issued token in use. As at start, the agent keeps the configured Hub
-// address, saves its token and state, and removes the used token file.
-func enrollWhenHubReachable(ctx context.Context, cfg RuntimeConfig, transport *wsTransport) (string, error) {
+// address, saves its token and state, removes the used token file and trusts
+// the CA the Hub returned from the next connection.
+func enrollWhenHubReachable(ctx context.Context, cfg RuntimeConfig, transport *wsTransport, fallback HeartbeatPublisher) (string, error) {
 	err := enrollWithStagedToken(ctx, &cfg, transport.deviceIdentity)
 	if cfg.APIToken == "" {
 		return "", err
@@ -64,6 +68,9 @@ func enrollWhenHubReachable(ctx context.Context, cfg RuntimeConfig, transport *w
 	if err != nil {
 		log.Printf("agent: %v", err)
 	}
+	// Before the token is in use, so no connection carries it with the TLS
+	// settings from start.
+	useEnrolledHubTrust(cfg, transport, fallback)
 	if _, adoptErr := transport.identitySource().AdoptCredential(cfg.APIToken, cfg.AssetID, cfg.WSBaseURL,
 		cfg.APIBaseURL, canonicalGroupIDPointer(cfg.GroupID, cfg.groupIDCanonical)); adoptErr != nil {
 		return "", adoptErr
@@ -138,4 +145,61 @@ func (t *wsTransport) disarmEnrollment() {
 	t.mu.Lock()
 	t.enrollFn = nil
 	t.mu.Unlock()
+}
+
+// Start-up enrollment runs before Run builds the connections to the Hub, so
+// they trust the CA the Hub returned from the first one, and that CA turns
+// certificate checks back on for an agent started with
+// LABTETHER_TLS_SKIP_VERIFY and no CA file. A late enrollment runs after
+// those connections exist, so it gives them the settings Run would have
+// built from the same answer.
+
+// enrolledHubTrust is the trust a late enrollment put in use.
+type enrolledHubTrust struct {
+	caFile     string
+	skipVerify bool
+}
+
+// hubTLSUser is a Hub connection built at start with its own TLS settings.
+type hubTLSUser interface {
+	useHubTLSConfig(*tls.Config)
+}
+
+// useEnrolledHubTrust repeats Run's TLS steps for cfg after a late
+// enrollment: a CA wins over skip-verify, and the WebSocket, the HTTP
+// heartbeat fallback and Hub requests from handlers use the result from
+// their next connection. enrollWithStagedToken saves the Hub's CA only when
+// allowed (not with LABTETHER_TLS_CA_ONLY, never over a CA file the person
+// set); without a saved CA the settings come out as they were.
+func useEnrolledHubTrust(cfg RuntimeConfig, transport *wsTransport, fallback HeartbeatPublisher) {
+	if cfg.TLSSkipVerify && strings.TrimSpace(cfg.TLSCAFile) != "" {
+		log.Printf("agent: the Hub CA in %s takes priority; ignoring LABTETHER_TLS_SKIP_VERIFY", cfg.TLSCAFile)
+		cfg.TLSSkipVerify = false
+	}
+	tlsCfg := buildTLSConfig(&cfg)
+	transport.mu.Lock()
+	transport.tlsConfig = tlsCfg
+	transport.enrolledTrust = &enrolledHubTrust{caFile: cfg.TLSCAFile, skipVerify: cfg.TLSSkipVerify}
+	transport.mu.Unlock()
+	if user, ok := fallback.(hubTLSUser); ok {
+		user.useHubTLSConfig(tlsCfg)
+	}
+}
+
+func (t *wsTransport) hubTLSConfig() *tls.Config {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.tlsConfig
+}
+
+// withEnrolledHubTrust gives cfg the trust a late enrollment put in use, for
+// Hub requests that handlers build from the configuration (update checks).
+func (t *wsTransport) withEnrolledHubTrust(cfg RuntimeConfig) RuntimeConfig {
+	t.mu.Lock()
+	trust := t.enrolledTrust
+	t.mu.Unlock()
+	if trust != nil {
+		cfg.TLSCAFile, cfg.TLSSkipVerify = trust.caFile, trust.skipVerify
+	}
+	return cfg
 }

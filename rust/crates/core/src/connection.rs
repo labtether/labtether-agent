@@ -129,7 +129,7 @@ async fn open(
 ) -> Result<(WebSocketStream<HubStream>, http::HeaderMap), ConnectError> {
     let endpoint = Endpoint::from_uri(uri)?;
     let request = request(agent, identity, uri)?;
-    let stream = net::dial(&endpoint, &agent.tls).await?;
+    let stream = net::dial(&endpoint, &agent.tls()).await?;
     let config = WebSocketConfig::default()
         .max_message_size(Some(MAX_MESSAGE_BYTES))
         .max_frame_size(Some(MAX_MESSAGE_BYTES));
