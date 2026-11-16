@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -15,7 +16,12 @@ import (
 	"github.com/labtether/protocol"
 )
 
-const journalQueryCommandTimeout = 20 * time.Second
+const (
+	journalQueryCommandTimeout = 20 * time.Second
+	// journalStreamMaxLine is the longest journal line the live stream
+	// reads; a longer one is skipped.
+	journalStreamMaxLine = 256 * 1024
+)
 
 // LinuxLogBackend implements LogBackend using journalctl.
 type LinuxLogBackend struct{}
@@ -91,7 +97,10 @@ func (LinuxLogBackend) StreamEntries(ctx context.Context, emit func(protocol.Log
 	}
 
 	scanner := bufio.NewScanner(stdout)
-	scanner.Buffer(nil, 256*1024) // Grow for long lines; keep idle streams small.
+	scanner.Buffer(nil, journalStreamMaxLine) // Grow for long lines; keep idle streams small.
+	scanner.Split(skipLongLines(journalStreamMaxLine, func() {
+		log.Printf("logmgr: skipped a journal entry of %d bytes or more", journalStreamMaxLine)
+	}))
 	for scanner.Scan() {
 		select {
 		case <-ctx.Done():
@@ -116,6 +125,41 @@ func (LinuxLogBackend) StreamEntries(ctx context.Context, emit func(protocol.Log
 	}
 
 	return nil
+}
+
+// skipLongLines splits as bufio.ScanLines does, but drops a line of max bytes
+// or more (max being the scanner's buffer limit) and goes on with the next
+// one. With plain ScanLines such a line stops the scanner with
+// bufio.ErrTooLong; nothing reads journalctl's output any more, so it blocks
+// on a full pipe, cmd.Wait never returns, and the live stream stays silent
+// until the agent restarts. Skipping loses only that entry; restarting
+// journalctl would also lose what it had already written after it and
+// everything logged during the restart wait. onSkip runs once per line.
+func skipLongLines(max int, onSkip func()) bufio.SplitFunc {
+	skipping := false
+	var split bufio.SplitFunc
+	split = func(data []byte, atEOF bool) (int, []byte, error) {
+		if skipping {
+			i := bytes.IndexByte(data, '\n')
+			if i < 0 {
+				return len(data), nil, nil
+			}
+			skipping = false
+			// The Scanner reads more before it splits again after an advance
+			// without a token, so the next line must be returned now, or it
+			// would wait for the entry after it.
+			advance, token, err := split(data[i+1:], atEOF)
+			return i + 1 + advance, token, err
+		}
+		advance, token, err := bufio.ScanLines(data, atEOF)
+		if advance == 0 && token == nil && err == nil && len(data) >= max {
+			skipping = true
+			onSkip()
+			return len(data), nil, nil
+		}
+		return advance, token, err
+	}
+	return split
 }
 
 // BuildJournalQueryArgs builds the arguments for a journalctl query.
