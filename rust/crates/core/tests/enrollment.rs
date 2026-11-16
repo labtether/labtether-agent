@@ -88,7 +88,12 @@ async fn one_use_token_enrolls_commits_and_survives_restart() {
         })
         .await;
     assert_eq!(body["hostname"], "nas01");
-    assert_eq!(body["platform"], "linux");
+    let platform = if cfg!(target_os = "macos") {
+        "darwin"
+    } else {
+        "linux"
+    };
+    assert_eq!(body["platform"], platform);
     assert!(token_proof_valid(&body, "v1", "nas01", "enroll-1"));
 
     let headers = hub.wait_connected(WAIT).await;

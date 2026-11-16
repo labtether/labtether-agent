@@ -5,6 +5,8 @@
 //! allowed program or a new protected path) and not here, so the two agents
 //! allow different commands while both test suites stay green.
 
+#![cfg(target_os = "linux")]
+
 use labtether_agent_config::command_security::COMMAND_POLICY_ENV;
 use labtether_agent_security::lists;
 

@@ -1,6 +1,6 @@
 [package]
 name = "labtether-agent-platform"
-description = "Linux readers for the LabTether Rust agent: /proc, /sys, filesystem and interface details"
+description = "Linux and macOS readers for the LabTether Rust agent: telemetry, host details, mounts and interfaces"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -10,6 +10,9 @@ publish.workspace = true
 [dependencies]
 rustix.workspace = true
 thiserror.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+labtether-agent-macos-sys.workspace = true
 
 [lints]
 workspace = true

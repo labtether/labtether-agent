@@ -4,13 +4,20 @@
 //! that runs the same cases through the Go helpers.
 //!
 //! Usage: real_run <marker file> <sleep seconds>
+//!
+//! Linux only, as the crate is; on other systems it does nothing.
+
+#![cfg_attr(not(target_os = "linux"), allow(unused_imports))]
 
 use std::time::{Duration, Instant};
 
+#[cfg(target_os = "linux")]
 use labtether_agent_config::{Environment, HostFacts, load};
+#[cfg(target_os = "linux")]
 use labtether_agent_security::{CommandPolicy, RunError, RunRequest};
 use serde_json::{Value, json};
 
+#[cfg(target_os = "linux")]
 fn report(
     case: &str,
     start: Instant,
@@ -37,11 +44,16 @@ fn report(
     println!("{line}");
 }
 
+#[cfg(target_os = "linux")]
 fn run(policy: &CommandPolicy, case: &str, request: RunRequest) {
     let start = Instant::now();
     report(case, start, policy.run(&request));
 }
 
+#[cfg(not(target_os = "linux"))]
+fn main() {}
+
+#[cfg(target_os = "linux")]
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let (marker, seconds) = (args[1].clone(), args[2].clone());

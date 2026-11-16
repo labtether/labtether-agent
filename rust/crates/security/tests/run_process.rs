@@ -3,6 +3,8 @@
 //! behind, a held pipe cannot hold the caller past `wait_delay`, and the
 //! child sees only the sanitized environment.
 
+#![cfg(target_os = "linux")]
+
 mod cases;
 
 use std::collections::BTreeMap;

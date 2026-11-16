@@ -44,6 +44,7 @@ jobs:
       agent_installed_container: ${{ steps.select.outputs.agent_installed_container }}
       selected_json: ${{ steps.select.outputs.selected_json }}
       rust_agent: ${{ steps.rust.outputs.rust_agent }}
+      rust_agent_macos: ${{ steps.rust.outputs.rust_agent_macos }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -71,7 +72,9 @@ jobs:
       # The Rust agent (rust/) has its own checks. They run when rust/ or
       # this workflow changes, when internal/securityruntime changes (the
       # Rust tests read its Go source and its shared case files), and on
-      # full runs.
+      # full runs. The macOS job runs when rust/ or this workflow changes,
+      # and on full runs: its build leaves out the command rules, the only
+      # part that reads internal/securityruntime.
       - name: Select Rust agent checks
         id: rust
         env:
@@ -80,13 +83,21 @@ jobs:
         run: |
           set -euo pipefail
           selected=false
+          macos=false
           if [[ "${FULL_MODE}" == "true" || -z "${BASE_SHA}" || "${BASE_SHA}" =~ ^0+$ ]]; then
             selected=true
-          elif git diff --name-only "${BASE_SHA}" "${GITHUB_SHA}" -- rust internal/securityruntime .github/workflows/ci.yml | grep -q .; then
-            selected=true
+            macos=true
+          else
+            if git diff --name-only "${BASE_SHA}" "${GITHUB_SHA}" -- rust internal/securityruntime .github/workflows/ci.yml | grep -q .; then
+              selected=true
+            fi
+            if git diff --name-only "${BASE_SHA}" "${GITHUB_SHA}" -- rust .github/workflows/ci.yml | grep -q .; then
+              macos=true
+            fi
           fi
-          echo "Rust agent checks: ${selected}"
+          echo "Rust agent checks: ${selected}, macOS: ${macos}"
           echo "rust_agent=${selected}" >> "${GITHUB_OUTPUT}"
+          echo "rust_agent_macos=${macos}" >> "${GITHUB_OUTPUT}"
 
   go-checks:
     needs: [line-limit, qa-select]
@@ -247,9 +258,35 @@ jobs:
       - name: Test
         run: cargo test --locked
 
+  # The macOS build is the monitoring edition the Mac App Store app
+  # bundles: the system readers in crates/platform/src/macos and
+  # crates/macos-sys, and the pages that work in the App Sandbox. Linux CI
+  # does not compile any of it.
+  rust-agent-macos:
+    name: Rust agent (macOS)
+    needs: qa-select
+    if: needs.qa-select.outputs.rust_agent_macos == 'true'
+    runs-on: macos-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: rust
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Update stable Rust
+        run: rustup update stable --no-self-update
+      - name: Check formatting
+        run: cargo fmt --check
+      - name: Clippy
+        run: cargo clippy --locked --all-targets -- -D warnings
+      - name: Test
+        run: cargo test --locked
+
   ci-result:
     name: CI result
-    needs: [line-limit, qa-select, go-checks, cross-build, installed-container, rust-agent]
+    needs: [line-limit, qa-select, go-checks, cross-build, installed-container, rust-agent, rust-agent-macos]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 2
@@ -262,13 +299,18 @@ jobs:
           NEEDS_JSON: ${{ toJSON(needs) }}
         run: |
           set -euo pipefail
-          # The Rust agent job is checked here; the shared checker below
-          # knows the Go jobs only.
-          rust_selected=$(jq -r '."qa-select".outputs.rust_agent // ""' <<<"${NEEDS_JSON}")
-          rust_result=$(jq -r '."rust-agent".result // ""' <<<"${NEEDS_JSON}")
-          if [[ "${rust_selected}" == "true" && "${rust_result}" != "success" ]] ||
-            [[ "${rust_selected}" != "true" && "${rust_result}" != "skipped" ]]; then
-            echo "CI failed: Rust agent checks: selected=${rust_selected} result=${rust_result}" >&2
-            exit 1
-          fi
-          NEEDS_JSON=$(jq -c 'del(."rust-agent")' <<<"${NEEDS_JSON}") python3 -B scripts/ci/check-ci-result.py
+          # The Rust agent jobs are checked here; the shared checker below
+          # knows the Go jobs only. A selected job must pass; a job not
+          # selected must be skipped.
+          for pair in rust_agent:rust-agent rust_agent_macos:rust-agent-macos; do
+            output=${pair%%:*}
+            job=${pair#*:}
+            selected=$(jq -r --arg o "${output}" '."qa-select".outputs[$o] // ""' <<<"${NEEDS_JSON}")
+            result=$(jq -r --arg j "${job}" '.[$j].result // ""' <<<"${NEEDS_JSON}")
+            if [[ "${selected}" == "true" && "${result}" != "success" ]] ||
+              [[ "${selected}" != "true" && "${result}" != "skipped" ]]; then
+              echo "CI failed: ${job}: selected=${selected} result=${result}" >&2
+              exit 1
+            fi
+          done
+          NEEDS_JSON=$(jq -c 'del(."rust-agent", ."rust-agent-macos")' <<<"${NEEDS_JSON}") python3 -B scripts/ci/check-ci-result.py

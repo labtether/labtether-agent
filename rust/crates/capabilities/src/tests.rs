@@ -5,12 +5,19 @@ use std::io;
 
 use labtether_agent_config::{Environment, HostFacts, Settings, load};
 use labtether_agent_platform::interfaces::InterfaceRow;
-use labtether_agent_platform::mounts::{MountList, MountListError, MountUsage};
+#[cfg(target_os = "linux")]
+use labtether_agent_platform::mounts::MountListError;
+use labtether_agent_platform::mounts::{MountList, MountUsage};
+#[cfg(target_os = "linux")]
 use labtether_agent_platform::processes::ProcessRow;
-use labtether_protocol::{DiskListData, Message, NetworkListData, ProcessListData};
+#[cfg(target_os = "linux")]
+use labtether_protocol::ProcessListData;
+use labtether_protocol::{DiskListData, Message, NetworkListData};
 use serde_json::{Value, json};
 
-use crate::{disks, network, processes};
+#[cfg(target_os = "linux")]
+use crate::processes;
+use crate::{disks, network};
 
 pub(crate) fn settings() -> Settings {
     let dir = std::env::temp_dir().join("lt-capabilities-unused");
@@ -26,6 +33,7 @@ pub(crate) fn settings() -> Settings {
     load(&env, &host).unwrap().settings
 }
 
+#[cfg(target_os = "linux")]
 fn row(pid: i64, cpu: f64, mem: f64) -> ProcessRow {
     ProcessRow {
         pid,
@@ -38,10 +46,12 @@ fn row(pid: i64, cpu: f64, mem: f64) -> ProcessRow {
     }
 }
 
+#[cfg(target_os = "linux")]
 fn pids(reply: &labtether_protocol::ProcessListedData) -> Vec<i64> {
     reply.processes.iter().map(|p| p.pid).collect()
 }
 
+#[cfg(target_os = "linux")]
 fn process_request(sort_by: &str, limit: i64) -> ProcessListData {
     ProcessListData {
         request_id: "r1".into(),
@@ -53,6 +63,7 @@ fn process_request(sort_by: &str, limit: i64) -> ProcessListData {
 // Fault: the default sort is not CPU, the sort is ascending, `memory` sorts
 // by CPU, the default limit is not 25, a limit of 0 or below is used as
 // given, or equal values are reordered (this port keeps PID order).
+#[cfg(target_os = "linux")]
 #[test]
 fn process_reply_sorts_and_cuts_like_go() {
     let rows: Vec<ProcessRow> = (1..=30)
@@ -75,11 +86,14 @@ fn process_reply_sorts_and_cuts_like_go() {
 // (the Hub shows it), or keeps partial rows.
 #[test]
 fn error_replies_carry_the_reason() {
-    let failed = processes::answer(process_request("", 0), Err(io::Error::other("no /proc")));
-    assert_eq!(
-        (failed.processes.len(), failed.error.as_str()),
-        (0, "no /proc")
-    );
+    #[cfg(target_os = "linux")]
+    {
+        let failed = processes::answer(process_request("", 0), Err(io::Error::other("no /proc")));
+        assert_eq!(
+            (failed.processes.len(), failed.error.as_str()),
+            (0, "no /proc")
+        );
+    }
     let request = NetworkListData {
         request_id: "n1".into(),
     };
@@ -91,10 +105,22 @@ fn error_replies_carry_the_reason() {
     let request = DiskListData {
         request_id: "d1".into(),
     };
-    let missing = MountListError::NoDfFallback(io::Error::from(io::ErrorKind::NotFound));
-    let failed = disks::answer(request, Err(missing));
-    assert!(failed.mounts.is_empty());
-    assert!(failed.error.contains("no df fallback"), "{}", failed.error);
+    #[cfg(target_os = "linux")]
+    {
+        let missing = MountListError::NoDfFallback(io::Error::from(io::ErrorKind::NotFound));
+        let failed = disks::answer(request, Err(missing));
+        assert!(failed.mounts.is_empty());
+        assert!(failed.error.contains("no df fallback"), "{}", failed.error);
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let missing = labtether_agent_platform::mounts::MountListError::MountTable(
+            io::Error::from(io::ErrorKind::PermissionDenied),
+        );
+        let failed = disks::answer(request, Err(missing));
+        assert!(failed.mounts.is_empty());
+        assert!(failed.error.contains("mount table"), "{}", failed.error);
+    }
 }
 
 // Fault: a field lands in the wrong reply field or unit (bytes, percent),
@@ -159,6 +185,7 @@ fn registered_handlers_reply_with_their_types() {
     for (request, reply) in [
         ("disk.list", "disk.listed"),
         ("network.list", "network.listed"),
+        #[cfg(target_os = "linux")]
         ("process.list", "process.listed"),
     ] {
         let handler = features

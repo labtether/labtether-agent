@@ -147,7 +147,7 @@ pub async fn enroll(
     let request = EnrollRequest {
         enrollment_token: input.token.expose(),
         hostname: input.subject,
-        platform: "linux",
+        platform: labtether_agent_platform::PLATFORM,
         group_id: input.group_id,
         device_key_algorithm: device.key_algorithm(),
         device_public_key: &device.public_key_base64,

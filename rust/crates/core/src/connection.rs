@@ -106,7 +106,7 @@ fn request(
         }
     }
     set("x-asset-id", &identity.asset_id);
-    set("x-platform", "linux");
+    set("x-platform", labtether_agent_platform::PLATFORM);
     if !agent.settings.version.trim().is_empty() {
         set("x-agent-version", agent.settings.version.trim());
     }

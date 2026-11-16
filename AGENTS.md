@@ -116,16 +116,21 @@ Read user-facing text once against this list before you ship it.
 
 - Entry point: `cmd/labtether-agent/`. Runtime: `internal/agentcore/`.
 - `rust/` is the Rust port (workspace: `crates/config`, `crates/core`,
-  `crates/platform`, `crates/security`, `crates/capabilities`,
-  `crates/local-api`, `agent`). It connects, enrolls, sends heartbeats and
-  telemetry, answers the disk, network interface and process lists, serves
-  the local API the macOS and Windows apps poll, and stops with
-  `LABTETHER_PARENT_PID`; it has no actions and is not released.
+  `crates/platform`, `crates/macos-sys`, `crates/security`,
+  `crates/capabilities`, `crates/local-api`, `agent`). It connects, enrolls,
+  sends heartbeats and telemetry, answers the disk, network interface and
+  process lists, serves the local API the macOS and Windows apps poll, and
+  stops with `LABTETHER_PARENT_PID`; it has no actions and is not released.
   `crates/local-api` tests `/agent/status` against a copy of the protocol
   repo's `localagent/` contract; `scripts/localagent-contract.py` checks or
   updates that copy. A status field changes in the Go agent, the protocol
-  contract, this copy and both apps together. Each page is a module in `crates/capabilities`; Linux readers
-  live in `crates/platform` and take captured text in their tests.
+  contract, this copy and both apps together. Each page is a module in
+  `crates/capabilities`; the readers live in `crates/platform` (`linux/`,
+  `macos/`) and take captured text or bytes in their tests. On macOS it is
+  the App Store monitoring edition: disks and network interfaces only, no
+  process started, and `crates/security` is empty there.
+  `crates/macos-sys` is the only crate allowed `unsafe` (one call per
+  block, each with a `SAFETY` comment); everything else forbids it.
   `crates/security` holds the command rules; its `CommandPolicy::run` is the
   only way Rust code may start a process (`rust/clippy.toml` refuses
   `Command::new` elsewhere). Its cases live in

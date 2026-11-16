@@ -33,6 +33,13 @@ All notable changes to `labtether-agent` are documented in this file.
   agent contract. It stops when the process in `LABTETHER_PARENT_PID` is
   gone, as the Go agent does for the macOS and Windows apps. It keeps alerts
   the hub pushes for the status page.
+- The Rust agent builds and runs on macOS as the monitoring edition for the
+  Mac App Store app: CPU, memory, disk and network telemetry, the host
+  details in the heartbeat, and the disk and network interface lists, read
+  from system calls without starting any program, as the App Sandbox
+  requires. It has no process list and no temperature on macOS. CI checks the
+  macOS build when `rust/` changes. Not yet run inside the sandbox or compared
+  with the Go agent on a Mac.
 
 ### Fixed
 

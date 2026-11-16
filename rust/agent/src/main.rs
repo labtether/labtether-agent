@@ -1,7 +1,7 @@
-//! The LabTether Rust agent for Linux: reads its settings once, builds its
-//! features, starts the Hub connection and the local API, and stops cleanly
-//! on SIGTERM, Ctrl-C or when the process named by `LABTETHER_PARENT_PID`
-//! is gone.
+//! The LabTether Rust agent for Linux and macOS: reads its settings once,
+//! builds its features, starts the Hub connection and the local API, and
+//! stops cleanly on SIGTERM, Ctrl-C or when the process named by
+//! `LABTETHER_PARENT_PID` is gone.
 
 #![forbid(unsafe_code)]
 
@@ -23,12 +23,20 @@ const VERSION: &str = match option_env!("LABTETHER_AGENT_VERSION") {
 };
 
 /// The kernel's host name, as Go's `os.Hostname` reads it on Linux.
+#[cfg(target_os = "linux")]
 fn hostname() -> String {
     ["/proc/sys/kernel/hostname", "/etc/hostname"]
         .iter()
         .find_map(|path| std::fs::read_to_string(path).ok())
         .map(|name| name.trim().to_owned())
         .unwrap_or_default()
+}
+
+/// The kernel's host name, as Go's `os.Hostname` reads it on macOS
+/// (`sysctl kern.hostname`).
+#[cfg(target_os = "macos")]
+fn hostname() -> String {
+    labtether_agent_platform::host_name().trim().to_owned()
 }
 
 fn log_warning(warning: &ConfigWarning) {

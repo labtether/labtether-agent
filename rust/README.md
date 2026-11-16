@@ -56,6 +56,41 @@ The heartbeat advertises `cap_network=list`, `network_backend=ifconfig` and
 no terminal, desktop, files or power for it. Heartbeat details the Go agent
 learns by running a program (`tailscale status`) are not sent.
 
+## macOS: the monitoring edition
+
+The Mac App Store edition of the Mac app will bundle this agent. A Store app
+runs in the App Sandbox, so on macOS the agent reports and starts no
+program:
+
+- telemetry with the Go agent's macOS formulas (gopsutil v4.26.9): CPU from
+  the Mach `HOST_CPU_LOAD_INFO` ticks, memory as pages in use over all pages
+  with inactive pages counted free (`HOST_VM_INFO`, `hw.memsize`), disk as
+  `statfs("/")` used over used plus available, and network bytes summed over
+  every interface, loopback included, from the kernel's interface table;
+- the heartbeat's host details from `sysctl` (`kern.osproductversion`,
+  `kern.osrelease`, `hw.machine`, `machdep.cpu.brand_string`,
+  `hw.physicalcpu`, `hw.logicalcpu`, `hw.memsize`) and `gethostuuid` for
+  `host_id`, with `os_name` `macOS` as the Go agent names it;
+- `disk.list`: the mount table (`getfsstat`) with `df -kP`'s arithmetic,
+  used space per APFS volume (`getattrlist`), and Go's rules for which
+  mounts to leave out;
+- `network.list`: the interface table (`sysctl NET_RT_IFLIST2`), parsed
+  as Go's `net.Interfaces` parses it, with `netstat`'s link counters.
+
+Not on macOS: the process list (the sandbox refuses `/bin/ps`), temperature
+(Apple silicon has it only behind a private interface), the Apple silicon
+clock speed, Tailscale details beyond `tailscale_installed`, and a real MAC
+address when macOS 27 gives the placeholder `02:00:00:00:00:00` (the Go
+agent asks `networksetup`; this agent sends no MAC then). The heartbeat
+carries `disk_root_available_bytes`, which the Go agent sends on Linux only.
+`crates/security` is empty on macOS, so nothing in the macOS build can start
+a process.
+
+The system calls live in `crates/macos-sys`, the only crate allowed
+`unsafe`: each block holds one call and a `SAFETY` comment, and the crate
+returns plain values or raw bytes. The parsing (interface table, mount
+arithmetic, host details) is safe code in `crates/platform/src/macos/`.
+
 ## Command rules
 
 `crates/security` holds the Go agent's rules for every command the agent
@@ -158,14 +193,15 @@ This binary is not hardened and not a replacement for the Go agent:
   terminal, files or Remote View pages (the command rules exist but nothing
   runs a command);
 - no self-update, installer, systemd unit or container image;
-- Linux only.
+- Linux and macOS only; macOS has the monitoring set above.
 
 ## Layout
 
 | Folder | Holds |
 |---|---|
 | `crates/config` | The settings, read from the environment and `agent-config.json` |
-| `crates/platform` | Linux readers: `/proc`, `/sys`, `statfs`, the interface list from netlink, the mount and process lists, the PATH lookup, process-group stop |
+| `crates/platform` | Linux readers (`linux/`): `/proc`, `/sys`, `statfs`, the interface list from netlink, the mount and process lists, the PATH lookup, process-group stop. macOS readers (`macos/`): telemetry, host details, the interface table and mount list, on top of `crates/macos-sys` |
+| `crates/macos-sys` | macOS only: the system calls behind safe functions (`sysctl`, the interface table, Mach host statistics, `getfsstat`, `getattrlist`, `gethostuuid`); the one crate with `unsafe` |
 | `crates/security` | The command rules and `CommandPolicy::run`, the one way to start a process |
 | `crates/core` | Device key, TLS, enrollment, connection, reconnect, token check, dispatch, request workers, heartbeat, telemetry loop, offline buffer, `config.update` |
 | `crates/capabilities` | One module per device page: its request handlers and what the heartbeat advertises |
@@ -175,7 +211,9 @@ This binary is not hardened and not a replacement for the Go agent:
 ## Adding a page
 
 1. Put the system reads in `crates/platform` as text-in, values-out
-   functions, with tests on captured text.
+   functions, with tests on captured text. On macOS, add a page only if it
+   works in the App Sandbox without starting a program, and add it to
+   `crates/capabilities/tests/macos_pages.rs`.
 2. Add `crates/capabilities/src/<page>.rs` with
    `pub fn register(features: &mut Features, settings: &Settings)`. Use
    `features.on_request(request_type, reply_type, request_id, answer)`:
@@ -216,6 +254,8 @@ precedence, the TLS rules, enrollment and its file invariants, reconnect,
 keepalive, the bounded send queue, the offline telemetry buffer,
 `config.update`, the token check, the request workers and the typed reply.
 The Linux readers are tested against captured `/proc` and `/sys` text, a
-made-up sysfs tree and a made-up `/proc` tree. A test fails when a page is
+made-up sysfs tree and a made-up `/proc` tree; the macOS readers against an
+interface table built byte by byte, made-up mount rows and tick counts. CI
+runs the checks on Linux and on macOS. A test fails when a page is
 advertised without its handler, or handled without its advertisement. Behaviour on a real Hub is checked on
 the lab machines, not in CI.
