@@ -20,7 +20,8 @@ On Linux, the `labtether-agent-rs` binary:
   it has no token, and saves the agent token (mode 0600);
 - keeps one WebSocket open, pings every 25 s, reconnects with a growing wait
   (1 s to 60 s), and re-enrolls with a staged token after three refused
-  credentials;
+  connects, also when its first enrollment failed (the token is kept until
+  the Hub accepts it; a refused one is tried at most every 10 minutes);
 - samples CPU, memory, root disk, network and temperature every 10 s
   (`AGENT_COLLECT_INTERVAL`) with the Go agent's formulas, reading `/proc`,
   `/sys` and `statfs` only;

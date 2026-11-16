@@ -133,8 +133,12 @@ impl Agent {
         if identity.ws_url.is_empty() {
             return Err(StartError::NoHubAddress);
         }
+        // Go arms re-enrollment whenever the one-use token is still set after
+        // start (`run.go`: `if cfg.EnrollmentToken != ""`): with a saved
+        // token, and also when enrollment at start failed (no Hub, or the
+        // Hub refused the token). Only a used token is gone by now.
         let re_enroll = ReEnroll {
-            token: enrollment.filter(|_| identity.token.is_some()),
+            token: enrollment,
             last_attempt: None,
         };
         let heartbeat = HeartbeatTemplate::new(

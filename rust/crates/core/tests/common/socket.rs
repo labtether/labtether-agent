@@ -41,7 +41,7 @@ where
         return;
     }
     let read_pause = shared.behaviour.lock().unwrap().read_pause;
-    let (accepted, canonical, stall, pending, close_at_once) = {
+    let (accepted, refused_pending, canonical, stall, pending, close_at_once) = {
         let behaviour = shared.behaviour.lock().unwrap();
         let token = bearer(&head);
         let pending = token.is_none()
@@ -49,12 +49,14 @@ where
                 .headers
                 .get("x-request-enrollment")
                 .is_some_and(|v| v == "true");
+        let refused_pending = pending && behaviour.refuse_pending;
         let accepted = token
             .as_ref()
             .is_some_and(|t| behaviour.accepted_tokens.contains(t))
-            || pending;
+            || (pending && !refused_pending);
         (
             accepted,
+            refused_pending,
             behaviour.canonical_asset.clone(),
             behaviour.stall,
             pending,
@@ -62,18 +64,20 @@ where
         )
     };
     if !accepted {
+        let (status, line) = if refused_pending {
+            (403, "403 Forbidden")
+        } else {
+            (401, "401 Unauthorized")
+        };
         emit(
             &shared,
             Event::Refused {
-                status: 401,
+                status,
                 headers: head.headers.clone(),
             },
         );
-        let _ = stream
-            .write_all(
-                b"HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
-            )
-            .await;
+        let answer = format!("HTTP/1.1 {line}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+        let _ = stream.write_all(answer.as_bytes()).await;
         let _ = stream.shutdown().await;
         return;
     }

@@ -92,6 +92,12 @@ All notable changes to `labtether-agent` are documented in this file.
 
 ### Fixed
 
+- Rust agent: a one-use enrollment token is kept when the first enrollment
+  fails, as in the Go agent. Before, a first try that found no Hub, or that
+  the Hub refused, dropped the token, so an agent the Hub then refused (a
+  device an admin had rejected) had nothing to enroll with until it was
+  restarted. It now enrolls with the token at the third refused connect,
+  and tries a refused token again at most once every 10 minutes.
 - Linux: a journal entry of 256 KiB or more no longer stops the live log
   stream. Before, the stream stayed silent until the agent restarted; now
   that one entry is skipped and the stream goes on.

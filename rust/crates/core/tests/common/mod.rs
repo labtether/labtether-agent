@@ -84,6 +84,10 @@ pub struct Behaviour {
     pub enroll_refusal: String,
     /// The group in the enrollment answer.
     pub enroll_group: String,
+    /// Answer a socket without a token with 403, as the Hub does for a
+    /// device an admin rejected (until the Hub restarts), instead of
+    /// holding it as a pending enrollment.
+    pub refuse_pending: bool,
 }
 
 impl Default for Behaviour {
@@ -100,6 +104,7 @@ impl Default for Behaviour {
             refuse_upgrade: false,
             enroll_refusal: "enrollment token is invalid or used".to_owned(),
             enroll_group: String::new(),
+            refuse_pending: false,
         }
     }
 }
@@ -130,10 +135,28 @@ impl Hub {
     /// Starts a Hub on 127.0.0.1, with TLS when `acceptor` is given.
     pub async fn start(acceptor: Option<TlsAcceptor>) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        Self::serve_on(listener, acceptor, Behaviour::default())
+    }
+
+    /// Starts a Hub without TLS on `addr` (from [`free_address`]), with
+    /// `behaviour` in place before the first connection, so an agent can be
+    /// started while no Hub listens there.
+    pub async fn start_at(addr: SocketAddr, behaviour: Behaviour) -> Self {
+        let listener = TcpListener::bind(addr)
+            .await
+            .expect("the reserved Hub address is still free");
+        Self::serve_on(listener, None, behaviour)
+    }
+
+    fn serve_on(
+        listener: TcpListener,
+        acceptor: Option<TlsAcceptor>,
+        behaviour: Behaviour,
+    ) -> Self {
         let addr = listener.local_addr().unwrap();
         let (tx, events) = mpsc::unbounded_channel();
         let shared = Arc::new(Shared {
-            behaviour: Mutex::new(Behaviour::default()),
+            behaviour: Mutex::new(behaviour),
             events: tx,
             next_id: AtomicUsize::new(1),
             kick: watch::channel(0).0,
@@ -425,3 +448,12 @@ pub(crate) fn emit(shared: &Shared, event: Event) {
 
 /// Keeps a TCP stream type in scope for tests that dial the Hub directly.
 pub type Tcp = TcpStream;
+
+/// A loopback address nothing listens on: an agent pointed at it finds no
+/// Hub until [`Hub::start_at`] binds it.
+pub fn free_address() -> SocketAddr {
+    std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+}
