@@ -88,6 +88,9 @@ pub struct Behaviour {
     /// device an admin rejected (until the Hub restarts), instead of
     /// holding it as a pending enrollment.
     pub refuse_pending: bool,
+    /// Answer this many enrollment requests with 503, as a Hub that is down
+    /// behind a proxy, before answering as usual.
+    pub enroll_unavailable: usize,
 }
 
 impl Default for Behaviour {
@@ -105,6 +108,7 @@ impl Default for Behaviour {
             enroll_refusal: "enrollment token is invalid or used".to_owned(),
             enroll_group: String::new(),
             refuse_pending: false,
+            enroll_unavailable: 0,
         }
     }
 }
@@ -410,6 +414,10 @@ fn enroll_answer(shared: &Shared, body: &[u8]) -> (&'static str, String) {
         .unwrap_or_default()
         .to_owned();
     let mut behaviour = shared.behaviour.lock().unwrap();
+    if behaviour.enroll_unavailable > 0 {
+        behaviour.enroll_unavailable -= 1;
+        return ("503 Service Unavailable", String::new());
+    }
     let Some(answer) = behaviour.enroll.remove(&token) else {
         return (
             "401 Unauthorized",

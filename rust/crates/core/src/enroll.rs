@@ -94,6 +94,33 @@ impl EnrollError {
         matches!(self, Self::Refused { status, .. } if *status == StatusCode::UNAUTHORIZED || *status == StatusCode::FORBIDDEN)
     }
 
+    /// Go's `enrollmentRetryable`: the Hub did not answer, or answered that
+    /// it cannot take the request now (408, 429, or a 5xx from the Hub or a
+    /// proxy in front of it), so the same enrollment can work later. The Hub
+    /// refuses the token itself with 401 and other requests with 400 or 409;
+    /// those stay.
+    pub fn is_retryable(&self) -> bool {
+        match self {
+            Self::Http(_) | Self::BadAnswer(_) => true,
+            Self::Refused { status, .. } => {
+                *status == StatusCode::REQUEST_TIMEOUT
+                    || *status == StatusCode::TOO_MANY_REQUESTS
+                    || status.is_server_error()
+            }
+            Self::NoAddress => false,
+        }
+    }
+
+    /// The fixed reason the status page shows while enrollment cannot reach
+    /// the Hub (Go: `classifyConnectReason` on the enrollment error).
+    pub fn reason(&self) -> Option<&'static str> {
+        match self {
+            Self::Http(HttpError::Dial(error)) => crate::connection::dial_reason(error),
+            Self::Http(HttpError::Timeout(_)) => Some("timed_out"),
+            _ => None,
+        }
+    }
+
     /// Go's `enrollmentRefusalMessage`: the Hub's own words, when it sent
     /// any.
     pub fn hub_words(&self) -> Option<&str> {

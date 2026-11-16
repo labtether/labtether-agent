@@ -42,6 +42,9 @@ pub enum StartError {
 pub(crate) struct ReEnroll {
     pub token: Option<EnrollmentToken>,
     pub last_attempt: Option<Instant>,
+    /// Enrollment at start did not reach the Hub: enroll with `token` before
+    /// connecting without one (`late_enroll`).
+    pub at_connect: bool,
 }
 
 /// State shared by the reconnect loop, the session and the handlers.
@@ -101,6 +104,7 @@ impl Agent {
         let mut identity = startup.identity;
         let mut enrollment = startup.enrollment;
         let link_status = LinkStatus::default();
+        let mut at_connect = false;
 
         if identity.token.is_none()
             && let Some(staged) = enrollment.as_ref()
@@ -127,6 +131,7 @@ impl Agent {
                     if let Some(words) = error.hub_words() {
                         link_status.set_refusal(words);
                     }
+                    at_connect = error.is_retryable();
                 }
             }
         }
@@ -140,6 +145,7 @@ impl Agent {
         let re_enroll = ReEnroll {
             token: enrollment,
             last_attempt: None,
+            at_connect,
         };
         let heartbeat = HeartbeatTemplate::new(
             &settings,

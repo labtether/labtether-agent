@@ -81,6 +81,17 @@ func (t *wsTransport) reconnectLoop(ctx context.Context, onConnect func()) {
 			}
 		}
 
+		// A staged token that has not reached the Hub yet is used before a
+		// socket without a token would ask an admin for approval.
+		if wait, retry := t.enrollBeforeConnect(ctx, &backoff); retry {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.after(wait):
+			}
+			continue
+		}
+
 		tokenBefore := t.identitySource().Snapshot().BearerToken
 		resp, err := t.connectAttempt(ctx)
 		if err != nil {

@@ -81,6 +81,15 @@ func resolveTokenWithIdentity(ctx context.Context, cfg *RuntimeConfig, identity 
 	if cfg.EnrollmentToken == "" {
 		return nil // no enrollment token set — agent will run without auth (legacy)
 	}
+	return enrollWithStagedToken(ctx, cfg, identity)
+}
+
+// enrollWithStagedToken enrolls with cfg.EnrollmentToken and keeps the answer:
+// the agent token and enrollment state on disk, the used token file removed
+// (or recorded as used), and the Hub's CA. It runs at start and again from the
+// reconnect loop when the start-up try did not reach the Hub. cfg.APIToken is
+// set whenever the Hub issued a token, even when an error is returned.
+func enrollWithStagedToken(ctx context.Context, cfg *RuntimeConfig, identity *deviceIdentity) error {
 	if cfg.WSBaseURL == "" && cfg.APIBaseURL == "" {
 		return fmt.Errorf("enrollment requires LABTETHER_WS_URL or LABTETHER_API_BASE_URL")
 	}

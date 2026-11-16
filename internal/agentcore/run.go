@@ -70,19 +70,21 @@ func Run(ctx context.Context, cfg RuntimeConfig, provider TelemetryProvider) err
 	credentialWarning := ""
 	credentialError := ""
 	enrollmentRefusal := ""
-	if err := resolveTokenWithIdentity(ctx, &cfg, identity); err != nil {
-		if enrollmentRefusal = enrollmentRefusalMessage(err); enrollmentRefusal != "" {
+	resolveErr := resolveTokenWithIdentity(ctx, &cfg, identity)
+	if resolveErr != nil {
+		if enrollmentRefusal = enrollmentRefusalMessage(resolveErr); enrollmentRefusal != "" {
 			log.Printf("%s: LabTether refused the enrollment: %s", cfg.Name, enrollmentRefusal)
 		} else {
-			log.Printf("%s: token resolution failed: %v", cfg.Name, err)
+			log.Printf("%s: token resolution failed: %v", cfg.Name, resolveErr)
 		}
-		if errors.Is(err, errAgentTokenPersistence) {
+		if errors.Is(resolveErr, errAgentTokenPersistence) {
 			credentialWarning = agentTokenPersistenceFailed
 		}
-		if isEnrollmentCredentialRejected(err) {
+		if isEnrollmentCredentialRejected(resolveErr) {
 			credentialError = enrollmentTokenRejected
 		}
 	}
+	enrollWhenReachable := startEnrollmentUnanswered(cfg, resolveErr)
 
 	if cfg.TLSSkipVerify && strings.TrimSpace(cfg.TLSCAFile) != "" {
 		log.Printf("%s: configured TLS CA takes priority; ignoring LABTETHER_TLS_SKIP_VERIFY", cfg.Name)
@@ -164,6 +166,11 @@ func Run(ctx context.Context, cfg RuntimeConfig, provider TelemetryProvider) err
 			transport.reEnrollFn = func() (string, error) {
 				return reEnrollAgainstActiveHub(ctx, cfg, transport)
 			}
+		}
+		// Start-up enrollment found no Hub: enroll with the token once the
+		// Hub answers, before connecting as a device awaiting approval.
+		if enrollWhenReachable {
+			armEnrollmentWhenHubReachable(cfg, transport)
 		}
 
 		// Start network change monitor.

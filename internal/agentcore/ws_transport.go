@@ -107,6 +107,9 @@ type wsTransport struct {
 
 	reEnrollFn     func() (string, error) // returns new token or error
 	lastReEnrollAt time.Time
+	// enrollFn enrolls with the staged one-use token when enrollment at start
+	// did not reach the Hub; set until it succeeds or the Hub refuses it.
+	enrollFn func(context.Context) (string, error)
 
 	connectWithResponseFn func(context.Context) (*http.Response, error)
 	timeAfter             func(time.Duration) <-chan time.Time

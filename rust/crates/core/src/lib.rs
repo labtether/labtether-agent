@@ -25,6 +25,7 @@ mod handlers;
 pub mod heartbeat;
 pub mod identity;
 pub mod intervals;
+mod late_enroll;
 pub mod link_status;
 mod net;
 pub mod offers;

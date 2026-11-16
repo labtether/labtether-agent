@@ -10,6 +10,7 @@ use crate::agent::Agent;
 use crate::backoff::{AuthWait, Backoff};
 use crate::connection::{self, ConnectError};
 use crate::flow;
+use crate::late_enroll::{self, LateEnrollment};
 use crate::link_status::FailureKind;
 use crate::session::{self, SessionEnd};
 use crate::timing::jitter;
@@ -125,6 +126,20 @@ async fn keep_connected(agent: &Arc<Agent>, mut shutdown: watch::Receiver<bool>)
                 return;
             }
             continue;
+        }
+        // A staged token that has not reached the Hub yet is used before a
+        // socket without a token would ask an admin for approval.
+        match late_enroll::try_enroll(agent).await {
+            LateEnrollment::Connect => {}
+            LateEnrollment::Enrolled => backoff.reset(),
+            LateEnrollment::Unanswered(error) => {
+                let duration = backoff.transient();
+                log::warn!("enrollment did not reach the Hub, retrying in {duration:?}: {error}");
+                if !wait(duration, &mut shutdown).await {
+                    return;
+                }
+                continue;
+            }
         }
         match connection::connect(agent).await {
             Ok(connection) => {
