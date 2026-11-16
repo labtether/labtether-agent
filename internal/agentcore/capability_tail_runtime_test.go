@@ -339,10 +339,10 @@ func TestHandleSSHKeyInstallAndRemoveMutatesAuthorizedKeysIdempotently(t *testin
 	defer cleanup()
 
 	homeDir := t.TempDir()
-	t.Setenv("HOME", homeDir)
+	useTestHome(t, homeDir)
+	authorizedKeysPath := useTestHubSSHKeyFile(t, homeDir)
 
 	publicKey := "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDXvBALRC6pB8/bY8wpyWU5AYk+3NDJxLtJqstVU3OI6 labtether-hub"
-	authorizedKeysPath := filepath.Join(homeDir, ".ssh", "authorized_keys")
 
 	mustHandleSSHKeyMessage := func(msgType string, payload any, wantType string) protocol.SSHKeyInstalledData {
 		t.Helper()

@@ -197,6 +197,7 @@ func TestUnsupportedPlatformWebRTCReason(t *testing.T) {
 }
 
 func TestDetectWebRTCCapabilitiesWaylandRequiresExperimentalBackend(t *testing.T) {
+	skipLinuxDesktopFakesOnWindows(t)
 	originalGOOS := WebRTCRuntimeGOOS
 	originalLookPath := WebRTCLookPath
 	originalNewCommand := NewWebRTCSecurityCommand
@@ -232,6 +233,7 @@ func TestDetectWebRTCCapabilitiesWaylandRequiresExperimentalBackend(t *testing.T
 }
 
 func TestDetectWebRTCCapabilitiesWaylandWithPipeWireNode(t *testing.T) {
+	skipLinuxDesktopFakesOnWindows(t)
 	originalGOOS := WebRTCRuntimeGOOS
 	originalLookPath := WebRTCLookPath
 	originalNewCommand := NewWebRTCSecurityCommand
@@ -380,6 +382,7 @@ func TestDetectWebRTCCapabilitiesNoSupportedEncoder(t *testing.T) {
 }
 
 func TestDetectWebRTCCapabilitiesCollectsEncodersAudioAndDisplays(t *testing.T) {
+	skipLinuxDesktopFakesOnWindows(t)
 	originalGOOS := WebRTCRuntimeGOOS
 	originalLookPath := WebRTCLookPath
 	originalNewCommand := NewWebRTCSecurityCommand

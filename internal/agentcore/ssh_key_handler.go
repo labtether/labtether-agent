@@ -19,6 +19,11 @@ import (
 // other's change.
 var hubSSHKeyMu sync.Mutex
 
+// hubSSHKeyTargetFor finds the authorized_keys file for the agent's account.
+// Tests point it at a temporary folder: on Windows an elevated account's
+// target is the machine's administrators_authorized_keys.
+var hubSSHKeyTargetFor = resolveHubSSHKeyTarget
+
 // validateAuthorizedKey asserts that pubKey is a single, valid authorized_keys
 // entry with no embedded newlines and no trailing content after the key proper.
 // It returns the caller's trimmed original payload unchanged so existing
@@ -63,7 +68,7 @@ func handleSSHKeyInstallRecorded(transport agentMessageSender, msg protocol.Mess
 		return
 	}
 
-	target, err := resolveHubSSHKeyTarget()
+	target, err := hubSSHKeyTargetFor()
 	if err != nil {
 		log.Printf("ssh-key: hub public key not installed: %v", err)
 		return
@@ -115,7 +120,7 @@ func handleSSHKeyRemoveRecorded(transport agentMessageSender, msg protocol.Messa
 		return
 	}
 
-	target, err := resolveHubSSHKeyTarget()
+	target, err := hubSSHKeyTargetFor()
 	if err != nil {
 		log.Printf("ssh-key: hub public key not removed: %v", err)
 		return

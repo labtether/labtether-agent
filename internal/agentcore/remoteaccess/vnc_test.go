@@ -216,6 +216,7 @@ func requireNoStandaloneArg(t *testing.T, args []string, flag string) {
 // ContainsEnvValue moved to test_helpers_test.go
 
 func TestWaitForXvfbReadySucceedsWhenLockFileExists(t *testing.T) {
+	skipX11LockFilesOnWindows(t)
 	display := 88
 	lockFile := fmt.Sprintf("/tmp/.X%d-lock", display)
 	if err := os.WriteFile(lockFile, []byte(fmt.Sprintf("%d\n", os.Getpid())), 0o644); err != nil {
@@ -275,6 +276,7 @@ func TestCreateXauthorityFile(t *testing.T) {
 }
 
 func TestIsDisplayAvailableUsesLockFile(t *testing.T) {
+	skipX11LockFilesOnWindows(t)
 	originalCollectUserSessions := system.CollectUserSessionsFn
 	t.Cleanup(func() {
 		system.CollectUserSessionsFn = originalCollectUserSessions

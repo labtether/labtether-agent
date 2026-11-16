@@ -3,11 +3,16 @@ package sysconfig
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
 
 func TestCopyDirPreservesNetplanFilesAndSymlinks(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		// The backup copies /etc/netplan; netplan is a Linux network tool.
+		t.Skip("netplan backup is Linux only")
+	}
 	src := filepath.Join(t.TempDir(), "src")
 	dst := filepath.Join(t.TempDir(), "dst")
 	if err := os.MkdirAll(filepath.Join(src, "nested"), 0o700); err != nil {

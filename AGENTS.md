@@ -175,5 +175,10 @@ Read user-facing text once against this list before you ship it.
   For smaller changes, test the affected package or use `-run`.
 - Real Linux, Windows and macOS behavior is proved on the lab test machines
   named in the workspace guide.
+- CI's `windows-tests` job runs the packages with Windows code on Windows
+  (not yet `internal/securityruntime`); the `*_windows_test.go` files run
+  nowhere else. A test that needs a home folder
+  calls `useTestHome` (Windows reads `USERPROFILE`, not `HOME`); a test must
+  never write the real profile or `administrators_authorized_keys`.
 - Releases join the workspace prerequisite stage. Pushing a tag publishes the
   GHCR image right away. Binaries are release assets, never files in Hub.

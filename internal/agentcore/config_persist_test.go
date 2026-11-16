@@ -10,7 +10,7 @@ import (
 
 func TestLoadPersistedConfigRestoresEffectiveIntervalsAtStartup(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	useTestHome(t, home)
 
 	dir := filepath.Join(home, ".labtether")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -66,7 +66,7 @@ func TestLoadPersistedConfigRestoresEffectiveIntervalsAtStartup(t *testing.T) {
 
 func TestPersistAppliedConfigRemovesStaleFileWhenOverridesCleared(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	useTestHome(t, home)
 
 	stateDir := t.TempDir()
 	runtime := NewRuntime(RuntimeConfig{
@@ -99,7 +99,7 @@ func TestPersistAppliedConfigRemovesStaleFileWhenOverridesCleared(t *testing.T) 
 // pre-2.0 home-folder file.
 func TestLoadPersistedConfigIgnoresHubOverridesWhenRemoteOverridesAreOff(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	useTestHome(t, home)
 	stateDir := t.TempDir()
 	data, err := json.Marshal(appliedConfig{CollectIntervalSec: 15, HeartbeatIntervalSec: 25})
 	if err != nil {

@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -16,10 +17,17 @@ func TestValidatePathPreventsTraversal(t *testing.T) {
 		BaseDir: tmpDir,
 	}
 
+	// "/etc/passwd" has no drive on Windows, so there it names a file under
+	// the base folder. A sibling of the base folder and the filesystem root
+	// are absolute and outside it on every system.
 	cases := []string{
 		"../../etc/passwd",
-		"/etc/passwd",
+		filepath.Join(filepath.Dir(tmpDir), "passwd"),
+		FilesystemRootForPath(tmpDir),
 		"../../../root/.ssh/id_rsa",
+	}
+	if runtime.GOOS != "windows" {
+		cases = append(cases, "/etc/passwd")
 	}
 
 	for _, tc := range cases {
@@ -215,8 +223,10 @@ func TestResolveAgentFileHomeDirFallsBackToDesktopSessionHomeWhenProcessHomeRead
 		t.Fatalf("unexpected uid lookup: %s", uid)
 		return nil, nil
 	}
+	// filepath.Clean writes this with backslashes on Windows.
+	captainHome := filepath.Clean("/home/captain")
 	FileIsWritableDirFn = func(path string) bool {
-		return filepath.Clean(path) == "/home/captain"
+		return filepath.Clean(path) == captainHome
 	}
 	DetectDesktopSessionFn = func() DesktopSessionInfo {
 		return DesktopSessionInfo{Username: "captain", UID: 1000}
@@ -230,8 +240,8 @@ func TestResolveAgentFileHomeDirFallsBackToDesktopSessionHomeWhenProcessHomeRead
 		return "", nil
 	}
 
-	if got := ResolveAgentFileHomeDir(); got != "/home/captain" {
-		t.Fatalf("ResolveAgentFileHomeDir() = %q, want /home/captain", got)
+	if got := ResolveAgentFileHomeDir(); got != captainHome {
+		t.Fatalf("ResolveAgentFileHomeDir() = %q, want %s", got, captainHome)
 	}
 }
 
@@ -290,21 +300,26 @@ func TestResolveFileBaseDirFullModeContainsHome(t *testing.T) {
 }
 
 func TestValidatePathExpandsHomeUsingResolvedFileHome(t *testing.T) {
+	// A real absolute folder: "/tmp/..." has no drive on Windows.
+	home, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	home = filepath.Join(home, "labtether-agent-home")
+	if err := os.MkdirAll(home, 0o700); err != nil {
+		t.Fatal(err)
+	}
 	fm := &Manager{
 		writers: make(map[string]*PendingWrite),
-		BaseDir: "/tmp/labtether-agent-home",
-		HomeDir: "/tmp/labtether-agent-home",
+		BaseDir: home,
+		HomeDir: home,
 	}
 
 	got, err := fm.ValidatePath("~/notes.txt")
 	if err != nil {
 		t.Fatalf("ValidatePath returned error: %v", err)
 	}
-	tmpRoot, err := filepath.EvalSymlinks("/tmp")
-	if err != nil {
-		tmpRoot = "/tmp"
-	}
-	if filepath.Clean(got) != filepath.Join(tmpRoot, "labtether-agent-home", "notes.txt") {
+	if filepath.Clean(got) != filepath.Join(home, "notes.txt") {
 		t.Fatalf("ValidatePath expanded path = %q", got)
 	}
 }

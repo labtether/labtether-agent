@@ -97,13 +97,18 @@ func TestDockerContainerLogsOneShotRetainsClientTimeout(t *testing.T) {
 	}))
 	defer server.Close()
 	client.httpClient.Timeout = 100 * time.Millisecond
+	start := time.Now()
 	body, err := client.containerLogs(context.Background(), "ct-1", 10, false, false)
 	if err == nil {
 		defer body.Close()
-		_, err = io.ReadAll(body)
+		_, _ = io.ReadAll(body)
 	}
-	if err == nil {
-		t.Fatal("one-shot logs lost their bounded request timeout")
+	// The read must end at the 100 ms client timeout, not when the server
+	// gives up at 2 s. The error is not checked: on Windows the read now and
+	// then ends with a clean end of stream at the timeout (1 run in 10 on the
+	// Windows lab VM), although the timeout did end it.
+	if elapsed := time.Since(start); elapsed >= time.Second {
+		t.Fatalf("one-shot logs lost their bounded request timeout: read took %v", elapsed)
 	}
 	select {
 	case <-canceled:

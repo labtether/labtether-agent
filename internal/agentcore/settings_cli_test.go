@@ -40,13 +40,27 @@ func captureCLIOutput(t *testing.T, stdin string, fn func() int) (int, string) {
 		os.Stdin = oldStdin
 	})
 
+	// Read while the command runs. A Windows pipe holds about 4 KiB, so the
+	// settings help blocked in its write for ever when nothing read until the
+	// command returned (seen on the Windows lab VM).
+	type captured struct {
+		data []byte
+		err  error
+	}
+	drained := make(chan captured, 1)
+	go func() {
+		data, err := io.ReadAll(stdoutReader)
+		drained <- captured{data, err}
+	}()
+
 	exitCode := fn()
 
 	_ = stdoutWriter.Close()
 	os.Stdout = oldStdout
 	os.Stdin = oldStdin
 
-	output, err := io.ReadAll(stdoutReader)
+	result := <-drained
+	output, err := result.data, result.err
 	if err != nil {
 		t.Fatalf("read captured stdout: %v", err)
 	}
