@@ -1,0 +1,1 @@
+{"Id": "7777777777777777777777777777777777777777777777777777777777777{n}", "Names": ["/ltqa-a2f-many-{n}"], "Image": "ltqa-a2f/app:1", "State": "running", "Status": "Up 9 seconds", "Created": 1794844941, "Ports": [{"IP": "0.0.0.0", "PrivatePort": 8080, "PublicPort": {port}, "Type": "tcp"}], "Labels": {"ltqa": "a2f"}, "NetworkSettings": {"Networks": {"bridge": {}}}}

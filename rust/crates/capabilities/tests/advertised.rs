@@ -305,7 +305,11 @@ fn logs_advertise_as_go() {
         some("stored,query,stream", "journalctl")
     );
     assert_eq!(meta(&without.path()), some("stored", "none"));
-    assert_eq!(features(&with.path()).producer_names(), ["log-stream"]);
+    // The web service report runs on every Linux build, as Go's.
+    assert_eq!(
+        features(&with.path()).producer_names(),
+        ["web-services", "log-stream"]
+    );
     let off = features_with(&with.path(), &[("LABTETHER_LOG_STREAM_ENABLED", "false")]);
-    assert!(off.producer_names().is_empty());
+    assert_eq!(off.producer_names(), ["web-services"]);
 }

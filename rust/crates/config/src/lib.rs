@@ -25,6 +25,7 @@ pub mod local_api;
 mod secret;
 mod settings_file;
 pub mod urls;
+pub mod web_services;
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -36,6 +37,7 @@ pub use local_api::{LocalApiSettings, LocalAuth, ParentPid};
 pub use secret::Secret;
 pub use settings_file::SettingsFileError;
 use urls::UrlKind;
+pub use web_services::WebServiceSettings;
 
 /// Where the Go agent keeps its state on Linux.
 pub const DEFAULT_STATE_DIR: &str = "/etc/labtether";
@@ -147,6 +149,9 @@ pub struct Settings {
     /// The Docker mode, endpoint and discovery interval (Linux reads
     /// Docker; macOS has no Docker page).
     pub docker: DockerSettings,
+    /// The web service discovery interval and Docker source (Linux only
+    /// reads them).
+    pub web_services: WebServiceSettings,
     /// Variables an app sets that this agent does not use, when set.
     pub ignored_app_variables: Vec<&'static str>,
 }
@@ -303,9 +308,11 @@ pub fn load(env: &Environment, host: &HostFacts) -> Result<Loaded, ConfigError> 
     };
 
     let mut file_docker = docker::FileDocker::default();
+    let mut file_services_docker = None;
     match settings_file::load(&settings_file) {
         Ok(file) => {
             file_docker = file.docker;
+            file_services_docker = file.services_docker_enabled;
             if let Some(raw) = file.tls_ca_file {
                 tls.ca_file = Some(raw).filter(|raw| !raw.is_empty()).map(PathBuf::from);
             }
@@ -390,6 +397,7 @@ pub fn load(env: &Environment, host: &HostFacts) -> Result<Loaded, ConfigError> 
         parent_pid: local_api::parent_pid(env),
         log_stream_enabled: env.bool_or("LABTETHER_LOG_STREAM_ENABLED", !cfg!(target_os = "macos")),
         docker: docker::load(env, &file_docker, low_power),
+        web_services: web_services::load(env, file_services_docker, low_power),
         ignored_app_variables: local_api::ignored_variables_set(env),
     };
     Ok(Loaded { settings, warnings })
@@ -401,3 +409,5 @@ mod tests;
 mod tests_docker;
 #[cfg(test)]
 mod tests_local_api;
+#[cfg(test)]
+mod tests_web_services;

@@ -1,0 +1,78 @@
+//! The downloads service catalog, as the Go agent's `registry_downloads.go`.
+
+use super::{DOWNLOADS, KnownService};
+
+pub(super) const SERVICES: &[KnownService] = &[
+    KnownService {
+        key: "deluge",
+        name: "Deluge",
+        category: DOWNLOADS,
+        icon_key: "deluge",
+        default_port: 8112,
+        health_path: "/json",
+        docker_images: &["linuxserver/deluge", "binhex/arch-delugevpn"],
+    },
+    KnownService {
+        key: "nzbget",
+        name: "NZBGet",
+        category: DOWNLOADS,
+        icon_key: "nzbget",
+        default_port: 6789,
+        health_path: "/",
+        docker_images: &["linuxserver/nzbget"],
+    },
+    KnownService {
+        key: "jdownloader",
+        name: "JDownloader",
+        category: DOWNLOADS,
+        icon_key: "jdownloader",
+        default_port: 5800,
+        health_path: "/",
+        docker_images: &["jlesage/jdownloader-2"],
+    },
+    KnownService {
+        key: "aria2",
+        name: "Aria2",
+        category: DOWNLOADS,
+        icon_key: "aria2",
+        default_port: 6800,
+        health_path: "/jsonrpc",
+        docker_images: &["p3terx/aria2-pro", "hurlenko/aria2-ariang"],
+    },
+    KnownService {
+        key: "pyload",
+        name: "pyLoad",
+        category: DOWNLOADS,
+        icon_key: "pyload",
+        default_port: 8000,
+        health_path: "/api/login",
+        docker_images: &["linuxserver/pyload-ng"],
+    },
+    KnownService {
+        key: "flood",
+        name: "Flood",
+        category: DOWNLOADS,
+        icon_key: "flood",
+        default_port: 3000,
+        health_path: "/api/auth/verify",
+        docker_images: &["jesec/flood"],
+    },
+    KnownService {
+        key: "nzbhydra",
+        name: "NZBHydra 2",
+        category: DOWNLOADS,
+        icon_key: "nzbhydra2",
+        default_port: 5076,
+        health_path: "/",
+        docker_images: &["linuxserver/nzbhydra2"],
+    },
+    KnownService {
+        key: "rtorrent",
+        name: "rTorrent/ruTorrent",
+        category: DOWNLOADS,
+        icon_key: "rutorrent",
+        default_port: 8080,
+        health_path: "/",
+        docker_images: &["crazymax/rtorrent-rutorrent", "linuxserver/rutorrent"],
+    },
+];

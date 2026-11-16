@@ -73,6 +73,9 @@ impl<'de> Deserialize<'de> for Ignored {
 
 #[derive(Debug, Clone, Default, Deserialize, PartialEq)]
 pub(crate) struct Port {
+    /// The host address of a published port; read by the web service page.
+    #[serde(rename = "IP", default, deserialize_with = "nullable")]
+    pub ip: String,
     #[serde(rename = "PrivatePort", default, deserialize_with = "nullable")]
     pub private_port: i64,
     #[serde(rename = "PublicPort", default, deserialize_with = "nullable")]

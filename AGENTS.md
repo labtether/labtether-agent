@@ -142,7 +142,11 @@ Read user-facing text once against this list before you ship it.
   producers: the inventory, deltas, stats and events, read over the
   Docker socket with hyper, plus the endpoint in the heartbeat's
   `connectors`; its tests replay recorded engine answers against the Go
-  collector's own output. The
+  collector's own output. The web service page
+  (`crates/capabilities/src/webservices/`, Linux only) sends
+  `webservice.report` from the Docker page's containers, with the Go
+  registry in one Rust file per category; its tests replay container lists
+  and probe answers against the Go collector's own reports. The
   heartbeat says `agent_capability_mode=explicit` (the Hub refuses what is
   not advertised); a page's `cap_*` word comes only from registering its
   handler (`crates/core/src/offers.rs` copies the Hub's `internal/agentcaps`

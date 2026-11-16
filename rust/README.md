@@ -103,6 +103,28 @@ On Linux, the `labtether-agent-rs` binary:
   even when it does not answer; the collector starts only when the
   endpoint answered at start. The discovery leaves out Go's Compose action
   version, as this agent answers no Docker request;
+- sends a Linux host's web services without being asked, as Go's web
+  service collector does (`crates/capabilities/src/webservices/`):
+  `webservice.report` an interval after start and then every
+  `LABTETHER_SERVICES_DISCOVERY_INTERVAL` (60 s, 10 min in low-power mode,
+  30 s to 6 h). Each running container's published TCP web ports become
+  services (one for a known service, at most four for another), named,
+  sorted and given a health path by the registry of 172 known services
+  (`webservices/registry/`, one file per category, Go's catalog without the
+  descriptions) by image, then container name, then image name, and by the
+  container's `labtether.name`, `labtether.category`, `labtether.icon` and
+  `labtether.hidden` labels. The containers come from the Docker page's
+  engine when its collector runs (`LABTETHER_SERVICES_DISCOVERY_DOCKER_ENABLED`
+  or `services_discovery_docker_enabled` turns this source off); the last
+  report's Docker services are kept while the container list fails, until
+  the next connection. Each service is checked as Go checks it: HEAD, then
+  GET, at its health path; the other scheme after no answer or a 400, the
+  better answer winning and its scheme becoming the URL; 2 s a request,
+  no redirect followed, any certificate first and then the system roots;
+  `up` under 500; a result kept three intervals when up and one when down;
+  16 checks at once. LabTether's console and API are named, and the API is
+  hidden when the console is listed. The report says the proxy, local scan
+  and LAN scan sources are not enabled;
 - checks the agent token's capability claims before any handler runs, with
   the Go agent's table (`command_authorization.go`); the Hub's opaque tokens
   carry no claims and are not checked, as in Go;
@@ -277,7 +299,8 @@ self-update; the apps set it to `false`), `LABTETHER_OUTBOUND_ALLOW_LOOPBACK`
 `LABTETHER_DOCKER_*`, `LABTETHER_FILES_ROOT_MODE`,
 `LABTETHER_LOG_STREAM_ENABLED` (on macOS only; read on Linux),
 `LABTETHER_WEBRTC_*`,
-`LABTETHER_CAPTURE_FPS` and the `LABTETHER_SERVICES_DISCOVERY_*` switches.
+`LABTETHER_CAPTURE_FPS` and the `LABTETHER_SERVICES_DISCOVERY_*` switches
+other than the Docker source and the interval.
 The agent lists the ones that are set in one debug line at start.
 
 ## Not yet
@@ -304,7 +327,13 @@ This binary is not hardened and not a replacement for the Go agent:
   exec, container logs and the endpoint test are not advertised
   (`cap_docker=manage`), so the Hub refuses them; Docker is read only over
   a Unix socket (Go also reads an http(s) endpoint);
-- no web service discovery, terminal, files or Remote View pages;
+- web services from containers only: no reverse-proxy routes (Traefik,
+  Caddy, NPM), no local or LAN port scan, no names for unknown services
+  from their pages or APIs and no connector suggestions (`compat_*`), and no
+  `webservice.sync` (not advertised, so the Hub's sync leaves this device
+  out). The probes read no `HTTP_PROXY` variable, speak HTTP/1.1 only and
+  open a connection per request;
+- no terminal, files or Remote View pages;
 - a stream line of 256 KiB or more: this agent skips it and goes on, as
   the Go agent does from its fix for that line; a Go agent without the fix
   stops streaming there until it restarts;
@@ -406,7 +435,12 @@ fixtures and stand-in `journalctl` programs
 `crates/capabilities/src/tests/testdata/go/`). The Docker page replays
 Docker Engine answers recorded on a lab host and compares every message,
 step by step, with what the Go collector sent for the same answers
-(`crates/capabilities/src/docker/tests/testdata/`). The producer path is tested
+(`crates/capabilities/src/docker/tests/testdata/`). The web service page
+runs recorded container lists and a table of probe answers through each
+cycle and compares every report and every probe request with what the Go
+collector did for the same inputs, and its registry and lookups with Go's
+(`crates/capabilities/src/webservices/tests/testdata/`); its probe client
+is tested against stand-in services on loopback. The producer path is tested
 against a Hub that stops reading, drops the connection or is offline
 (`crates/core/tests/producers.rs`). CI
 runs the checks on Linux and on macOS. A test fails when a page is

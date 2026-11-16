@@ -68,6 +68,13 @@ All notable changes to `labtether-agent` are documented in this file.
   Docker collector for the host. It answers no Docker request that changes
   anything (container and Compose actions, exec, container logs, the
   endpoint test) and does not advertise them, so the hub refuses those.
+- The Rust agent sends a Linux host's web services to the hub as the Go
+  agent does (`webservice.report`): its running containers' web ports,
+  named by the Go agent's registry of known services and by `labtether.*`
+  labels, each checked for health with the Go agent's probes, timers and
+  cache, every 60 s by default (`LABTETHER_SERVICES_DISCOVERY_INTERVAL`).
+  The Services page lists them. Reverse-proxy routes, the port scans, the
+  probes that name unknown services and `webservice.sync` are not in it.
   `LABTETHER_DOCKER_ENABLED=false` turns it off.
 - The Rust agent builds and runs on macOS as the monitoring edition for the
   Mac App Store app: CPU, memory, disk and network telemetry, the host

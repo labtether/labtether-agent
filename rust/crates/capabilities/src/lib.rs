@@ -19,7 +19,8 @@
 //! [`COMMAND_PAGES`] instead and is also given the [`Commands`] it must
 //! start programs through. A page that sends messages the Hub did not ask
 //! for adds a producer with [`Features::on_start`] (the logs page's live
-//! stream, and the Docker inventory, which registers no handler at all).
+//! stream, and the Docker inventory and the web service report, which
+//! register no handler at all).
 //!
 //! On macOS the agent is the monitoring edition the Mac App Store app
 //! bundles (`agent_edition=monitoring`): it runs in the App Sandbox and
@@ -48,6 +49,8 @@ mod processes;
 mod services;
 #[cfg(target_os = "linux")]
 mod users;
+#[cfg(target_os = "linux")]
+mod webservices;
 
 use labtether_agent_config::Settings;
 use labtether_agent_core::Features;
@@ -61,8 +64,16 @@ pub const PAGES: &[fn(&mut Features, &Settings)] = &[
     #[cfg(target_os = "linux")]
     processes::register,
     #[cfg(target_os = "linux")]
-    docker::register,
+    containers,
 ];
+
+/// The Docker page, then the web service page, which lists containers
+/// through the Docker page's engine when that one runs.
+#[cfg(target_os = "linux")]
+fn containers(features: &mut Features, settings: &Settings) {
+    let docker = docker::register(features, settings);
+    webservices::register(features, settings, docker);
+}
 
 /// The pages that start programs, each given the command rules. Linux
 /// only: the macOS edition starts no program.
