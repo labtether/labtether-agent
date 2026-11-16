@@ -23,6 +23,9 @@ tokio = { workspace = true, features = ["macros", "rt", "signal", "sync", "time"
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt", "sync", "test-util", "time"] }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+labtether-agent-security.workspace = true
+
 [target.'cfg(target_os = "macos")'.dependencies]
 labtether-agent-platform.workspace = true
 

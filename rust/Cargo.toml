@@ -16,6 +16,7 @@ labtether-agent-core = { path = "crates/core" }
 labtether-agent-local-api = { path = "crates/local-api" }
 labtether-agent-macos-sys = { path = "crates/macos-sys" }
 labtether-agent-platform = { path = "crates/platform" }
+labtether-agent-security = { path = "crates/security" }
 labtether-protocol = { git = "https://github.com/labtether/protocol", rev = "483ffb9afd17b75fd0d5e0d3b1c9d3f41fbfd594" }
 
 data-encoding = "2.11"

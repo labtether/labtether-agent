@@ -78,11 +78,7 @@ impl Features {
         Req: DeserializeOwned + 'static,
         Rep: Serialize,
     {
-        assert!(
-            !CORE_TYPES.contains(&request) && !self.handles(request),
-            "{request} has two handlers"
-        );
-        let work: Work = Arc::new(move |message: &Message| {
+        let work = move |message: &Message| {
             let decoded: Req = match message.decode() {
                 Ok(decoded) => decoded,
                 Err(error) => {
@@ -99,8 +95,28 @@ impl Features {
                     None
                 }
             }
-        });
-        self.work.push((request, work));
+        };
+        self.on_message(request, work);
+    }
+
+    /// Handles `request` with `answer`, which gets the whole message and
+    /// returns the reply message, if any. For a page whose replies Go
+    /// builds from the envelope as well as the payload (`package.list`
+    /// answers a request it cannot decode, with the envelope's ID); other
+    /// pages use [`Features::on_request`].
+    ///
+    /// # Panics
+    /// As [`Features::on_request`].
+    pub fn on_message(
+        &mut self,
+        request: &'static str,
+        answer: impl Fn(&Message) -> Option<Message> + Send + Sync + 'static,
+    ) {
+        assert!(
+            !CORE_TYPES.contains(&request) && !self.handles(request),
+            "{request} has two handlers"
+        );
+        self.work.push((request, Arc::new(answer)));
     }
 
     /// Adds a heartbeat metadata key, such as `cap_network`.

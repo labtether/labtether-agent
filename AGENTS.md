@@ -118,9 +118,10 @@ Read user-facing text once against this list before you ship it.
 - `rust/` is the Rust port (workspace: `crates/config`, `crates/core`,
   `crates/platform`, `crates/macos-sys`, `crates/security`,
   `crates/capabilities`, `crates/local-api`, `agent`). It connects, enrolls,
-  sends heartbeats and telemetry, answers the disk, network interface and
-  process lists, serves the local API the macOS and Windows apps poll, and
-  stops with `LABTETHER_PARENT_PID`; it has no actions and is not released.
+  sends heartbeats and telemetry, answers the disk, network interface,
+  process, service and package lists, serves the local API the macOS and
+  Windows apps poll, and stops with `LABTETHER_PARENT_PID`; it has no
+  actions and is not released.
   `crates/local-api` tests `/agent/status` against a copy of the protocol
   repo's `localagent/` contract; `scripts/localagent-contract.py` checks or
   updates that copy. A status field changes in the Go agent, the protocol
@@ -133,7 +134,8 @@ Read user-facing text once against this list before you ship it.
   block, each with a `SAFETY` comment); everything else forbids it.
   `crates/security` holds the command rules; its `CommandPolicy::run` is the
   only way Rust code may start a process (`rust/clippy.toml` refuses
-  `Command::new` elsewhere). Its cases live in
+  `Command::new` elsewhere). The binary builds one policy and hands it to
+  `capabilities::all`; pages that run a program go in `COMMAND_PAGES`. Its cases live in
   `internal/securityruntime/testdata/` and the Go tests read them too, so
   change a rule in both agents and its case once. Check it
   with `cargo fmt --check`, `cargo clippy --locked --all-targets -- -D

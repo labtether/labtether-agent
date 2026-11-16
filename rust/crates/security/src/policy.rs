@@ -79,6 +79,12 @@ impl CommandPolicy {
         }
     }
 
+    /// The agent's `PATH` as set at start: where a bare program name is
+    /// found, as Go's `exec.LookPath` finds it.
+    pub fn search_path(&self) -> &str {
+        &self.search_path
+    }
+
     /// The environment every started command gets.
     pub fn child_env(&self) -> &[(String, String)] {
         &self.child_env

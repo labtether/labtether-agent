@@ -24,6 +24,7 @@
 mod capture;
 mod child_env;
 mod error;
+mod goerror;
 mod gotext;
 pub mod lists;
 mod parse;
@@ -34,6 +35,7 @@ mod run;
 pub use capture::CappedBuffer;
 pub use child_env::{is_allowed_child_env_key, sanitized_child_env};
 pub use error::Refusal;
+pub use goerror::{GoOutcome, go_outcome};
 pub use parse::{normalize_executable_name, parse_command_line};
 pub use policy::CommandPolicy;
 pub use run::{Capture, DEFAULT_WAIT_DELAY, Finished, RunError, RunRequest};

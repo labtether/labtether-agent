@@ -54,6 +54,26 @@ fn log_warning(warning: &ConfigWarning) {
     }
 }
 
+/// The command rules every page that starts a program goes through, built
+/// once from the settings and the environment read at start.
+#[cfg(target_os = "linux")]
+fn commands(
+    settings: &labtether_agent_config::Settings,
+    env: &Environment,
+) -> labtether_agent_capabilities::Commands {
+    let policy = labtether_agent_security::CommandPolicy::new(&settings.command_security, env);
+    labtether_agent_capabilities::Commands::new(policy)
+}
+
+/// The macOS edition starts no program.
+#[cfg(target_os = "macos")]
+fn commands(
+    _settings: &labtether_agent_config::Settings,
+    _env: &Environment,
+) -> labtether_agent_capabilities::Commands {
+    labtether_agent_capabilities::Commands::none()
+}
+
 async fn wait_for_signal() {
     let Ok(mut terminate) = signal(SignalKind::terminate()) else {
         let _ = tokio::signal::ctrl_c().await;
@@ -75,7 +95,8 @@ async fn main() -> ExitCode {
         hostname: hostname(),
         version: VERSION.to_owned(),
     };
-    let loaded = match labtether_agent_config::load(&Environment::from_process(), &host) {
+    let env = Environment::from_process();
+    let loaded = match labtether_agent_config::load(&env, &host) {
         Ok(loaded) => loaded,
         Err(error) => {
             eprintln!("labtether-agent-rs: {error}");
@@ -111,7 +132,8 @@ async fn main() -> ExitCode {
         loaded.settings.asset_id
     );
 
-    let features = labtether_agent_capabilities::all(&loaded.settings);
+    let features =
+        labtether_agent_capabilities::all(&loaded.settings, &commands(&loaded.settings, &env));
     let name = loaded.settings.name.clone();
     let local_api = loaded.settings.local_api.clone();
     let agent = match Agent::start_with(loaded.settings, Timing::default(), features).await {
