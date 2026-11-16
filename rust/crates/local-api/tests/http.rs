@@ -146,10 +146,13 @@ async fn pages_follow_go() {
         serde_json::from_str(&get(port, "/version", &[]).await.unwrap().body).unwrap();
     assert_eq!(version["version"], "dev");
     let info = get(port, "/agent/info", &[]).await.unwrap();
-    assert_eq!(
-        info.body,
+    // Go's `AgentInfo` for each system (its platform providers).
+    let expected = if cfg!(target_os = "macos") {
+        "{\"os\":\"darwin\",\"mode\":\"launchd-helper\",\"status\":\"active\"}\n"
+    } else {
         "{\"os\":\"linux\",\"mode\":\"interactive-terminal-first\",\"status\":\"active\"}\n"
-    );
+    };
+    assert_eq!(info.body, expected);
     let telemetry = get(port, "/agent/telemetry", &[]).await.unwrap();
     let (_, connected) = fixture("connected");
     assert_eq!(
@@ -264,7 +267,19 @@ async fn limits_keep_the_api_answering() {
         "GET /healthz HTTP/1.1\r\nHost: x\r\nX-Pad: {}\r\n\r\n",
         "a".repeat(16 * 1024)
     );
-    assert_eq!(exchange(port, &huge).await.unwrap().status, 431);
+    // The server answers 431 and closes while the rest of the header is
+    // still being sent. Linux still delivers the answer; macOS may reset the
+    // connection first. Either way the request is refused, not served.
+    match exchange(port, &huge).await {
+        Ok(answer) => assert_eq!(answer.status, 431),
+        Err(error) => assert!(
+            matches!(
+                error.kind(),
+                std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::BrokenPipe
+            ),
+            "unexpected error: {error}"
+        ),
+    }
     // A request that never finishes its headers is closed.
     let mut slow = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
     slow.write_all(b"GET /healthz HTTP/1.1\r\nHost: x\r\n")
