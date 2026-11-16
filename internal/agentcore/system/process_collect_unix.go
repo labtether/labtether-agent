@@ -4,7 +4,6 @@ package system
 
 import (
 	"context"
-	"os/exec"
 	"path"
 	"runtime"
 	"strconv"
@@ -22,10 +21,7 @@ func CollectProcesses() ([]protocol.ProcessInfo, error) {
 	defer cancel()
 
 	return collectProcessesWithPS(func(args ...string) ([]byte, error) {
-		return securityruntime.CaptureCombinedOutput(
-			exec.CommandContext(ctx, "ps", args...), // #nosec G204 -- Fixed ps executable and literal flags from collectProcessesWithPS; no user input.
-			securityruntime.DefaultCommandOutputLimit,
-		)
+		return securityruntime.CommandContextCombinedOutput(ctx, "ps", args...)
 	})
 }
 

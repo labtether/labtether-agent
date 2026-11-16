@@ -7,7 +7,10 @@ use labtether_agent_config::gopath;
 
 use crate::error::Refusal;
 use crate::gotext::lower;
-use crate::lists::{BUILTIN_PROTECTED_READ_PATHS, JOURNALCTL_CHANGING_OPTIONS};
+use crate::lists::{
+    BUILTIN_PROTECTED_READ_PATHS, JOURNALCTL_CHANGING_OPTIONS,
+    JOURNALCTL_READ_OPTIONS_LIKE_CHANGING,
+};
 use crate::parse::normalize_executable_name;
 
 /// Go's `SetProtectedReadPaths` cleaning: trimmed, absolute, cleaned.
@@ -27,13 +30,7 @@ pub fn validate_read_only_command(args: &[String], protected: &[String]) -> Resu
     match name.as_str() {
         "journalctl" => {
             for arg in rest {
-                let option = lower(arg.split('=').next().unwrap_or(""));
-                if let Some(changing) = JOURNALCTL_CHANGING_OPTIONS
-                    .iter()
-                    .find(|changing| **changing == option)
-                {
-                    return Err(Refusal::JournalctlChangesLogs(changing));
-                }
+                journalctl_changing_option(arg)?;
             }
         }
         "cat" | "head" | "tail" | "grep" => {
@@ -51,6 +48,35 @@ pub fn validate_read_only_command(args: &[String], protected: &[String]) -> Resu
         _ => {}
     }
     Ok(())
+}
+
+/// Go's `journalctlChangingOptionError`: journalctl accepts any unambiguous
+/// start of a long option (`--rot` is `--rotate`), so every start of a
+/// changing option's name is refused, except the exact names of read options
+/// in [`JOURNALCTL_READ_OPTIONS_LIKE_CHANGING`]. A start journalctl finds
+/// ambiguous is refused too; journalctl rejects it anyway.
+fn journalctl_changing_option(arg: &str) -> Result<(), Refusal> {
+    let option = lower(arg.split('=').next().unwrap_or(""));
+    if option.len() <= 2
+        || !option.starts_with("--")
+        || JOURNALCTL_READ_OPTIONS_LIKE_CHANGING.contains(&option.as_str())
+    {
+        return Ok(());
+    }
+    let mut matches = Vec::new();
+    for changing in JOURNALCTL_CHANGING_OPTIONS {
+        if *changing == option {
+            return Err(Refusal::JournalctlChangesLogs(changing));
+        }
+        if changing.starts_with(option.as_str()) {
+            matches.push(*changing);
+        }
+    }
+    match matches.as_slice() {
+        [] => Ok(()),
+        [one] => Err(Refusal::JournalctlCanStandFor(option, one)),
+        _ => Err(Refusal::JournalctlCanStandForSeveral(option)),
+    }
 }
 
 /// Go's `readerPathCandidates`: a plain argument, the value of

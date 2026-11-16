@@ -5,6 +5,8 @@ import (
 	"errors"
 	"os/exec"
 	"runtime"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -38,6 +40,10 @@ type captureCase struct {
 	MaxMS        int     `json:"max_ms"`
 	Error        string  `json:"error"`
 	From         string  `json:"from"`
+	// The output is a process ID that must not be running afterwards.
+	BackgroundPIDGone bool `json:"background_pid_gone"`
+	// exec.ErrWaitDelay: a descendant still held the output.
+	OutputHeld bool `json:"output_held"`
 }
 
 // Risk: output past the limit is kept, or a write is reported short and the
@@ -122,6 +128,19 @@ func runCaptureCase(t *testing.T, tc captureCase) {
 	}
 	if tc.StderrLength != nil && (exitErr == nil || len(exitErr.Stderr) != *tc.StderrLength) {
 		t.Errorf("stderr length from %v, want %d", err, *tc.StderrLength)
+	}
+	if held := errors.Is(err, exec.ErrWaitDelay); held != tc.OutputHeld {
+		t.Errorf("output held %v, want %v (err %v)", held, tc.OutputHeld, err)
+	}
+	if tc.BackgroundPIDGone {
+		pid, convErr := strconv.Atoi(strings.TrimSpace(string(output)))
+		switch {
+		case convErr != nil:
+			t.Errorf("output %q is not a process ID", output)
+		case processStillRunning(pid):
+			t.Errorf("process %d still running after the call", pid)
+			_ = killStrayProcess(pid)
+		}
 	}
 	// A case that should end on its own must not reach its deadline: that
 	// would mean the output was not drained.

@@ -132,15 +132,19 @@ impl CommandPolicy {
 
     /// Starts `request` and waits for it. This is the only way the agent
     /// starts a process. Before anything starts, the program is checked
-    /// against the exec rules. The command gets the sanitized environment,
+    /// against the exec rules; a full path starts the file `PATH` finds for
+    /// its name, under the name as given. The command gets the sanitized environment,
     /// no stdin, and its own process group. It blocks the calling thread;
     /// async callers use `spawn_blocking`.
     pub fn run(&self, request: &RunRequest) -> Result<Finished, RunError> {
-        self.validate_exec_binary(&request.program)?;
+        let checked = self.resolve_exec_program(&request.program)?;
         if request.output_limit == 0 {
             return Err(RunError::InvalidLimit);
         }
-        let path = self.resolve(&request.program)?;
+        let path = match checked {
+            Some(path) => path,
+            None => self.resolve(&request.program)?,
+        };
         // The one place a process is started (see rust/clippy.toml).
         #[allow(clippy::disallowed_methods)]
         let mut command = std::process::Command::new(path);

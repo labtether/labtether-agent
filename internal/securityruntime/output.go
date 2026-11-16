@@ -86,9 +86,23 @@ func (w *CappedRetainingWriter) Truncated() bool {
 	return w.truncated
 }
 
+const heldOutputNote = "command output did not close after the command ended; a process it started still holds it"
+
+// explainHeldOutput names exec.ErrWaitDelay in plain words and keeps it
+// visible to errors.Is.
+func explainHeldOutput(err error) error {
+	if errors.Is(err, exec.ErrWaitDelay) {
+		return fmt.Errorf("%s: %w", heldOutputNote, err)
+	}
+	return err
+}
+
 // CaptureCombinedOutput runs cmd while retaining at most maxBytes of its
 // combined stdout and stderr. Overflow is reported via ErrCommandOutputLimit;
-// any process error remains discoverable with errors.Is/errors.As.
+// any process error remains discoverable with errors.Is/errors.As. Where the
+// platform has process groups, cmd runs in its own group, a cancelled
+// context stops the whole group, and the wait for the output pipes after the
+// command ends is bounded (see stopProcessGroupOnCancel).
 func CaptureCombinedOutput(cmd *exec.Cmd, maxBytes int) ([]byte, error) {
 	if cmd == nil {
 		return nil, errors.New("command is required")
@@ -106,7 +120,8 @@ func CaptureCombinedOutput(cmd *exec.Cmd, maxBytes int) ([]byte, error) {
 	output := NewCappedRetainingWriter(maxBytes)
 	cmd.Stdout = output
 	cmd.Stderr = output
-	runErr := cmd.Run()
+	stopProcessGroupOnCancel(cmd)
+	runErr := explainHeldOutput(cmd.Run())
 	retained := output.Bytes()
 	if !output.Truncated() {
 		return retained, runErr
@@ -121,6 +136,7 @@ func CaptureCombinedOutput(cmd *exec.Cmd, maxBytes int) ([]byte, error) {
 
 // CaptureOutput runs cmd while retaining at most maxBytes of stdout. Stderr is
 // captured with a separate small ceiling for exec.ExitError compatibility.
+// The process group and the bounded wait are as for CaptureCombinedOutput.
 func CaptureOutput(cmd *exec.Cmd, maxBytes int) ([]byte, error) {
 	if cmd == nil {
 		return nil, errors.New("command is required")
@@ -141,7 +157,8 @@ func CaptureOutput(cmd *exec.Cmd, maxBytes int) ([]byte, error) {
 		cmd.Stderr = stderr
 	}
 
-	runErr := cmd.Run()
+	stopProcessGroupOnCancel(cmd)
+	runErr := explainHeldOutput(cmd.Run())
 	if stderr != nil {
 		var exitErr *exec.ExitError
 		if errors.As(runErr, &exitErr) {

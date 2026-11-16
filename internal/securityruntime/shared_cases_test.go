@@ -33,6 +33,9 @@ type caseGroup struct {
 	Protect []string          `json:"protect"`
 	SkipOS  []string          `json:"skip_os"`
 	Check   string            `json:"check"`
+	Files   []string          `json:"files"`
+	Links   map[string]string `json:"links"`
+	Path    *string           `json:"path"`
 	Cases   []policyCase      `json:"cases"`
 }
 
@@ -80,6 +83,34 @@ func casePaths(t *testing.T) *strings.Replacer {
 		}
 	}
 	return strings.NewReplacer("{state}", state, "{link}", link, "{tmp}", tmp)
+}
+
+// applyGroupFiles makes the group's programs (small executable scripts) and
+// links, then sets PATH when the group names one. Paths use the casePaths
+// placeholders.
+func applyGroupFiles(t *testing.T, paths *strings.Replacer, group caseGroup) {
+	t.Helper()
+	for _, file := range group.Files {
+		path := paths.Replace(file)
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for link, target := range group.Links {
+		link = paths.Replace(link)
+		if err := os.MkdirAll(filepath.Dir(link), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(paths.Replace(target), link); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if group.Path != nil {
+		t.Setenv("PATH", paths.Replace(*group.Path))
+	}
 }
 
 func checkWant(t *testing.T, label string, err error, want string) {

@@ -117,6 +117,15 @@ fn default_lists_match_the_go_source() {
         lists::JOURNALCTL_CHANGING_OPTIONS,
     );
     assert_same(
+        "journalctl read options named like changing ones",
+        go_block(
+            &readonly,
+            "var journalctlReadOptionsLikeChanging = []string{",
+            false,
+        ),
+        lists::JOURNALCTL_READ_OPTIONS_LIKE_CHANGING,
+    );
+    assert_same(
         "protected read paths",
         go_block(
             &readonly,

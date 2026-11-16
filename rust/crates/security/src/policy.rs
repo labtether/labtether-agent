@@ -2,8 +2,10 @@
 //! once at start instead of the environment at check time.
 
 use std::collections::HashSet;
+use std::path::PathBuf;
 
-use labtether_agent_config::{CommandSecuritySettings, Environment};
+use labtether_agent_config::{CommandSecuritySettings, Environment, gopath};
+use labtether_agent_platform::look_path;
 
 use crate::child_env::sanitized_child_env;
 use crate::error::Refusal;
@@ -91,9 +93,39 @@ impl CommandPolicy {
     }
 
     /// Go's `ValidateExecBinary`: the blocked list first, then the
-    /// allowlist (or its accept-risk switch). Only the program's normalized
-    /// name is checked, not its folder.
+    /// allowlist (or its accept-risk switch), then, while the allowlist is
+    /// on, the path rule of [`CommandPolicy::resolve_exec_program`].
     pub fn validate_exec_binary(&self, name: &str) -> Result<(), Refusal> {
+        self.resolve_exec_program(name).map(|_| ())
+    }
+
+    /// Go's `resolveExecProgram`: the exec rules, and for a program given
+    /// with a folder the file to start. That path must be the same file
+    /// (after resolving links) that a lookup of its bare name in the
+    /// agent's `PATH` finds, and the command then starts the file `PATH`
+    /// gives, so a link swapped after the check cannot change what runs.
+    /// `None` for a bare name, or when the allowlist is off.
+    pub(crate) fn resolve_exec_program(&self, name: &str) -> Result<Option<PathBuf>, Refusal> {
+        let (normalized, check_path) = self.validate_exec_name(name)?;
+        // A backslash counts as a folder, as in the name rules.
+        if !check_path || !name.contains(['/', '\\']) {
+            return Ok(None);
+        }
+        if !gopath::is_abs(name) {
+            return Err(Refusal::ExecNotFullPath(name.to_owned()));
+        }
+        let not_path = || Refusal::ExecNotPathProgram(name.to_owned(), normalized.clone());
+        let found = look_path(&gopath::base(name), &self.search_path).map_err(|_| not_path())?;
+        match (std::fs::canonicalize(name), std::fs::canonicalize(&found)) {
+            (Ok(given), Ok(want)) if given == want => Ok(Some(found)),
+            _ => Err(not_path()),
+        }
+    }
+
+    /// Go's `validateExecName`: the program's name against the blocked list
+    /// and the allowlist. The flag is false when the allowlist is off with
+    /// accept-risk; then the folder is not checked either.
+    fn validate_exec_name(&self, name: &str) -> Result<(String, bool), Refusal> {
         let normalized = normalize_executable_name(name);
         if normalized.is_empty() {
             return Err(Refusal::CommandRequired);
@@ -105,10 +137,10 @@ impl CommandPolicy {
             if !self.exec_accept_risk {
                 return Err(Refusal::ExecAllowlistOffWithoutRisk(normalized));
             }
-            return Ok(());
+            return Ok((normalized, false));
         }
         if self.exec_allowed.contains(&normalized) {
-            return Ok(());
+            return Ok((normalized, true));
         }
         Err(Refusal::ExecNotAllowlisted(normalized))
     }

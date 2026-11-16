@@ -76,11 +76,6 @@ func (tm *TerminalManager) startTerminal(transport MessageSender, req protocol.T
 	if pending.ctx.Err() != nil {
 		return
 	}
-	// Find a shell
-	shell := req.Shell
-	if shell == "" {
-		shell = DetectShell()
-	}
 
 	cols := req.Cols
 	rows := req.Rows
@@ -117,7 +112,7 @@ func (tm *TerminalManager) startTerminal(transport MessageSender, req protocol.T
 			tmuxAttached = true
 		} else {
 			log.Printf("terminal: tmux requested but not found for session %s, falling back to plain shell", req.SessionID)
-			cmd, err = securityruntime.NewCommandContext(pending.ctx, shell)
+			cmd, err = newTerminalShellCommand(pending.ctx, req.Shell)
 			if err != nil {
 				log.Printf("terminal: shell command blocked by runtime policy for session %s: %v", req.SessionID, err)
 				tm.sendPendingTerminalFailure(transport, req.SessionID, pending, "failed to start shell: "+err.Error())
@@ -125,7 +120,7 @@ func (tm *TerminalManager) startTerminal(transport MessageSender, req protocol.T
 			}
 		}
 	} else {
-		cmd, err = securityruntime.NewCommandContext(pending.ctx, shell)
+		cmd, err = newTerminalShellCommand(pending.ctx, req.Shell)
 		if err != nil {
 			log.Printf("terminal: shell command blocked by runtime policy for session %s: %v", req.SessionID, err)
 			tm.sendPendingTerminalFailure(transport, req.SessionID, pending, "failed to start shell: "+err.Error())
@@ -241,4 +236,15 @@ func (tm *TerminalManager) sendPendingTerminalFailure(transport MessageSender, i
 	if current {
 		SendTerminalClosed(transport, id, reason)
 	}
+}
+
+// newTerminalShellCommand returns the shell for a terminal. A shell named in
+// the Hub's request is input: as a path it must be the program PATH finds for
+// its name. Without one, DetectShell picks it from the agent's own SHELL
+// variable and fixed locations, which may lie outside PATH.
+func newTerminalShellCommand(ctx context.Context, requested string) (*exec.Cmd, error) {
+	if requested != "" {
+		return securityruntime.NewCommandContext(ctx, requested)
+	}
+	return securityruntime.NewAgentPathCommandContext(ctx, DetectShell())
 }

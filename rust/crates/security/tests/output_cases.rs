@@ -40,6 +40,30 @@ struct CaptureCase {
     timed_out: bool,
     max_ms: Option<u64>,
     error: Option<String>,
+    /// The output is a process ID that must not be running afterwards.
+    #[serde(default)]
+    background_pid_gone: bool,
+    /// Go's `exec.ErrWaitDelay`: a descendant still held the output.
+    #[serde(default)]
+    output_held: bool,
+}
+
+/// True while `pid` runs (a zombie counts as ended), checked for up to 1 s
+/// so an ended process can be reaped.
+fn still_running(pid: &str) -> bool {
+    for _ in 0..20 {
+        let ended = match std::fs::read_to_string(format!("/proc/{pid}/stat")) {
+            Err(_) => true,
+            Ok(stat) => stat
+                .rsplit_once(") ")
+                .is_some_and(|(_, rest)| rest.starts_with('Z')),
+        };
+        if ended {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    true
 }
 
 #[derive(Deserialize)]
@@ -160,6 +184,20 @@ fn check_capture(case: &CaptureCase, failures: &mut Vec<String>) {
             finished.stderr.len(),
             case.stderr_length
         ));
+    }
+    if finished.output_held != case.output_held {
+        fail(format!(
+            "output held {}, want {}",
+            finished.output_held, case.output_held
+        ));
+    }
+    if case.background_pid_gone {
+        let pid = String::from_utf8_lossy(&finished.output).trim().to_owned();
+        if pid.is_empty() || !pid.bytes().all(|b| b.is_ascii_digit()) {
+            fail(format!("output {pid:?} is not a process ID"));
+        } else if still_running(&pid) {
+            fail(format!("process {pid} still running after the call"));
+        }
     }
     // A case that should end on its own must not reach its deadline: that
     // would mean the output was not drained.

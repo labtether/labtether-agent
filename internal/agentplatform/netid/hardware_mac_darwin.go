@@ -19,7 +19,7 @@ import (
 var hardwareMACs = func() map[string]net.HardwareAddr {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	out, err := securityruntime.CommandContextOutput(ctx, "/usr/sbin/networksetup", "-listallhardwareports")
+	out, err := securityruntime.AgentPathCommandContextOutput(ctx, "/usr/sbin/networksetup", "-listallhardwareports")
 	if err != nil {
 		return nil
 	}

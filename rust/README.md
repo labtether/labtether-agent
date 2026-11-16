@@ -121,10 +121,13 @@ pages start every program through it, on their worker threads.
 
 - Exec allowlist: Go's default program list, `LABTETHER_EXEC_ALLOWLIST_MODE`
   with `LABTETHER_EXEC_ALLOWLIST_ACCEPT_RISK`, `LABTETHER_EXEC_ALLOWED_BINARIES`
-  and `LABTETHER_EXEC_BLOCKED_BINARIES`. Only the program's name counts.
+  and `LABTETHER_EXEC_BLOCKED_BINARIES`. A program given with a folder must
+  be the file the agent's `PATH` finds for its name (links resolved), and
+  that file is what starts; a relative path with a folder is refused.
 - Shell commands: Go's parser (no shell, operators refused), the prefix rules
   (`LABTETHER_SHELL_COMMAND_ALLOWLIST_*`), blocked substrings and words.
-- Read-only readers: `journalctl` may not rotate or vacuum; `cat`, `head`,
+- Read-only readers: `journalctl` may not rotate or vacuum, in full or with
+  any shortened form of those options; `cat`, `head`,
   `tail` and `grep` may not read the agent's own files or system secrets, and
   `grep` may not recurse.
 - Child environment: only Go's list of variables, taken from the environment
@@ -132,9 +135,11 @@ pages start every program through it, on their worker threads.
 - `CommandPolicy::run` is the only way to start a process. It checks the
   program, gives it no stdin and its own process group, keeps output up to a
   limit (8 MiB by default), and on timeout sends SIGKILL to the whole group.
-  It waits at most 1 s for the output pipes after the command ends (Go's
-  `WaitDelay` on the remote command path), then closes them; no thread
-  outlives the call.
+  It waits at most 1 s for the output pipes after the command ends, then
+  closes them; no thread outlives the call. Go's plain helpers
+  (`CaptureCombinedOutput`, `CaptureOutput`) do the same on Linux and macOS
+  since the command-rule fixes of 2026-11-16, so both agents give the same
+  result when a timeout hits a command whose descendants hold its output.
   `rust/clippy.toml` makes `std::process::Command::new` fail clippy in every
   other place.
 - `RunRequest::env_overrides` sets variables for one command on top of the

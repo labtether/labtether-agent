@@ -17,6 +17,10 @@ pub enum Refusal {
     ExecAllowlistOffWithoutRisk(String),
     #[error("command {} is not allowlisted", quote(.0))]
     ExecNotAllowlisted(String),
+    #[error("command {} must be a program name or a full path", quote(.0))]
+    ExecNotFullPath(String),
+    #[error("command {} is not the {} found in PATH", quote(.0), quote(.1))]
+    ExecNotPathProgram(String, String),
 
     #[error("command exceeds {0} byte limit")]
     TooLong(usize),
@@ -50,6 +54,12 @@ pub enum Refusal {
 
     #[error("journalctl {0} changes system logs and is not allowed here")]
     JournalctlChangesLogs(&'static str),
+    #[error("journalctl {0} can stand for {1}, which changes system logs, and is not allowed here")]
+    JournalctlCanStandFor(String, &'static str),
+    #[error(
+        "journalctl {0} can stand for an option that changes system logs and is not allowed here"
+    )]
+    JournalctlCanStandForSeveral(String),
     #[error("recursive grep is not allowed here")]
     RecursiveGrep,
     #[error("reading {0} is not allowed here")]

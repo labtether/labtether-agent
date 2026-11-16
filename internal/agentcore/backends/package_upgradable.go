@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os/exec"
 	"sort"
 	"strings"
 	"time"
@@ -33,6 +34,21 @@ func RunPackageInventoryCommand(ctx context.Context, name string, args ...string
 	if err != nil {
 		return nil, err
 	}
+	return runPackageInventory(cmd)
+}
+
+// RunAgentPathPackageInventoryCommand is RunPackageInventoryCommand for a
+// package manager at a full path the agent found itself, such as Homebrew
+// outside the service's PATH (see ResolveDarwinBrewPath).
+func RunAgentPathPackageInventoryCommand(ctx context.Context, path string, args ...string) ([]byte, error) {
+	cmd, err := securityruntime.NewAgentPathCommandContext(ctx, path, args...)
+	if err != nil {
+		return nil, err
+	}
+	return runPackageInventory(cmd)
+}
+
+func runPackageInventory(cmd *exec.Cmd) ([]byte, error) {
 	// Parsers consume stable machine-oriented English output. Override locale
 	// for this child only; Windows package managers ignore these variables.
 	env := cmd.Env[:0]

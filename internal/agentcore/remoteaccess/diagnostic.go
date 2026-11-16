@@ -27,6 +27,9 @@ func diagnosticCommandOutput(name string, args ...string) ([]byte, error) {
 	defer cancel()
 	// #nosec G204,G702 -- Callers pass fixed diagnostic tool names; the only variable argument is a strictly validated local X11 display.
 	cmd := exec.CommandContext(ctx, name, args...)
+	// pgrep and xdpyinfo are not on the default exec allowlist, so the probes
+	// keep starting directly, without the agent's own variables.
+	cmd.Env = securityruntime.SanitizedChildEnv()
 	cmd.WaitDelay = 250 * time.Millisecond
 	return securityruntime.CaptureOutput(cmd, securityruntime.DefaultCommandOutputLimit)
 }

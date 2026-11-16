@@ -20,7 +20,7 @@ const darwinPackageListTimeout = 45 * time.Second
 
 var (
 	DarwinPackageLookPath            = exec.LookPath
-	RunDarwinPackageInventoryCommand = RunPackageInventoryCommand
+	RunDarwinPackageInventoryCommand = RunAgentPathPackageInventoryCommand
 )
 
 // DarwinPackageBackend implements PackageBackend using Homebrew.
@@ -36,7 +36,9 @@ func (DarwinPackageBackend) ListPackages() ([]protocol.PackageInfo, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), darwinPackageListTimeout)
 	defer cancel()
 
-	out, err := securityruntime.CommandContextCombinedOutput(ctx, brewPath, "info", "--json=v2", "--installed")
+	// ResolveDarwinBrewPath may return an install folder outside the
+	// service's PATH, so this is a path chosen by agent code.
+	out, err := securityruntime.AgentPathCommandContextCombinedOutput(ctx, brewPath, "info", "--json=v2", "--installed")
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
 			return nil, fmt.Errorf("brew package listing timed out")
@@ -91,7 +93,7 @@ func (DarwinPackageBackend) PerformAction(action string, packages []string) (Pac
 	ctx, cancel := context.WithTimeout(context.Background(), PackageActionCommandTimeout)
 	defer cancel()
 
-	out, runErr := securityruntime.CommandContextCombinedOutput(ctx, brewPath, args...)
+	out, runErr := securityruntime.AgentPathCommandContextCombinedOutput(ctx, brewPath, args...)
 	result := PackageActionResult{
 		Output:         TruncateCommandOutput(out, MaxCommandOutputBytes),
 		RebootRequired: false,

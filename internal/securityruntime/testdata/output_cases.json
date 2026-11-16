@@ -182,6 +182,34 @@
    "limit": 0,
    "timeout_ms": 10000,
    "error": "command output limit must be positive"
+  },
+  {
+   "from": "added",
+   "fault": "3 (command-rule-faults 2026-11-16): a timeout stopped only the direct child",
+   "name": "a timeout stops a descendant holding the output",
+   "capture": "combined",
+   "script": "sleep 8 & echo $!; exec sleep 9",
+   "limit": 1024,
+   "timeout_ms": 500,
+   "truncated": false,
+   "signal": 9,
+   "timed_out": true,
+   "max_ms": 3000,
+   "background_pid_gone": true
+  },
+  {
+   "from": "added",
+   "fault": "3 (command-rule-faults 2026-11-16): a timeout stopped only the direct child",
+   "name": "a held output pipe is closed after one second",
+   "capture": "combined",
+   "script": "sleep 3 & echo started",
+   "limit": 1024,
+   "timeout_ms": 10000,
+   "output": "started\n",
+   "truncated": false,
+   "exit": 0,
+   "output_held": true,
+   "max_ms": 2500
   }
  ]
 }

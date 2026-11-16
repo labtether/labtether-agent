@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 )
@@ -20,6 +21,44 @@ var journalctlChangingOptions = []string{
 	"--vacuum-size", "--vacuum-time", "--vacuum-files", "--rotate", "--flush",
 	"--sync", "--relinquish-var", "--smart-relinquish-var", "--setup-keys",
 	"--update-catalog", "--cursor-file",
+}
+
+// journalctlReadOptionsLikeChanging lists read-only journalctl options whose
+// whole name begins a changing option's name. journalctl takes an exact name
+// as that option, so these stay allowed.
+var journalctlReadOptionsLikeChanging = []string{
+	"--cursor",
+}
+
+// journalctlChangingOptionError refuses an argument that journalctl would
+// take as a changing option. journalctl accepts any unambiguous start of a
+// long option ("--rot" is --rotate, "--vacuum-t=1s" is --vacuum-time), so
+// every start of a changing option's name is refused. A start that journalctl
+// finds ambiguous ("--ro": --root or --rotate) is refused too; journalctl
+// rejects it anyway.
+func journalctlChangingOptionError(arg string) error {
+	option := strings.ToLower(strings.SplitN(arg, "=", 2)[0])
+	if len(option) <= len("--") || !strings.HasPrefix(option, "--") ||
+		slices.Contains(journalctlReadOptionsLikeChanging, option) {
+		return nil
+	}
+	var matches []string
+	for _, changing := range journalctlChangingOptions {
+		if option == changing {
+			return fmt.Errorf("journalctl %s changes system logs and is not allowed here", changing)
+		}
+		if strings.HasPrefix(changing, option) {
+			matches = append(matches, changing)
+		}
+	}
+	switch len(matches) {
+	case 0:
+		return nil
+	case 1:
+		return fmt.Errorf("journalctl %s can stand for %s, which changes system logs, and is not allowed here", option, matches[0])
+	default:
+		return fmt.Errorf("journalctl %s can stand for an option that changes system logs and is not allowed here", option)
+	}
 }
 
 var builtinProtectedReadPaths = []string{
@@ -53,11 +92,8 @@ func validateReadOnlyCommand(args []string) error {
 	switch name {
 	case "journalctl":
 		for _, arg := range args[1:] {
-			option := strings.ToLower(strings.SplitN(arg, "=", 2)[0])
-			for _, changing := range journalctlChangingOptions {
-				if option == changing {
-					return fmt.Errorf("journalctl %s changes system logs and is not allowed here", changing)
-				}
+			if err := journalctlChangingOptionError(arg); err != nil {
+				return err
 			}
 		}
 	case "cat", "head", "tail", "grep":
