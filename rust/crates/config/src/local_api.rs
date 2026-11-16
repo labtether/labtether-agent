@@ -149,8 +149,12 @@ pub fn parent_pid(env: &Environment) -> ParentPid {
 pub const IGNORED_APP_VARIABLES: &[&str] = &[
     "LABTETHER_AUTO_UPDATE",
     "LABTETHER_OUTBOUND_ALLOW_LOOPBACK",
+    // Read on Linux, where the Docker page sends the inventory.
+    #[cfg(target_os = "macos")]
     "LABTETHER_DOCKER_ENABLED",
+    #[cfg(target_os = "macos")]
     "LABTETHER_DOCKER_SOCKET",
+    #[cfg(target_os = "macos")]
     "LABTETHER_DOCKER_DISCOVERY_INTERVAL",
     "LABTETHER_FILES_ROOT_MODE",
     // Read on Linux, where the logs page streams the system log.

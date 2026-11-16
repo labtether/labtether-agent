@@ -42,7 +42,7 @@ pub mod tls;
 pub mod workers;
 
 pub use agent::{Agent, StartError};
-pub use features::{Advertised, Features, Work};
+pub use features::{Advertised, Connectors, Features, Work};
 pub use producers::{HubSender, OnStop, Producer, Stop};
 pub use timing::Timing;
 

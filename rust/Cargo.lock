@@ -427,13 +427,19 @@ checksum = "3bd1574e617a9a6c1f8f8181bd7e841e1f20e4277607ef28945765188d6284d4"
 name = "labtether-agent-capabilities"
 version = "0.1.0"
 dependencies = [
+ "http",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
  "labtether-agent-config",
  "labtether-agent-core",
  "labtether-agent-platform",
  "labtether-agent-security",
  "labtether-protocol",
  "log",
+ "serde",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]

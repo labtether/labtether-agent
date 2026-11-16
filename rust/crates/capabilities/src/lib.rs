@@ -19,7 +19,7 @@
 //! [`COMMAND_PAGES`] instead and is also given the [`Commands`] it must
 //! start programs through. A page that sends messages the Hub did not ask
 //! for adds a producer with [`Features::on_start`] (the logs page's live
-//! stream).
+//! stream, and the Docker inventory, which registers no handler at all).
 //!
 //! On macOS the agent is the monitoring edition the Mac App Store app
 //! bundles (`agent_edition=monitoring`): it runs in the App Sandbox and
@@ -35,6 +35,8 @@ mod commands;
 #[cfg(target_os = "linux")]
 mod cron;
 mod disks;
+#[cfg(target_os = "linux")]
+mod docker;
 #[cfg(target_os = "linux")]
 mod logs;
 mod network;
@@ -58,6 +60,8 @@ pub const PAGES: &[fn(&mut Features, &Settings)] = &[
     network::register,
     #[cfg(target_os = "linux")]
     processes::register,
+    #[cfg(target_os = "linux")]
+    docker::register,
 ];
 
 /// The pages that start programs, each given the command rules. Linux

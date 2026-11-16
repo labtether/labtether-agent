@@ -1,0 +1,1 @@
+{"Volumes":[{"CreatedAt":"2026-11-17T01:02:56+11:00","Driver":"local","Labels":{"ltqa":"a2e"},"Mountpoint":"/var/lib/docker/volumes/ltqa-a2e-vol/_data","Name":"ltqa-a2e-vol","Options":null,"Scope":"local"}],"Warnings":null}

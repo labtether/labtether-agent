@@ -31,6 +31,12 @@ pub trait HubSender: Send + Sync {
     /// Sends `message` on the open connection and blocks until it is
     /// written; an error when no connection is open or it ends first.
     fn send(&self, message: &Message) -> Result<(), SendError>;
+    /// How many connections the agent has opened, the current one
+    /// included: a producer that keeps state per connection compares it
+    /// (Go resets such state in its reconnect callback, `run.go`).
+    fn connection(&self) -> u64 {
+        0
+    }
 }
 
 /// A producer: runs until it returns or [`Stop`] is set.
@@ -147,6 +153,15 @@ impl HubSender for Uplink {
 
     fn asset_id(&self) -> String {
         self.0.asset_id()
+    }
+
+    fn connection(&self) -> u64 {
+        // Counted before the connection's queue is set, so a producer that
+        // sees the queue sees its number.
+        self.0
+            .stats
+            .connects
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 
     fn send(&self, message: &Message) -> Result<(), SendError> {

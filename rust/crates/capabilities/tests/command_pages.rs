@@ -84,6 +84,7 @@ fn ask(bin: &Path, request: &str, extra: &[(&str, &str)]) -> serde_json::Value {
         ("LANG".to_owned(), "C.UTF-8".to_owned()),
         ("TZ".to_owned(), "UTC".to_owned()),
         ("LTQA_SECRET".to_owned(), "do-not-pass".to_owned()),
+        ("LABTETHER_DOCKER_ENABLED".to_owned(), "false".to_owned()),
     ];
     pairs.extend(
         extra

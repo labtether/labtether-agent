@@ -14,8 +14,8 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use labtether_protocol::{
-    MSG_ALERT_NOTIFY, MSG_CONFIG_UPDATE, MSG_ENROLLMENT_APPROVED, MSG_ENROLLMENT_CHALLENGE,
-    MSG_ENROLLMENT_REJECTED, MSG_PING, Message,
+    ConnectorInfo, MSG_ALERT_NOTIFY, MSG_CONFIG_UPDATE, MSG_ENROLLMENT_APPROVED,
+    MSG_ENROLLMENT_CHALLENGE, MSG_ENROLLMENT_REJECTED, MSG_PING, Message,
 };
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -28,6 +28,11 @@ use crate::producers::{HubSender, Producer, Stop};
 
 /// A handler run on a worker thread: the request in, the reply (if any) out.
 pub type Work = Arc<dyn Fn(&Message) -> Option<Message> + Send + Sync>;
+
+/// What a feature puts in each heartbeat's `connectors` list. Called for
+/// every heartbeat on the connection's task, so it must return at once
+/// (a value its own thread keeps up to date), never probe.
+pub type Connectors = Arc<dyn Fn() -> Vec<ConnectorInfo> + Send + Sync>;
 
 /// Message types `core` handles itself; a feature cannot take them.
 const CORE_TYPES: [&str; 6] = [
@@ -53,6 +58,7 @@ pub struct Advertised {
 pub struct Features {
     work: Vec<(&'static str, Work)>,
     producers: Vec<(&'static str, Producer)>,
+    connectors: Vec<Connectors>,
     /// `(key, token)` in the order added: the words of the registered
     /// handlers and the tokens that make the Hub send nothing.
     words: Vec<(&'static str, &'static str)>,
@@ -155,6 +161,22 @@ impl Features {
             "{name} is started twice"
         );
         self.producers.push((name, Arc::new(produce)));
+    }
+
+    /// Adds `list` to every heartbeat's `connectors` (Go's
+    /// `discoverConnectors`). It is not an advertisement: the Hub reads it
+    /// to set up its own collector for the device, and sends the agent no
+    /// request for it.
+    pub fn heartbeat_connectors(
+        &mut self,
+        list: impl Fn() -> Vec<ConnectorInfo> + Send + Sync + 'static,
+    ) {
+        self.connectors.push(Arc::new(list));
+    }
+
+    /// The `connectors` sources, in the order added.
+    pub fn connector_sources(&self) -> Vec<Connectors> {
+        self.connectors.clone()
     }
 
     /// The producers' names, in the order they were added.
