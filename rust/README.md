@@ -44,7 +44,11 @@ On Linux, the `labtether-agent-rs` binary:
   the Go agent's table (`command_authorization.go`); the Hub's opaque tokens
   carry no claims and are not checked, as in Go;
 - runs page requests on at most 20 worker threads, as Go runs at most 20
-  handlers; one more request closes the connection, as in Go.
+  handlers; one more request closes the connection, as in Go;
+- serves the Go agent's local API on `AGENT_PORT` (see "Local API" below)
+  and keeps the alerts the Hub pushes (`alert.notify`) for its status page;
+- stops when the process in `LABTETHER_PARENT_PID` is gone, as the Go agent
+  does for the macOS and Windows apps that start it.
 
 The heartbeat advertises `cap_network=list`, `network_backend=ifconfig` and
 `network_action_backend=none`, Go's values for a Linux host without
@@ -121,6 +125,53 @@ check the default lists. Not here yet: the outbound network rules, file
 scope, log redaction, long-running processes (terminal and desktop
 sessions), and Windows and macOS.
 
+## Local API
+
+`crates/local-api` is the Go agent's local server (`runtime.go`,
+`local_status.go`, `metrics.go`, `internal/servicehttp`), on hyper's HTTP/1
+server. The settings are read once at start: `AGENT_PORT` (default 8090),
+`LABTETHER_AGENT_LOCAL_BIND_ADDRESS` (default 127.0.0.1),
+`LABTETHER_AGENT_LOCAL_AUTH_TOKEN` or `LABTETHER_AGENT_LOCAL_AUTH_TOKEN_FILE`,
+and `LABTETHER_AGENT_LOCAL_ALLOW_UNAUTHENTICATED`. As in Go, a non-loopback
+address without a token turns the API off unless that last variable is true,
+a token file that cannot be read turns it off too, and a port that is taken
+is tried again after 30 s, doubling to 5 minutes, while the agent runs on.
+
+| Path | Token | Body |
+|---|---|---|
+| `/agent/status` | yes, when set | the status of the protocol repo's local agent contract, with ETag and `If-None-Match` (304) |
+| `/agent/info` | yes, when set | `os`, `mode`, `status` |
+| `/agent/telemetry` | yes, when set | the latest sample |
+| `/metrics` | yes, when set | Prometheus text, Go's seven families |
+| `/healthz`, `/readyz`, `/version` | never | Go's bodies; `/version` shows `APP_VERSION` or `dev` |
+
+The token is compared in constant time and never logged; a refusal is Go's
+401 JSON. The body bytes are Go's (field order, escapes, float and time
+text), so the ETag is the one Go would give for the same state. `core`
+knows no HTTP: the server reads `Agent::status_view()`.
+
+Not in Go, so a local program cannot tie the agent up: at most 32
+connections at once, request headers within 5 s and 16 KiB, no request body
+read, and each connection closed after 120 s. Times are always written in
+UTC; Go writes `disconnected_at` in the host's zone after a failed connect.
+
+The status tests (`crates/local-api/tests/states.rs`) drive the real agent
+into each state of the contract's fixtures against the stand-in Hub and
+read the page over HTTP. The fixtures are copied from the protocol repo at
+the commit in `tests/localagent/SOURCE.json`; a test fails when the copy
+changes, and `scripts/localagent-contract.py check --protocol <checkout>`
+compares it with the protocol repo.
+
+Variables the apps set that this agent does not use yet. Each belongs to a
+feature this agent does not have, so ignoring it changes nothing today; each
+must be read when its feature arrives: `LABTETHER_AUTO_UPDATE` (no
+self-update; the apps set it to `false`), `LABTETHER_OUTBOUND_ALLOW_LOOPBACK`
+(no outbound rules yet, so loopback is never refused),
+`LABTETHER_DOCKER_*`, `LABTETHER_FILES_ROOT_MODE`,
+`LABTETHER_LOG_STREAM_ENABLED`, `LABTETHER_WEBRTC_*`,
+`LABTETHER_CAPTURE_FPS` and the `LABTETHER_SERVICES_DISCOVERY_*` switches.
+The agent lists the ones that are set in one debug line at start.
+
 ## Not yet
 
 This binary is not hardened and not a replacement for the Go agent:
@@ -134,12 +185,14 @@ This binary is not hardened and not a replacement for the Go agent:
   replies with an error saying so (Go runs `df` then);
 - no actions: `process.kill`, `network.action` and every other request
   without a handler is ignored and logged once at debug level;
-- no HTTP heartbeat while the WebSocket is down, and no local API with
-  `/agent/telemetry` or `/metrics`;
+- no HTTP heartbeat while the WebSocket is down;
+- no start without a Hub address: Go runs on and its status page says
+  `disconnected`; this agent exits (the apps never start it without one);
+- no Windows parent watch (Go waits on a process handle there);
 - no users, cron, services, packages, logs, Docker, web service discovery,
   terminal, files or Remote View pages (the command rules exist but nothing
   runs a command);
-- no local API, self-update, installer, systemd unit or container image;
+- no self-update, installer, systemd unit or container image;
 - Linux and macOS only; macOS has the monitoring set above.
 
 ## Layout
@@ -152,7 +205,8 @@ This binary is not hardened and not a replacement for the Go agent:
 | `crates/security` | The command rules and `CommandPolicy::run`, the one way to start a process |
 | `crates/core` | Device key, TLS, enrollment, connection, reconnect, token check, dispatch, request workers, heartbeat, telemetry loop, offline buffer, `config.update` |
 | `crates/capabilities` | One module per device page: its request handlers and what the heartbeat advertises |
-| `agent` | The binary: reads settings, builds the features, starts the connection, stops on SIGTERM |
+| `crates/local-api` | The local HTTP API the apps poll, reading the agent through `Agent::status_view()` |
+| `agent` | The binary: reads settings, builds the features, starts the connection and the local API, stops on SIGTERM or when the parent process is gone |
 
 ## Adding a page
 

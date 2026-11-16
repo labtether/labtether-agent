@@ -1,0 +1,32 @@
+{
+  "agent_name": "labtether-agent",
+  "asset_id": "nas01",
+  "group_id": "grp-servers",
+  "port": "8091",
+  "device_fingerprint": "LT-72AS-YEXT-VNGO-NLC5-W2NM-GUXZ-A3FR-WEPP-IP5T-HYSS-5577-KURG-HCEQ",
+  "device_key_algorithm": "ed25519",
+  "connected": false,
+  "connection_state": "connecting",
+  "disconnected_at": "2026-11-14T09:38:51.260417093Z",
+  "last_error": "transient",
+  "last_error_reason": "host_unreachable",
+  "uptime": "2h14m33s",
+  "started_at": "2026-11-14T07:26:34.418236512Z",
+  "metrics": {
+    "asset_id": "nas01",
+    "cpu_percent": 12.5,
+    "memory_percent": 41.8,
+    "disk_percent": 63.2,
+    "net_rx_bytes": 48213377024,
+    "net_tx_bytes": 9132854272,
+    "net_rx_bytes_per_sec": 18432.5,
+    "net_tx_bytes_per_sec": 6120.25,
+    "collected_at": "2026-11-14T09:41:02.907113845Z"
+  },
+  "alerts": [],
+  "agent_version": "v2.0.1",
+  "local_bind_address": "127.0.0.1",
+  "local_auth_enabled": true,
+  "allow_insecure_transport": false,
+  "update_available": false
+}

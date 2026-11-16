@@ -2,6 +2,8 @@
 //! the headers sent on connect, the 16 MiB message limit, and the Hub's
 //! token-bound asset ID in `X-LabTether-Asset-ID`.
 
+use std::io::ErrorKind;
+
 use http::{HeaderValue, StatusCode, Uri};
 use labtether_agent_config::urls::{self, UrlError, UrlKind};
 use tokio_tungstenite::WebSocketStream;
@@ -43,6 +45,27 @@ impl ConnectError {
     /// The Hub's certificate failed the trust check.
     pub fn is_untrusted(&self) -> bool {
         matches!(self, Self::Dial(DialError::Untrusted(_)))
+    }
+
+    /// Go's `classifyConnectReason`: the fixed reason the status page
+    /// shows. As in Go, any failure to open the TCP connection that is not
+    /// a refusal or a timeout counts as unreachable, and other failures
+    /// (a non-auth HTTP answer, a bad handshake) have no reason.
+    pub fn reason(&self) -> Option<&'static str> {
+        if self.is_auth() {
+            return Some("token_rejected");
+        }
+        match self {
+            Self::Dial(DialError::Untrusted(_)) => Some("certificate_untrusted"),
+            Self::Dial(DialError::Lookup(_)) => Some("name_lookup_failed"),
+            Self::Dial(DialError::Connect(error)) => Some(match error.kind() {
+                ErrorKind::ConnectionRefused => "connection_refused",
+                ErrorKind::TimedOut => "timed_out",
+                _ => "host_unreachable",
+            }),
+            Self::Timeout => Some("timed_out"),
+            _ => None,
+        }
     }
 }
 

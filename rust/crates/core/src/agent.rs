@@ -8,14 +8,17 @@ use rustls::ClientConfig;
 use tokio::sync::watch;
 use tokio::time::Instant;
 
+use crate::alerts::AlertCache;
 use crate::credential::{self, IdentityCell};
 use crate::features::Features;
 use crate::flow;
 use crate::heartbeat::{HeartbeatTemplate, LinkStats};
 use crate::identity::{self, DeviceIdentity, IdentityError};
 use crate::intervals::IntervalControl;
+use crate::link_status::{LinkStatus, TOKEN_PERSISTENCE_FAILED};
 use crate::outbox::Outbox;
 use crate::state::StateFiles;
+use crate::status::{LatestCell, StartTime};
 use crate::timing::Timing;
 use crate::tls::{self, TlsError, TrustMode};
 use crate::workers::Workers;
@@ -63,6 +66,13 @@ pub struct Agent {
     pub(crate) features: Features,
     /// Request handler slots, shared by every connection as in Go.
     pub(crate) workers: Workers,
+    /// The connection state the local status page shows.
+    pub(crate) link_status: LinkStatus,
+    /// The latest telemetry sample, for the local pages.
+    pub(crate) latest: LatestCell,
+    /// Alerts the Hub pushed, for the local status page.
+    pub(crate) alerts: AlertCache,
+    pub(crate) started: StartTime,
 }
 
 impl Agent {
@@ -80,6 +90,7 @@ impl Agent {
         timing: Timing,
         features: Features,
     ) -> Result<Arc<Self>, StartError> {
+        let started = StartTime::now();
         tls::validate(&settings.tls)?;
         let mut tls_settings = settings.tls.clone();
         log_trust(&tls_settings);
@@ -88,6 +99,7 @@ impl Agent {
         let startup = credential::startup(&settings, &files);
         let mut identity = startup.identity;
         let mut enrollment = startup.enrollment;
+        let link_status = LinkStatus::default();
 
         if identity.token.is_none()
             && let Some(staged) = enrollment.as_ref()
@@ -102,8 +114,19 @@ impl Agent {
                     if let Some(ca_file) = done.saved_ca {
                         tls_settings.ca_file = Some(ca_file);
                     }
+                    // Go's start path reports only the token write; a
+                    // failed clean-up of the one-use token is logged.
+                    if done.memory_only {
+                        link_status.set_persistence(TOKEN_PERSISTENCE_FAILED);
+                    }
                 }
-                Err(error) => log::error!("enrollment failed: {error}"),
+                Err(error) => {
+                    log::error!("enrollment failed: {error}");
+                    link_status.set_credential_rejected(error.is_token_rejected());
+                    if let Some(words) = error.hub_words() {
+                        link_status.set_refusal(words);
+                    }
+                }
             }
         }
         if identity.ws_url.is_empty() {
@@ -131,6 +154,10 @@ impl Agent {
             re_enroll: Mutex::new(re_enroll),
             features,
             workers,
+            link_status,
+            latest: LatestCell::new(started.wall),
+            alerts: AlertCache::default(),
+            started,
         }))
     }
 

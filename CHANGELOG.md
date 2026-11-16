@@ -26,6 +26,13 @@ All notable changes to `labtether-agent` are documented in this file.
   units, order and limits, reading `/proc`, `/sys`, `statfs` and netlink
   without running any program. It advertises network listing only, so the
   hub offers no network or process actions for it.
+- The Rust agent serves the Go agent's local API (`/agent/status`,
+  `/agent/info`, `/agent/telemetry`, `/metrics`, `/healthz`, `/readyz`,
+  `/version`) with the same port, bind address, bearer token rules, bodies,
+  ETag and bind retry, and its status body passes the protocol repo's local
+  agent contract. It stops when the process in `LABTETHER_PARENT_PID` is
+  gone, as the Go agent does for the macOS and Windows apps. It keeps alerts
+  the hub pushes for the status page.
 - The Rust agent builds and runs on macOS as the monitoring edition for the
   Mac App Store app: CPU, memory, disk and network telemetry, the host
   details in the heartbeat, and the disk and network interface lists, read

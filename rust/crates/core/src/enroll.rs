@@ -11,13 +11,15 @@ use rustls::ClientConfig;
 use serde::{Deserialize, Serialize};
 
 use crate::identity::{DeviceIdentity, ProofVersion, token_proof_payload};
+use crate::link_status::printable_one_line;
 use crate::post::{self, HttpError};
 use crate::state::{valid_asset_id, valid_issued_token};
 
 const ENROLL_TIMEOUT: Duration = Duration::from_secs(15);
 const MAX_RESPONSE_BYTES: usize = 1024 * 1024;
 const MAX_REFUSAL_BYTES: usize = 4096;
-const MAX_REFUSAL_CHARS: usize = 300;
+/// Longest Hub refusal kept (Go's `maxEnrollmentRefusalRunes`).
+pub const MAX_REFUSAL_CHARS: usize = 300;
 
 #[derive(Serialize)]
 struct EnrollRequest<'a> {
@@ -90,6 +92,15 @@ impl EnrollError {
     /// Go's `isEnrollmentCredentialRejected`: the token itself was refused.
     pub fn is_token_rejected(&self) -> bool {
         matches!(self, Self::Refused { status, .. } if *status == StatusCode::UNAUTHORIZED || *status == StatusCode::FORBIDDEN)
+    }
+
+    /// Go's `enrollmentRefusalMessage`: the Hub's own words, when it sent
+    /// any.
+    pub fn hub_words(&self) -> Option<&str> {
+        match self {
+            Self::Refused { message, .. } if !message.is_empty() => Some(message),
+            _ => None,
+        }
     }
 }
 
@@ -201,24 +212,5 @@ fn hub_message(body: &[u8]) -> String {
     } else {
         refusal.message
     };
-    let mut out = String::new();
-    let mut count = 0;
-    let mut space = false;
-    for c in text.chars() {
-        if c.is_whitespace() || c.is_control() {
-            space = !out.is_empty();
-            continue;
-        }
-        if count >= MAX_REFUSAL_CHARS {
-            break;
-        }
-        if space {
-            out.push(' ');
-            count += 1;
-            space = false;
-        }
-        out.push(c);
-        count += 1;
-    }
-    out
+    printable_one_line(&text, MAX_REFUSAL_CHARS)
 }

@@ -20,6 +20,7 @@ pub mod command_security;
 mod env;
 pub mod files;
 pub mod gopath;
+pub mod local_api;
 mod secret;
 mod settings_file;
 pub mod urls;
@@ -29,6 +30,7 @@ use std::time::Duration;
 
 pub use command_security::CommandSecuritySettings;
 pub use env::{Environment, parse_duration_or, parse_go_bool};
+pub use local_api::{LocalApiSettings, LocalAuth, ParentPid};
 pub use secret::Secret;
 pub use settings_file::SettingsFileError;
 use urls::UrlKind;
@@ -129,6 +131,12 @@ pub struct Settings {
     /// UTF-8 character set. The process list escapes command lines by it,
     /// as the `ps` the Go agent runs does.
     pub utf8_locale: bool,
+    /// The local API: port, bind address, token, `/version` text.
+    pub local_api: LocalApiSettings,
+    /// `LABTETHER_PARENT_PID`: stop when that process is gone.
+    pub parent_pid: ParentPid,
+    /// Variables an app sets that this agent does not use, when set.
+    pub ignored_app_variables: Vec<&'static str>,
 }
 
 impl Settings {
@@ -363,9 +371,14 @@ pub fn load(env: &Environment, host: &HostFacts) -> Result<Loaded, ConfigError> 
         log_level,
         command_security,
         utf8_locale: utf8_locale(env),
+        local_api: local_api::load(env),
+        parent_pid: local_api::parent_pid(env),
+        ignored_app_variables: local_api::ignored_variables_set(env),
     };
     Ok(Loaded { settings, warnings })
 }
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_local_api;

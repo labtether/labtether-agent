@@ -1,0 +1,54 @@
+{
+  "schema": "labtether-local-agent-codes/v1",
+  "notes": [
+    "Closed sets for GET /agent/status, taken from the Go agent (internal/agentcore/ws_transport.go ConnectionState and ConnectionErrorReason, ws_reconnect.go, ws_connect_reason.go, run.go).",
+    "An empty string in a list means the field is omitted. The agent never sends an empty last_error or last_error_reason."
+  ],
+  "connection_states": ["connected", "connecting", "auth_failed", "disconnected"],
+  "last_error_reasons": [
+    "name_lookup_failed",
+    "connection_refused",
+    "host_unreachable",
+    "timed_out",
+    "certificate_untrusted",
+    "token_rejected"
+  ],
+  "last_error_by_state": {
+    "connected": [
+      "",
+      "agent_token_persistence_failed",
+      "consumed_enrollment_token_cleanup_failed",
+      "agent_token_persistence_failed,consumed_enrollment_token_cleanup_failed"
+    ],
+    "connecting": [
+      "transient",
+      "enrollment_pending",
+      "agent_token_persistence_failed",
+      "consumed_enrollment_token_cleanup_failed",
+      "agent_token_persistence_failed,consumed_enrollment_token_cleanup_failed"
+    ],
+    "auth_failed": ["auth_failed", "enrollment_token_rejected"],
+    "disconnected": [""]
+  },
+  "last_error_reason_by_last_error": {
+    "": [""],
+    "transient": [
+      "",
+      "name_lookup_failed",
+      "connection_refused",
+      "host_unreachable",
+      "timed_out",
+      "certificate_untrusted"
+    ],
+    "auth_failed": ["token_rejected"],
+    "enrollment_pending": [""],
+    "enrollment_token_rejected": [""],
+    "agent_token_persistence_failed": [""],
+    "consumed_enrollment_token_cleanup_failed": [""],
+    "agent_token_persistence_failed,consumed_enrollment_token_cleanup_failed": [""]
+  },
+  "connected_true_only_in_state": "connected",
+  "absent_when_connected": ["enrollment_error"],
+  "absent_disconnected_at_states": ["connected"],
+  "absent_disconnected_at_last_errors": ["enrollment_pending"]
+}

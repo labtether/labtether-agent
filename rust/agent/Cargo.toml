@@ -15,8 +15,13 @@ path = "src/main.rs"
 labtether-agent-capabilities.workspace = true
 labtether-agent-config.workspace = true
 labtether-agent-core.workspace = true
+labtether-agent-local-api.workspace = true
 log.workspace = true
-tokio = { workspace = true, features = ["macros", "rt", "signal", "sync"] }
+rustix.workspace = true
+tokio = { workspace = true, features = ["macros", "rt", "signal", "sync", "time"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt", "sync", "test-util", "time"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 labtether-agent-platform.workspace = true

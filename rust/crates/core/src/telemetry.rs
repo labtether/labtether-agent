@@ -24,13 +24,17 @@ use crate::intervals::Intervals;
 use crate::outbox::{Outbox, SendError};
 use crate::telemetry_buffer::TelemetryBuffer;
 
-fn collect(sampler: &mut Sampler) -> Sample {
+/// Takes a sample and keeps it, with the time the collection started, for
+/// the local pages (Go's `collectOnce`).
+fn collect(agent: &Agent, sampler: &mut Sampler) -> Sample {
+    let started = std::time::SystemTime::now();
     let (sample, warning) = sampler.collect(std::time::Instant::now());
     if let Some(error) = warning {
         log::warn!(
             "collect warning: no temperature reading on this machine (logged once): {error}"
         );
     }
+    agent.latest.store(sample, started);
     sample
 }
 
@@ -75,7 +79,7 @@ pub(crate) async fn run(agent: &Agent, mut shutdown: watch::Receiver<bool>) {
     let mut changes = agent.intervals.subscribe();
     let mut intervals: Intervals = *changes.borrow_and_update();
 
-    let mut latest = collect(&mut sampler);
+    let mut latest = collect(agent, &mut sampler);
     let start = Instant::now();
     let (mut last_collect, mut last_heartbeat) = (start, start);
     let mut next_collect = start + intervals.collect;
@@ -89,7 +93,7 @@ pub(crate) async fn run(agent: &Agent, mut shutdown: watch::Receiver<bool>) {
             () = &mut timer => {
                 let now = Instant::now();
                 if now >= next_collect {
-                    latest = collect(&mut sampler);
+                    latest = collect(agent, &mut sampler);
                     last_collect = now;
                     next_collect = next_tick(next_collect, intervals.collect, now);
                 }
