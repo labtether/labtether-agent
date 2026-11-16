@@ -50,11 +50,17 @@ All notable changes to `labtether-agent` are documented in this file.
   details in the heartbeat, and the disk and network interface lists, read
   from system calls without starting any program, as the App Sandbox
   requires. It has no process list and no temperature on macOS. CI checks the
-  macOS build when `rust/` changes. Not yet run inside the sandbox or compared
-  with the Go agent on a Mac.
+  macOS build when `rust/` changes. On a Mac it was run inside the App
+  Sandbox and compared field by field with the Go agent.
 
 ### Fixed
 
+- macOS (Rust agent): network byte counters past 4 GiB are reported whole.
+  The interface table the agent read gives programs outside macOS itself
+  only the low 32 bits, rounded down to 1 KiB, so `network.list` showed a
+  Mac that had received 52 GB as 512 MB, and the network rate read 0 each
+  time a counter wrapped. The agent now reads the kernel's per-interface
+  statistics, which keep the full values and work in the App Sandbox.
 - CPU use on Linux counts time spent running VMs once. The kernel already
   includes it in user time, and the agent added it a second time, so a host
   that runs VMs (a Proxmox node, for example) reported CPU use higher than it

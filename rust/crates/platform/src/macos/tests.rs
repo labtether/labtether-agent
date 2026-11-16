@@ -13,8 +13,10 @@ use super::host::{self, HostFacts};
 use super::interfaces::{self, address_text};
 use super::mounts::{self, df_row};
 use super::netid;
-use super::route::{parse_interface_table, roundup};
-use super::sampler::{cpu_busy_percent, disk_used_percent, memory_used_percent};
+use super::route::{links_from, parse_interface_table, roundup};
+use super::sampler::{
+    cpu_busy_percent, disk_used_percent, memory_used_percent, net_totals, rate_per_sec,
+};
 
 fn pad(mut sa: Vec<u8>) -> Vec<u8> {
     sa.resize(roundup(sa.len().max(usize::from(sa[0]))), 0);
@@ -59,6 +61,7 @@ fn message(kind: u8, header: usize, fill: impl FnOnce(&mut Vec<u8>), addrs: &[Ve
     msg
 }
 
+#[derive(Clone, Copy)]
 struct Counters {
     rx: u64,
     tx: u64,
@@ -255,6 +258,120 @@ fn address_text_follows_go_ipnet_string() {
     let mut mask = [0xffu8; 16];
     mask[15] = 0;
     assert_eq!(address_text(mapped, &mask), "192.0.2.10/24");
+}
+
+/// A byte counter as the interface table gives it to a program that is not
+/// part of macOS: the low 32 bits, rounded down to 1 KiB (XNU
+/// `ALIGN_BYTES` in `bsd/net/rtsock.c`; seen on macOS 27.2.1).
+fn cut(bytes: u64) -> u64 {
+    u64::from(bytes as u32) & !1023
+}
+
+/// One `ifmibdata` entry of the `net.link.generic.ifalldata` dump.
+fn ifmib_entry(name: &str, c: Counters) -> Vec<u8> {
+    let mut entry = vec![0u8; l::IFMD_SIZE];
+    entry[l::IFMD_NAME..l::IFMD_NAME + name.len()].copy_from_slice(name.as_bytes());
+    for (off, value) in [
+        (l::IFMD_IBYTES, c.rx),
+        (l::IFMD_OBYTES, c.tx),
+        (l::IFMD_IPACKETS, c.rx_packets),
+        (l::IFMD_OPACKETS, c.tx_packets),
+    ] {
+        entry[off..off + 8].copy_from_slice(&value.to_ne_bytes());
+    }
+    entry
+}
+
+/// The interface table (byte counters cut as the kernel cuts them) and the
+/// counter dump (whole counters) for loopback and en0 at the given
+/// counters, plus a tunnel that has no counter entry.
+fn dumps(lo0: Counters, en0: Counters) -> (Vec<u8>, Vec<u8>) {
+    let seen = |c: Counters| Counters {
+        rx: cut(c.rx),
+        tx: cut(c.tx),
+        ..c
+    };
+    let mut table = link_message(1, "lo0", UP | l::IFF_LOOPBACK, 16384, &[], seen(lo0));
+    table.extend(link_message(4, "en0", UP, 1500, &MAC, seen(en0)));
+    let tunnel = Counters {
+        rx: 5000,
+        tx: 6000,
+        rx_packets: 7,
+        tx_packets: 8,
+    };
+    table.extend(link_message(12, "utun3", UP, 1380, &[], tunnel));
+    let mut data = ifmib_entry("lo0", lo0);
+    data.extend(vec![0u8; l::IFMD_SIZE]); // an interface still attaching: no name
+    data.extend(ifmib_entry("en0", en0));
+    (table, data)
+}
+
+// Fault (a Mac on 2026-11-16): `network.list` gave en0's received bytes as
+// 512,438,272 where netstat showed 52,052,047,300, because the counters
+// came from the interface table, which the kernel cuts to 32 bits for this
+// agent. Also: an entry with no name stopping the read of the entries
+// after it, or a link with no counter entry losing its counters.
+#[test]
+fn network_rows_carry_whole_counters_past_4_gib() {
+    let lo0 = Counters {
+        rx: 99_846_280_428,
+        tx: 99_846_280_428,
+        rx_packets: 9,
+        tx_packets: 9,
+    };
+    let en0 = Counters {
+        rx: 52_052_047_300,
+        tx: 8_073_499_033,
+        rx_packets: 65_892_853,
+        tx_packets: 12_864_300,
+    };
+    let (table, data) = dumps(lo0, en0);
+    let rows = interfaces::rows(&links_from(&table, Some(&data)));
+    let view: Vec<(&str, u64, u64, u64, u64)> = rows
+        .iter()
+        .map(|r| {
+            (
+                r.name.as_str(),
+                r.rx_bytes,
+                r.tx_bytes,
+                r.rx_packets,
+                r.tx_packets,
+            )
+        })
+        .collect();
+    assert_eq!(
+        view,
+        [
+            ("en0", 52_052_047_300, 8_073_499_033, 65_892_853, 12_864_300),
+            ("utun3", 5000, 6000, 7, 8)
+        ]
+    );
+}
+
+// Fault: each time the summed counter passed a multiple of 4 GiB it went
+// down, so that sample's rate was 0; at 10 Gbit/s the cut counter wraps
+// every 3.4 s, so most samples were wrong. Two samples one second apart
+// across 4 GiB must give the bytes that passed.
+#[test]
+fn telemetry_rate_is_right_across_4_gib() {
+    let total = |en0_rx: u64| {
+        let lo0 = Counters {
+            rx: 1000,
+            tx: 1000,
+            rx_packets: 1,
+            tx_packets: 1,
+        };
+        let en0 = Counters {
+            rx: en0_rx,
+            tx: 10,
+            rx_packets: 1,
+            tx_packets: 1,
+        };
+        let (table, data) = dumps(lo0, en0);
+        net_totals(&links_from(&table, Some(&data))).0 as f64
+    };
+    let rate = rate_per_sec(total(4_294_000_000), total(4_296_000_000), 1.0);
+    assert_eq!(rate, 2_000_000.0);
 }
 
 fn fs(from: &str, on: &str, blocks: u64, bfree: u64, bavail: u64, bsize: u32) -> FsStat {

@@ -95,7 +95,7 @@ program:
   the Mach `HOST_CPU_LOAD_INFO` ticks, memory as pages in use over all pages
   with inactive pages counted free (`HOST_VM_INFO`, `hw.memsize`), disk as
   `statfs("/")` used over used plus available, and network bytes summed over
-  every interface, loopback included, from the kernel's interface table;
+  every interface, loopback included;
 - the heartbeat's host details from `sysctl` (`kern.osproductversion`,
   `kern.osrelease`, `hw.machine`, `machdep.cpu.brand_string`,
   `hw.physicalcpu`, `hw.logicalcpu`, `hw.memsize`) and `gethostuuid` for
@@ -105,6 +105,14 @@ program:
   mounts to leave out;
 - `network.list`: the interface table (`sysctl NET_RT_IFLIST2`), parsed
   as Go's `net.Interfaces` parses it, with `netstat`'s link counters.
+
+Byte and packet counters come from `net.link.generic.ifalldata` (`struct
+ifmibdata`, `<net/if_mib.h>`), which gives whole 64-bit values, also in the
+sandbox and without an entitlement. The interface table and `getifaddrs`
+cannot be used for them: macOS gives a program that is not part of the
+system only the low 32 bits of each byte counter there, rounded down to
+1 KiB, so they would wrap every 4 GiB. If `ifalldata` cannot be read, the
+agent logs a warning once and falls back to those cut counters.
 
 Not on macOS: the process list (the sandbox refuses `/bin/ps`), temperature
 (Apple silicon has it only behind a private interface), the Apple silicon
@@ -247,7 +255,7 @@ This binary is not hardened and not a replacement for the Go agent:
 |---|---|
 | `crates/config` | The settings, read from the environment and `agent-config.json` |
 | `crates/platform` | Linux readers (`linux/`): `/proc`, `/sys`, `statfs`, the interface list from netlink, the mount and process lists, the PATH lookup, process-group stop, the parsers of `systemctl` and package-tool output (`linux/tool_output/`), `who` and `systemctl list-timers` text, crontab files, and Go's `time.Local` and time parsing (`gotime/`). macOS readers (`macos/`): telemetry, host details, the interface table and mount list, on top of `crates/macos-sys` |
-| `crates/macos-sys` | macOS only: the system calls behind safe functions (`sysctl`, the interface table, Mach host statistics, `getfsstat`, `getattrlist`, `gethostuuid`); the one crate with `unsafe` |
+| `crates/macos-sys` | macOS only: the system calls behind safe functions (`sysctl`, the interface table and its counters, Mach host statistics, `getfsstat`, `getattrlist`, `gethostuuid`); the one crate with `unsafe` |
 | `crates/security` | The command rules and `CommandPolicy::run`, the one way to start a process |
 | `crates/core` | Device key, TLS, enrollment, connection, reconnect, token check, dispatch, request workers, heartbeat, telemetry loop, offline buffer, `config.update` |
 | `crates/capabilities` | One module per device page: its request handlers and what the heartbeat advertises; `Commands`, the command rules handed to pages that run a program |

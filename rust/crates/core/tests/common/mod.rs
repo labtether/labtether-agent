@@ -221,6 +221,26 @@ impl Hub {
         .await
     }
 
+    /// The ID the next accepted connection will get: connections opened
+    /// before now have lower IDs.
+    pub fn next_connection(&self) -> usize {
+        self.shared.next_id.load(Ordering::Relaxed)
+    }
+
+    /// Waits for the next agent message of `kind` on a connection opened at
+    /// or after `first` (from [`Hub::next_connection`]), skipping messages
+    /// an earlier agent sent before its connection closed.
+    pub async fn wait_message_since(&mut self, first: usize, kind: &str, limit: Duration) -> Value {
+        let kind = kind.to_owned();
+        self.wait_for(limit, move |event| match event {
+            Event::Message { id, message } if *id >= first && message["type"] == kind.as_str() => {
+                Some(message.clone())
+            }
+            _ => None,
+        })
+        .await
+    }
+
     /// Waits for the next accepted connection and returns its headers.
     pub async fn wait_connected(&mut self, limit: Duration) -> HashMap<String, String> {
         self.wait_for(limit, |event| match event {

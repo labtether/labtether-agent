@@ -1,6 +1,9 @@
 //! The kernel's interface table (`sysctl NET_RT_IFLIST2`), parsed in safe
-//! code: each interface's name, flags, MTU, link address, 64-bit counters
-//! and addresses with their masks.
+//! code: each interface's name, flags, MTU, link address and addresses with
+//! their masks. The counters come from a second dump,
+//! `net.link.generic.ifalldata`: in the interface table the kernel cuts each
+//! byte counter to its low 32 bits, rounded down to 1 KiB, for any program
+//! that is not part of macOS (`netstat` is, so it sees whole values).
 //!
 //! This is what both Go readers see on macOS: Go's `net.Interfaces` and
 //! `Interface.Addrs` parse the same messages (`NET_RT_IFLIST`, through
@@ -271,9 +274,72 @@ pub fn parse_interface_table(buf: &[u8]) -> Vec<Link> {
     links
 }
 
-/// The interfaces of this host.
+/// One entry of the `ifmibdata` dump: an interface's name and its whole
+/// 64-bit counters.
+struct IfData {
+    name: String,
+    rx_bytes: u64,
+    tx_bytes: u64,
+    rx_packets: u64,
+    tx_packets: u64,
+}
+
+fn parse_entry(entry: &[u8; l::IFMD_SIZE]) -> Option<IfData> {
+    let name = entry.get(l::IFMD_NAME..l::IFMD_NAME + l::IFMD_NAME_LEN)?;
+    let name = &name[..name.iter().position(|&b| b == 0).unwrap_or(name.len())];
+    if name.is_empty() {
+        return None;
+    }
+    Some(IfData {
+        name: String::from_utf8_lossy(name).into_owned(),
+        rx_bytes: u64_at(entry, l::IFMD_IBYTES)?,
+        tx_bytes: u64_at(entry, l::IFMD_OBYTES)?,
+        rx_packets: u64_at(entry, l::IFMD_IPACKETS)?,
+        tx_packets: u64_at(entry, l::IFMD_OPACKETS)?,
+    })
+}
+
+/// Every named entry of the `net.link.generic.ifalldata` dump. The kernel
+/// writes an entry with no name for an interface still being attached;
+/// those are skipped.
+fn parse_interface_data(buf: &[u8]) -> Vec<IfData> {
+    let (entries, _) = buf.as_chunks::<{ l::IFMD_SIZE }>();
+    entries.iter().filter_map(parse_entry).collect()
+}
+
+/// The interfaces in an interface table dump, each with the whole counters
+/// of the entry of the same name in a counter dump when there is one. The
+/// interface table's own byte counters are what the kernel gives a program
+/// that is not part of macOS: the low 32 bits, rounded down to 1 KiB, so
+/// they wrap every 4 GiB. A link with no counter entry keeps them.
+pub fn links_from(table: &[u8], data: Option<&[u8]>) -> Vec<Link> {
+    let mut links = parse_interface_table(table);
+    let data = data.map(parse_interface_data).unwrap_or_default();
+    for link in &mut links {
+        if let Some(full) = data.iter().find(|d| d.name == link.name) {
+            link.rx_bytes = full.rx_bytes;
+            link.tx_bytes = full.tx_bytes;
+            link.rx_packets = full.rx_packets;
+            link.tx_packets = full.tx_packets;
+        }
+    }
+    links
+}
+
+/// The interfaces of this host, with whole counters. When the counter
+/// dump cannot be read, the interface table's counters stay, and a warning
+/// is logged once.
 pub fn links() -> std::io::Result<Vec<Link>> {
-    Ok(parse_interface_table(
-        &labtether_agent_macos_sys::interface_table()?,
-    ))
+    static WARNED: std::sync::Once = std::sync::Once::new();
+    let table = labtether_agent_macos_sys::interface_table()?;
+    let data = labtether_agent_macos_sys::interface_data()
+        .inspect_err(|error| {
+            WARNED.call_once(|| {
+                log::warn!(
+                    "cannot read interface counters (net.link.generic.ifalldata): {error}; byte counts wrap at 4 GiB"
+                );
+            });
+        })
+        .ok();
+    Ok(links_from(&table, data.as_deref()))
 }

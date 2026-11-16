@@ -13,7 +13,8 @@
 //!   one-minute cache).
 //! - Network: `net.IOCounters(false)`: the bytes of every interface,
 //!   loopback included, summed. Go runs `netstat -ibdnW`; the same link
-//!   counters come from the interface table here.
+//!   counters come from `net.link.generic.ifalldata` here (see
+//!   [`route::links`]).
 //! - Temperature: none. gopsutil reads it on Apple silicon through the
 //!   private `IOHIDEventSystemClient` interface, and Go falls back to
 //!   running `osx-cpu-temp` or `istats`. A Mac App Store app may use neither
