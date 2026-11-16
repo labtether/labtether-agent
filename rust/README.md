@@ -53,6 +53,14 @@ On Linux, the `labtether-agent-rs` binary:
     `zypper list-updates`, `pacman -Qu` or `apk version -l <` (45 s for
     the whole list, 2 MiB of output, `LC_ALL=C`); at most 10,000 entries
     and an 8 MiB reply, as in Go;
+- answers two more pages on Linux, each program through the command rules:
+  - `users.list`: runs `who` and reads its lines as Go does, login times in
+    the host's zone (`TZ`, else `/etc/localtime`, read with Go's rules)
+    sent as UTC, a yearless C-locale time dated as Go dates it;
+  - `cron.list`: runs `systemctl list-timers --all --no-pager --plain`
+    (none when `systemctl` is missing), then reads the user crontabs in
+    `/var/spool/cron/crontabs` and `/var/spool/cron`, `/etc/cron.d` and
+    `/etc/crontab` with Go's skip rules and Go's error text;
 - checks the agent token's capability claims before any handler runs, with
   the Go agent's table (`command_authorization.go`); the Hub's opaque tokens
   carry no claims and are not checked, as in Go;
@@ -72,7 +80,8 @@ The heartbeat advertises `cap_network=list`, `network_backend=ifconfig` and
 `rpm`). Go sends `list,action` for both; this agent has no service or
 package actions, so it sends `list`, the value Go itself uses for a host
 with only a query tool. Without the tool it sends Go's empty value and
-`none`. Both agents decide these once at start. The `capabilities` list
+`none`. Both agents decide these once at start. On Linux it always sends
+`cap_schedules=list`, as Go does. The `capabilities` list
 stays empty, so the Hub offers no terminal, desktop, files or power for it. Heartbeat details the Go agent
 learns by running a program (`tailscale status`) are not sent.
 
@@ -116,8 +125,8 @@ arithmetic, host details) is safe code in `crates/platform/src/macos/`.
 `crates/security` holds the Go agent's rules for every command the agent
 starts (`internal/securityruntime`). The binary builds one `CommandPolicy`
 at start from the settings and the environment it read, and hands it to
-`capabilities::all` inside a `Commands` value; the service and package
-pages start every program through it, on their worker threads.
+`capabilities::all` inside a `Commands` value; the service, package,
+users and scheduled jobs pages start every program through it, on their worker threads.
 
 - Exec allowlist: Go's default program list, `LABTETHER_EXEC_ALLOWLIST_MODE`
   with `LABTETHER_EXEC_ALLOWLIST_ACCEPT_RISK`, `LABTETHER_EXEC_ALLOWED_BINARIES`
@@ -224,8 +233,11 @@ This binary is not hardened and not a replacement for the Go agent:
 - no start without a Hub address: Go runs on and its status page says
   `disconnected`; this agent exits (the apps never start it without one);
 - no Windows parent watch (Go waits on a process handle there);
-- no users, cron, logs, Docker, web service discovery, terminal, files or
-  Remote View pages;
+- no logs, Docker, web service discovery, terminal, files or Remote View
+  pages;
+- Go starts `systemctl list-timers` without its command rules; this agent
+  starts it through them, so a blocked `systemctl` is refused and the child
+  gets the cleaned environment;
 - no self-update, installer, systemd unit or container image;
 - Linux and macOS only; macOS has the monitoring set above.
 
@@ -234,11 +246,11 @@ This binary is not hardened and not a replacement for the Go agent:
 | Folder | Holds |
 |---|---|
 | `crates/config` | The settings, read from the environment and `agent-config.json` |
-| `crates/platform` | Linux readers (`linux/`): `/proc`, `/sys`, `statfs`, the interface list from netlink, the mount and process lists, the PATH lookup, process-group stop, and the parsers of `systemctl` and package-tool output (`linux/tool_output/`). macOS readers (`macos/`): telemetry, host details, the interface table and mount list, on top of `crates/macos-sys` |
+| `crates/platform` | Linux readers (`linux/`): `/proc`, `/sys`, `statfs`, the interface list from netlink, the mount and process lists, the PATH lookup, process-group stop, the parsers of `systemctl` and package-tool output (`linux/tool_output/`), `who` and `systemctl list-timers` text, crontab files, and Go's `time.Local` and time parsing (`gotime/`). macOS readers (`macos/`): telemetry, host details, the interface table and mount list, on top of `crates/macos-sys` |
 | `crates/macos-sys` | macOS only: the system calls behind safe functions (`sysctl`, the interface table, Mach host statistics, `getfsstat`, `getattrlist`, `gethostuuid`); the one crate with `unsafe` |
 | `crates/security` | The command rules and `CommandPolicy::run`, the one way to start a process |
 | `crates/core` | Device key, TLS, enrollment, connection, reconnect, token check, dispatch, request workers, heartbeat, telemetry loop, offline buffer, `config.update` |
-| `crates/capabilities` | One module per device page: its request handlers and what the heartbeat advertises |
+| `crates/capabilities` | One module per device page: its request handlers and what the heartbeat advertises; `Commands`, the command rules handed to pages that run a program |
 | `crates/local-api` | The local HTTP API the apps poll, reading the agent through `Agent::status_view()` |
 | `agent` | The binary: reads settings, builds the features, starts the connection and the local API, stops on SIGTERM or when the parent process is gone |
 
@@ -294,7 +306,12 @@ keepalive, the bounded send queue, the offline telemetry buffer,
 `config.update`, the token check, the request workers and the typed reply.
 The Linux readers are tested against captured `/proc` and `/sys` text, a
 made-up sysfs tree and a made-up `/proc` tree; the macOS readers against an
-interface table built byte by byte, made-up mount rows and tick counts. CI
+interface table built byte by byte, made-up mount rows and tick counts.
+The `who`, `systemctl list-timers` and crontab readers are compared with
+the Go agent's own answers for the same fixtures, recorded in
+`crates/platform/testdata/go/` in three time zones. The Users and
+Scheduled jobs handlers run stand-in programs through the command rules
+(`crates/capabilities/tests/command_pages.rs`). CI
 runs the checks on Linux and on macOS. A test fails when a page is
 advertised without its handler, or handled without its advertisement. Behaviour on a real Hub is checked on
 the lab machines, not in CI.

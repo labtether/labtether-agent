@@ -131,6 +131,9 @@ pub struct Settings {
     /// UTF-8 character set. The process list escapes command lines by it,
     /// as the `ps` the Go agent runs does.
     pub utf8_locale: bool,
+    /// `TZ` exactly as set, `None` when unset: the zone Go's `time.Local`
+    /// reads, used for login and timer times.
+    pub time_zone: Option<String>,
     /// The local API: port, bind address, token, `/version` text.
     pub local_api: LocalApiSettings,
     /// `LABTETHER_PARENT_PID`: stop when that process is gone.
@@ -371,6 +374,7 @@ pub fn load(env: &Environment, host: &HostFacts) -> Result<Loaded, ConfigError> 
         log_level,
         command_security,
         utf8_locale: utf8_locale(env),
+        time_zone: env.raw("TZ").map(str::to_owned),
         local_api: local_api::load(env),
         parent_pid: local_api::parent_pid(env),
         ignored_app_variables: local_api::ignored_variables_set(env),

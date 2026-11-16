@@ -1,0 +1,8 @@
+root     sshd         Nov 16 12:28 (192.0.2.10)
+root     sshd         Nov 16 12:22 (192.0.2.10)
+root     sshd         Nov 16 12:22 (192.0.2.10)
+root     sshd         Nov 16 12:21 (192.0.2.10)
+root     sshd         Nov 16 12:19 (192.0.2.10)
+root     sshd         Nov 16 12:16 (192.0.2.10)
+lightdm  seat0        Nov 15 15:43 (:1)
+demo       seat0        Nov 15 15:33 (:0)

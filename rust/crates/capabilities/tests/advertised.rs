@@ -35,6 +35,11 @@ const CAPABILITIES: &[(&str, &str)] = &[
     ("webrtc", "webrtc.start"),
 ];
 
+/// Requests the Hub sends to every Linux agent without any advertisement:
+/// disks (no gate), the process list and the users list (added to every
+/// agent's capability set, `canonical_helpers.go`).
+const UNGATED: &[&str] = &["disk.list", "process.list", "users.list"];
+
 /// Backend keys and the values allowed for them: Go's names. An action
 /// backend other than `none` needs the matching `action` value.
 const BACKENDS: &[(&str, &[&str])] = &[
@@ -112,7 +117,9 @@ impl Drop for Tools {
 // that times out), a handled page the Hub gates on an advertisement left
 // unadvertised (the console falls back to its defaults and offers network
 // controls this agent lacks), an advertisement in a form Go never sends,
-// or a heartbeat capability (terminal, files, ...) this agent cannot serve.
+// or a heartbeat capability (terminal, files, ...) this agent cannot serve,
+// or a handler for a request the Hub never sends (a page registered under
+// the wrong message type is dead code the console cannot reach).
 //
 // Checked for a host with systemctl and a package manager and for one with
 // neither. On the second Go sends `cap_services=""` and
@@ -160,6 +167,19 @@ fn check_host(search_path: &str) {
         assert!(
             handled.contains(request),
             "advertised {request} has no handler"
+        );
+    }
+    // Go's empty form (`cap_services=""` on a host without the tool) still
+    // names the page, and the Hub keeps sending its request.
+    let empty_form = |request: &&str| {
+        CAP_VALUES.iter().any(|(key, _, r)| {
+            r == request && advertised.metadata.get(*key).is_some_and(String::is_empty)
+        })
+    };
+    for request in &handled {
+        assert!(
+            implied.contains(request) || UNGATED.contains(request) || empty_form(request),
+            "{request} is handled but the Hub never sends it to this agent"
         );
     }
     for (key, value, request) in CAP_VALUES {

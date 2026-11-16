@@ -1,0 +1,15 @@
+NEXT                             LEFT LAST                               PASSED UNIT                         ACTIVATES
+Mon 2026-11-16 12:30:00 AEDT 1min 38s Mon 2026-11-16 12:15:00 AEDT    13min ago scratch-budget.timer         scratch-budget.service
+Mon 2026-11-16 12:32:31 AEDT  4min 9s Mon 2026-11-16 11:31:18 AEDT    57min ago anacron.timer                anacron.service
+Mon 2026-11-16 12:37:00 AEDT     8min Mon 2026-11-16 12:22:00 AEDT     6min ago cargo-target-budget.timer    cargo-target-budget.service
+Mon 2026-11-16 15:48:47 AEDT 3h 20min Sun 2026-11-15 15:48:47 AEDT      20h ago systemd-tmpfiles-clean.timer systemd-tmpfiles-clean.service
+Mon 2026-11-16 18:28:28 AEDT       6h Mon 2026-11-16 06:00:20 AEDT       6h ago apt-daily.timer              apt-daily.service
+Tue 2026-11-17 00:00:00 AEDT      11h Mon 2026-11-16 00:00:10 AEDT      12h ago dpkg-db-backup.timer         dpkg-db-backup.service
+Tue 2026-11-17 00:41:43 AEDT      12h Mon 2026-11-16 00:49:11 AEDT      11h ago logrotate.timer              logrotate.service
+Tue 2026-11-17 01:12:53 AEDT      12h Mon 2026-11-16 00:46:56 AEDT      11h ago monitor-agent-update.timer    monitor-agent-update.service
+Tue 2026-11-17 06:23:53 AEDT      17h Mon 2026-11-16 06:37:52 AEDT 5h 50min ago apt-daily-upgrade.timer      apt-daily-upgrade.service
+Tue 2026-11-17 09:13:32 AEDT      20h Mon 2026-11-16 11:11:28 AEDT 1h 16min ago man-db.timer                 man-db.service
+Sun 2026-11-22 03:10:42 AEDT   5 days Sun 2026-11-15 03:10:30 AEDT            - e2scrub_all.timer            e2scrub_all.service
+Mon 2026-11-23 00:20:06 AEDT   6 days Mon 2026-11-16 00:03:26 AEDT      12h ago fstrim.timer                 fstrim.service
+
+12 timers listed.

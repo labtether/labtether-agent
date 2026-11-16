@@ -1,0 +1,5 @@
+@reboot root /bin/true
+@daily root
+0 0 31 2 * root /bin/true system
+0 0 31 2 * root
+PATH=/usr/bin

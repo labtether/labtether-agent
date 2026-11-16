@@ -171,3 +171,30 @@ pub fn go_quote(bytes: &[u8]) -> String {
     out.push('"');
     out
 }
+
+/// Go's `syscall.Errno` text for an I/O error: the C library's message
+/// with its first letter in lower case ("no such file or directory").
+/// Errors that carry no system error number keep their own text.
+pub fn errno_text(error: &std::io::Error) -> String {
+    let text = error.to_string();
+    let Some(code) = error.raw_os_error() else {
+        return text;
+    };
+    let text = text
+        .strip_suffix(&format!(" (os error {code})"))
+        .unwrap_or(&text);
+    let mut chars = text.chars();
+    match chars.next() {
+        Some(first) => first.to_lowercase().chain(chars).collect(),
+        None => text.to_owned(),
+    }
+}
+
+/// Go's `*os.PathError` text: `<op> <path>: <errno text>`.
+pub fn path_error(op: &str, path: &std::path::Path, error: &std::io::Error) -> String {
+    format!(
+        "{op} {}: {}",
+        lossy(path.as_os_str().as_encoded_bytes()),
+        errno_text(error)
+    )
+}

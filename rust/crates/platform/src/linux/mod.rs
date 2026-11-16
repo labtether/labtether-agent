@@ -1,6 +1,8 @@
 //! The Linux readers. Each module ports one Go file; see the module notes.
 
+pub mod cron;
 pub mod disk;
+pub mod gotime;
 pub mod host;
 pub mod interfaces;
 mod lookpath;
@@ -15,6 +17,7 @@ pub mod procps;
 pub mod sampler;
 pub mod temperature;
 pub mod tool_output;
+pub mod who;
 
 pub use lookpath::{LookPathError, command_exists, look_path};
 pub use metadata::{heartbeat_disk_available, host_metadata};
