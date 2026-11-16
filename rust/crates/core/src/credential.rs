@@ -203,7 +203,8 @@ fn hold_token_for_other_hub(
 pub struct StartupCredential {
     pub identity: HubIdentity,
     /// A one-use token still to be used: for enrollment now (no token) or for
-    /// re-enrollment later (the saved token is refused).
+    /// re-enrollment later (the saved token is refused, or enrollment at
+    /// start failed).
     pub enrollment: Option<EnrollmentToken>,
 }
 
