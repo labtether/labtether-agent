@@ -31,6 +31,7 @@ func TestStartLinuxVNCServerRejectsWaylandRealDesktopFallback(t *testing.T) {
 }
 
 func TestStartLinuxVNCServerUsesExistingDisplayWhenAvailable(t *testing.T) {
+	skipX11LockFilesOnWindows(t)
 	originalLaunch := LaunchDesktopVNCReady
 	originalStartXvfb := StartDesktopXvfb
 	originalFind := FindDesktopFreeDisplay
@@ -131,6 +132,7 @@ func TestStartLinuxVNCServerRejectsUnknownMonitorWithoutFallback(t *testing.T) {
 }
 
 func TestStartLinuxVNCServerFallsBackToXvfbOnDisplayError(t *testing.T) {
+	skipX11LockFilesOnWindows(t)
 	originalLaunch := LaunchDesktopVNCReady
 	originalStartXvfb := StartDesktopXvfb
 	originalFind := FindDesktopFreeDisplay
@@ -290,6 +292,7 @@ func TestStartLinuxVNCServerSkipsToXvfbOnHeadless(t *testing.T) {
 }
 
 func TestStartLinuxVNCServerReturnsPrimaryErrorWhenDisplayIsHealthyButStartupFails(t *testing.T) {
+	skipX11LockFilesOnWindows(t)
 	originalLaunch := LaunchDesktopVNCReady
 	originalStartXvfb := StartDesktopXvfb
 	originalFind := FindDesktopFreeDisplay
@@ -333,6 +336,7 @@ func TestStartLinuxVNCServerReturnsPrimaryErrorWhenDisplayIsHealthyButStartupFai
 }
 
 func TestStartLinuxVNCServerBootstrapFailureStillStartsVNC(t *testing.T) {
+	skipX11LockFilesOnWindows(t)
 	originalLaunch := LaunchDesktopVNCReady
 	originalStartXvfb := StartDesktopXvfb
 	originalFind := FindDesktopFreeDisplay

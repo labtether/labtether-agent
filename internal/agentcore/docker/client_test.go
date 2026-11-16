@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -55,7 +56,13 @@ func newSecureDockerClientFixture(t *testing.T, handler http.HandlerFunc) (*http
 func newUnixDockerClientFixture(t *testing.T, handler http.HandlerFunc) *dockerClient {
 	t.Helper()
 
-	socketFile, err := os.CreateTemp("/tmp", "labtether-docker-*.sock")
+	// A short folder keeps the socket path under the Unix limit (104 bytes on
+	// macOS). Windows has AF_UNIX sockets but may have no /tmp.
+	socketDir := "/tmp"
+	if runtime.GOOS == "windows" {
+		socketDir = t.TempDir()
+	}
+	socketFile, err := os.CreateTemp(socketDir, "labtether-docker-*.sock")
 	if err != nil {
 		t.Fatalf("create temp socket file: %v", err)
 	}

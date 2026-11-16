@@ -37,6 +37,16 @@ func skipLinuxDesktopFakesOnWindows(t *testing.T) {
 	}
 }
 
+// skipX11LockFilesOnWindows skips a test that makes X11 display lock files
+// under /tmp. Xvfb and x11vnc run on Linux only; Windows has neither, and a
+// Windows machine may have no /tmp (GitHub's Windows runners do not).
+func skipX11LockFilesOnWindows(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("makes X11 lock files under /tmp; Xvfb and x11vnc are Linux only")
+	}
+}
+
 func TestDetectWebRTCCapabilitiesRequiresWorkingInputBackend(t *testing.T) {
 	skipLinuxDesktopFakesOnWindows(t)
 	tests := []struct {
