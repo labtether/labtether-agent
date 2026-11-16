@@ -10,6 +10,7 @@
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
+use std::sync::RwLock;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use labtether_agent_capabilities::{Commands, all};
@@ -19,6 +20,14 @@ use labtether_protocol::{CronListedData, Message, UsersListedData};
 use serde_json::json;
 
 struct Bin(PathBuf);
+
+/// Writing a stand-in program and starting one must not overlap across the
+/// test threads. A child forked by another test while a script is still
+/// open for writing keeps that write handle until it runs its own program,
+/// and starting the script then fails with "Text file busy" (ETXTBSY). Writes
+/// take the lock alone; starts share it, and a start returns only once its
+/// child has run its program.
+static SCRIPTS: RwLock<()> = RwLock::new(());
 
 impl Bin {
     fn new() -> Self {
@@ -40,6 +49,7 @@ impl Bin {
             "#!/bin/sh\n/usr/bin/env > {dir}/{name}.env\nprintf '%s\\n' \"$@\" > {dir}/{name}.args\n/bin/cat <<'OUT'\n{output}OUT\n{tail}\n"
         );
         let path = self.0.join(name);
+        let _writing = SCRIPTS.write().unwrap_or_else(|e| e.into_inner());
         fs::write(&path, script).unwrap();
         fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
     }
@@ -91,6 +101,7 @@ fn ask(bin: &Path, request: &str, extra: &[(&str, &str)]) -> serde_json::Value {
     let message: Message =
         serde_json::from_value(json!({"type": request, "id": "e", "data": {"request_id": "r1"}}))
             .unwrap();
+    let _starting = SCRIPTS.read().unwrap_or_else(|e| e.into_inner());
     let reply = features.handler(request).unwrap()(&message).unwrap();
     reply.decode().unwrap()
 }
