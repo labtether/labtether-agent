@@ -56,16 +56,25 @@ impl ConnectError {
             return Some("token_rejected");
         }
         match self {
-            Self::Dial(DialError::Untrusted(_)) => Some("certificate_untrusted"),
-            Self::Dial(DialError::Lookup(_)) => Some("name_lookup_failed"),
-            Self::Dial(DialError::Connect(error)) => Some(match error.kind() {
-                ErrorKind::ConnectionRefused => "connection_refused",
-                ErrorKind::TimedOut => "timed_out",
-                _ => "host_unreachable",
-            }),
+            Self::Dial(error) => dial_reason(error),
             Self::Timeout => Some("timed_out"),
             _ => None,
         }
+    }
+}
+
+/// The fixed reason for a failure to reach the Hub, for the connect and for
+/// enrollment (Go runs `classifyConnectReason` on both).
+pub(crate) fn dial_reason(error: &DialError) -> Option<&'static str> {
+    match error {
+        DialError::Untrusted(_) => Some("certificate_untrusted"),
+        DialError::Lookup(_) => Some("name_lookup_failed"),
+        DialError::Connect(error) => Some(match error.kind() {
+            ErrorKind::ConnectionRefused => "connection_refused",
+            ErrorKind::TimedOut => "timed_out",
+            _ => "host_unreachable",
+        }),
+        DialError::BadAddress | DialError::Tls(_) => None,
     }
 }
 

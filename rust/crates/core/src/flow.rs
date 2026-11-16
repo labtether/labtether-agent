@@ -29,7 +29,8 @@ pub struct StartEnrollment {
     pub memory_only: bool,
 }
 
-/// Enrolls with the staged token and commits the answer.
+/// Enrolls with the staged token and commits the answer. Runs at start, and
+/// from the reconnect loop when the start-up try did not reach the Hub.
 pub async fn enroll_at_start(
     settings: &Settings,
     files: &StateFiles,

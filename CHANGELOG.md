@@ -92,6 +92,14 @@ All notable changes to `labtether-agent` are documented in this file.
 
 ### Fixed
 
+- An agent started while its Hub cannot be reached now enrolls with its
+  one-use token as soon as the Hub answers. Before, it connected without the
+  token, so the Hub held it as a device waiting for an admin's approval and
+  the token was never used. Until the Hub answers (a 408, 429 or 5xx answer
+  counts as no answer), the agent tries again with the usual reconnect wait.
+  A token the Hub refuses (used, expired or revoked) is not offered again
+  this way, and the agent waits for approval as before.
+- Rust agent: the same, so both agents behave alike.
 - Rust agent: a one-use enrollment token is kept when the first enrollment
   fails, as in the Go agent. Before, a first try that found no Hub, or that
   the Hub refused, dropped the token, so an agent the Hub then refused (a

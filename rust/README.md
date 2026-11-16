@@ -17,7 +17,9 @@ On Linux, the `labtether-agent-rs` binary:
   `LABTETHER_TLS_SKIP_VERIFY=true` when no CA is set;
 - enrolls with a one-use token (`LABTETHER_ENROLLMENT_TOKEN` or
   `LABTETHER_ENROLLMENT_TOKEN_FILE`), or waits for approval in the Hub when
-  it has no token, and saves the agent token (mode 0600);
+  it has no token, and saves the agent token (mode 0600); a token that found
+  no Hub at start is used as soon as the Hub answers, before any wait for
+  approval;
 - keeps one WebSocket open, pings every 25 s, reconnects with a growing wait
   (1 s to 60 s), and re-enrolls with a staged token after three refused
   connects, also when its first enrollment failed (the token is kept until
