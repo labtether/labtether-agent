@@ -10,6 +10,7 @@
 #![forbid(unsafe_code)]
 
 mod agent;
+pub mod alerts;
 pub mod authorize;
 pub mod backoff;
 pub mod connection;
@@ -24,12 +25,14 @@ mod handlers;
 pub mod heartbeat;
 pub mod identity;
 pub mod intervals;
+pub mod link_status;
 mod net;
 pub mod outbox;
 mod post;
 mod reconnect;
 mod session;
 pub mod state;
+pub mod status;
 mod telemetry;
 pub mod telemetry_buffer;
 pub mod timing;

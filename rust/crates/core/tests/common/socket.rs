@@ -127,7 +127,7 @@ where
                                 shared.behaviour.lock().unwrap().accepted_tokens.insert(token.clone());
                                 Some(json!({"type": "enrollment.approved", "data": {"token": token, "asset_id": asset_id}}))
                             }
-                            Pending::Reject => Some(json!({"type": "enrollment.rejected", "data": {"reason": "Rejected in a test."}})),
+                            Pending::Reject => Some(json!({"type": "enrollment.rejected", "data": {"reason": "An admin rejected this device in LabTether."}})),
                             _ => None,
                         };
                         if let Some(reply) = reply {
