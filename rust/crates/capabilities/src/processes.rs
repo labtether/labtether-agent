@@ -1,16 +1,17 @@
 //! The Processes page: `process.list`, ported from Go's `HandleProcessList`
 //! (`internal/agentcore/system/process.go`): sort by CPU (default) or
 //! memory, highest first, then keep the first `limit` (default 25, no upper
-//! bound in the agent; the Hub caps it at 200). Go advertises nothing for
-//! it; the Hub offers the process list for every agent.
+//! bound in the agent; the Hub caps it at 200). Advertised as
+//! `cap_processes=list`; Go advertises nothing for it and the Hub offers
+//! the process list to every Go agent.
 //!
 //! Go reads the list from `ps`; this agent reads `/proc` with `ps`'s rules
 //! (see `labtether_agent_platform::procps`). Processes with equal values
 //! keep PID order here; Go's sort is not stable, so its order among equal
 //! values is whatever its sort leaves.
 //!
-//! `process.kill` is not in this agent and is not registered: the request
-//! is ignored and logged once, and nothing advertises it.
+//! `process.kill` is not in this agent and is not registered or
+//! advertised, so the Hub refuses it without sending it.
 
 use std::cmp::Ordering;
 

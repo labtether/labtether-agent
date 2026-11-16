@@ -1,7 +1,7 @@
 //! The Scheduled jobs page: `cron.list`, ported from Go's `HandleCronList`
 //! and `LinuxCronBackend` (`internal/agentcore/backends/cron_handler.go`,
 //! `cron_backend_systemd.go`). Go's Linux agent always advertises
-//! `cap_schedules=list`, and so does this.
+//! `cap_schedules=list`, and so does this (from the handler).
 //!
 //! The reply lists systemd timers, then crontab lines. Go runs
 //! `systemctl list-timers --all --no-pager --plain` with the 8 MiB combined
@@ -34,7 +34,6 @@ pub fn register(features: &mut Features, settings: &Settings, commands: &Command
         let timers = collect_timers(&policy, &zone);
         answer(request, timers, collect_crontabs(&CrontabPaths::default()))
     });
-    features.advertise("cap_schedules", "list");
 }
 
 fn request_id(request: &CronListData) -> &str {

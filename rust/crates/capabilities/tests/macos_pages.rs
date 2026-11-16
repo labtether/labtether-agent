@@ -12,8 +12,11 @@ use labtether_agent_capabilities::all;
 use labtether_agent_config::{Environment, HostFacts, load};
 
 // Fault: the process list (or any page beyond disks and network
-// interfaces) is built into the macOS agent, or a capability such as
-// terminal or files is advertised, or the network page advertises actions.
+// interfaces) is built into the macOS agent, or a page such as terminal or
+// files is advertised, or the network page advertises actions, or the
+// heartbeat leaves out `agent_capability_mode=explicit` (the Hub offers
+// every page) or `agent_edition=monitoring` (the console does not say
+// "Monitoring only").
 #[test]
 fn macos_builds_only_the_sandbox_pages() {
     let dir = std::env::temp_dir().join("lt-capabilities-unused");
@@ -34,11 +37,6 @@ fn macos_builds_only_the_sandbox_pages() {
     handled.sort_unstable();
     assert_eq!(handled, ["disk.list", "network.list"]);
     let advertised = features.advertised();
-    assert!(
-        advertised.capabilities.is_empty(),
-        "{:?}",
-        advertised.capabilities
-    );
     let metadata: Vec<(&str, &str)> = advertised
         .metadata
         .iter()
@@ -47,6 +45,9 @@ fn macos_builds_only_the_sandbox_pages() {
     assert_eq!(
         metadata,
         [
+            ("agent_capability_mode", "explicit"),
+            ("agent_edition", "monitoring"),
+            ("cap_disks", "list"),
             ("cap_network", "list"),
             ("network_action_backend", "none"),
             ("network_backend", "ifconfig"),

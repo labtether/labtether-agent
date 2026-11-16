@@ -3,11 +3,11 @@
 //! read for each heartbeat, the latest sample's metrics with two decimals,
 //! and the connection counters.
 //!
-//! The agent advertises nothing it cannot do: the `capabilities` list and
-//! the `cap_*` and `*_backend` keys come only from the features built in
-//! (see [`crate::Features`]), so no desktop, WebRTC, power or terminal keys
-//! are sent and the Hub offers no actions for them. `connectors` is empty:
-//! Go fills it by probing local ports, which this agent does not do.
+//! The agent advertises nothing it cannot do: `agent_capability_mode`, the
+//! `cap_*` and `*_backend` keys come only from the features built in (see
+//! [`crate::Features`]), and the `capabilities` list is empty, so the Hub
+//! offers no terminal, files, desktop, WebRTC or power. `connectors` is
+//! empty: Go fills it by probing local ports, which this agent does not do.
 
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -49,7 +49,6 @@ impl Default for LinkStats {
 pub struct HeartbeatTemplate {
     source: String,
     metadata: BTreeMap<String, String>,
-    capabilities: Vec<String>,
 }
 
 impl HeartbeatTemplate {
@@ -72,7 +71,6 @@ impl HeartbeatTemplate {
         Self {
             source: settings.source.clone(),
             metadata,
-            capabilities: advertised.capabilities.clone(),
         }
     }
 
@@ -82,7 +80,6 @@ impl HeartbeatTemplate {
         Self {
             source: source.to_owned(),
             metadata,
-            capabilities: Vec::new(),
         }
     }
 
@@ -146,7 +143,7 @@ impl HeartbeatTemplate {
             status: "online".to_owned(),
             platform: PLATFORM.to_owned(),
             metadata: self.metadata(sample, stats),
-            capabilities: self.capabilities.clone(),
+            capabilities: Vec::new(),
             connectors: Vec::new(),
         }
     }

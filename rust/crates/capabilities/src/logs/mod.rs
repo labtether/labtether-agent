@@ -8,9 +8,11 @@
 //! names. Advertised as Go's Linux agent does: with `journalctl` in the
 //! agent's `PATH`, `cap_logs=stored,query,stream` and
 //! `log_backend=journalctl`; without it `cap_logs=stored` and
-//! `log_backend=none`. The query handler is there either way (it answers
-//! that `journalctl` is missing), and the stream runs unless
-//! `LABTETHER_LOG_STREAM_ENABLED` turns it off.
+//! `log_backend=none`. Without it the query is not registered either, so
+//! the Hub does not send it (Go registers it and answers that `journalctl`
+//! is missing; this agent still gives that answer when `journalctl` goes
+//! away after start). The stream runs unless `LABTETHER_LOG_STREAM_ENABLED`
+//! turns it off.
 
 mod lines;
 pub(crate) mod query;
@@ -32,16 +34,18 @@ pub const STREAM: &str = "log-stream";
 pub fn register(features: &mut Features, settings: &Settings, commands: &Commands) {
     let policy = Arc::clone(&commands.policy);
     let found = command_exists("journalctl", policy.search_path());
-    let query_policy = Arc::clone(&policy);
-    features.on_request(
-        MSG_JOURNAL_QUERY,
-        MSG_JOURNAL_ENTRIES,
-        request_id,
-        move |request| query::answer(&query_policy, request, query::GO_TIMEOUT),
-    );
-    let (capability, backend) = advertisement(found);
-    features.advertise("cap_logs", capability);
-    features.advertise("log_backend", backend);
+    features.advertise_token("cap_logs", "stored");
+    if found {
+        let query_policy = Arc::clone(&policy);
+        features.on_request(
+            MSG_JOURNAL_QUERY,
+            MSG_JOURNAL_ENTRIES,
+            request_id,
+            move |request| query::answer(&query_policy, request, query::GO_TIMEOUT),
+        );
+        features.advertise_token("cap_logs", "stream");
+    }
+    features.advertise("log_backend", if found { "journalctl" } else { "none" });
     if settings.log_stream_enabled {
         features.on_start(STREAM, move |sender, stop| {
             stream::run(
@@ -56,15 +60,6 @@ pub fn register(features: &mut Features, settings: &Settings, commands: &Command
             "{}: background log streaming disabled (LABTETHER_LOG_STREAM_ENABLED=false)",
             settings.name
         );
-    }
-}
-
-/// `cap_logs` and `log_backend` for a host with or without `journalctl`.
-pub(crate) fn advertisement(journalctl_found: bool) -> (&'static str, &'static str) {
-    if journalctl_found {
-        ("stored,query,stream", "journalctl")
-    } else {
-        ("stored", "none")
     }
 }
 

@@ -137,7 +137,7 @@ impl Agent {
             token: enrollment.filter(|_| identity.token.is_some()),
             last_attempt: None,
         };
-        let heartbeat = HeartbeatTemplate::new(&settings, &device, features.advertised());
+        let heartbeat = HeartbeatTemplate::new(&settings, &device, &features.advertised());
         let workers = Workers::new(timing.request_workers);
         let intervals = IntervalControl::new(&settings);
         Ok(Arc::new(Self {

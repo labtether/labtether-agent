@@ -4,9 +4,10 @@
 //! Advertised as Go's Linux agent does on a host without `netplan` and
 //! `nmcli` (`readCapabilityMetadataWith` in
 //! `internal/agentplatform/linux/provider_metadata.go`): `cap_network` is
-//! `list`, `network_backend` is `ifconfig`, `network_action_backend` is
-//! `none`. Network actions (`network.action`) are not in this agent, so
-//! `action` is never advertised and the console shows no network controls.
+//! `list` (from the handler), `network_backend` is `ifconfig`,
+//! `network_action_backend` is `none`. Network actions (`network.action`)
+//! are not in this agent, so `action` is never advertised and the Hub
+//! refuses them.
 
 use labtether_agent_config::Settings;
 use labtether_agent_core::Features;
@@ -22,7 +23,6 @@ pub fn register(features: &mut Features, _settings: &Settings) {
         request_id,
         |request| answer(request, interfaces::interface_rows()),
     );
-    features.advertise("cap_network", "list");
     features.advertise("network_backend", "ifconfig");
     features.advertise("network_action_backend", "none");
 }

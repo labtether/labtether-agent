@@ -1,60 +1,44 @@
-//! What the heartbeat advertises must match the handlers registered: a page
-//! cannot be advertised without its handler, and a page the Hub gates on an
-//! advertisement cannot have a handler the Hub never uses.
-//!
-//! The table says which request each advertised value makes the Hub or the
-//! console send. It follows the Hub's `InferCapabilityIDsFromAssetMetadata`
-//! (`internal/hubapi/resources/canonical_helpers.go`), the console's
-//! `useNodeCapabilities.ts`, and the Go agent's `capabilities` list
-//! (`internal/agentcore/run.go`). A value missing from the table fails the
-//! test, so a new advertisement needs a row here.
+//! The heartbeat's words must be the Hub's words for exactly the requests
+//! this agent answers, in the Linux and the macOS build. The agent says
+//! `agent_capability_mode=explicit`, so the Hub sends it only what it
+//! advertises and refuses everything else with 422 `agent_unsupported`
+//! (the Hub's `internal/agentcaps/agentcaps.go`). A handled request without
+//! its word is a page the Hub never offers; a word without a handler is a
+//! page the Hub offers that times out.
 
 use std::collections::BTreeSet;
 
 use labtether_agent_capabilities::{Commands, all};
 use labtether_agent_config::{Environment, HostFacts, load};
 
-/// `(metadata key, value, request it makes the Hub send)`.
-const CAP_VALUES: &[(&str, &str, &str)] = &[
-    ("cap_network", "list", "network.list"),
-    ("cap_network", "action", "network.action"),
-    ("cap_services", "list", "service.list"),
-    ("cap_services", "action", "service.action"),
-    ("cap_packages", "list", "package.list"),
-    ("cap_packages", "action", "package.action"),
-    ("cap_schedules", "list", "cron.list"),
-    ("cap_logs", "query", "journal.query"),
+/// The Hub's rule, copied from `messageNeeds` in the Hub's
+/// `internal/agentcaps/agentcaps.go`: `(request, key, token)`. Only the
+/// rows of the data pages: the Hub's other words (the heartbeat list's
+/// `terminal`, `files`, `desktop`, `webrtc`, `power`; `cap_wol`,
+/// `cap_ssh_keys`, `cap_docker`, `cap_web_services`, `cap_commands`,
+/// `cap_settings`, `cap_updates`) have no handler here, so any of them in
+/// the heartbeat fails as unknown.
+const HUB_WORDS: &[(&str, &str, &str)] = &[
+    ("disk.list", "cap_disks", "list"),
+    ("process.list", "cap_processes", "list"),
+    ("process.kill", "cap_processes", "kill"),
+    ("service.list", "cap_services", "list"),
+    ("service.action", "cap_services", "action"),
+    ("network.list", "cap_network", "list"),
+    ("network.action", "cap_network", "action"),
+    ("package.list", "cap_packages", "list"),
+    ("package.action", "cap_packages", "action"),
+    ("cron.list", "cap_schedules", "list"),
+    ("users.list", "cap_users", "list"),
+    ("journal.query", "cap_logs", "query"),
 ];
 
-/// Advertised values that make the Hub send nothing: it reads the logs it
+/// Advertised tokens that make the Hub send nothing: it reads the logs it
 /// stores (`stored`) and takes the `log.batch` messages the agent sends on
 /// its own (`stream`).
 const NO_REQUEST: &[(&str, &str)] = &[("cap_logs", "stored"), ("cap_logs", "stream")];
 
-/// What Go sends for a page whose program is missing while it still
-/// answers the request: the Hub then never sends that request.
-const NO_TOOL: &[(&str, &str)] = &[
-    ("cap_services", ""),
-    ("cap_packages", ""),
-    ("cap_logs", "stored"),
-];
-
-/// `(heartbeat capability, request it makes the Hub send)`.
-const CAPABILITIES: &[(&str, &str)] = &[
-    ("terminal", "terminal.start"),
-    ("desktop", "desktop.start"),
-    ("files", "file.list"),
-    ("power", "power.action"),
-    ("webrtc", "webrtc.start"),
-];
-
-/// Requests the Hub sends to every Linux agent without any advertisement:
-/// disks (no gate), the process list and the users list (added to every
-/// agent's capability set, `canonical_helpers.go`).
-const UNGATED: &[&str] = &["disk.list", "process.list", "users.list"];
-
-/// Backend keys and the values allowed for them: Go's names. An action
-/// backend other than `none` needs the matching `action` value.
+/// Host keys and the values allowed for them: Go's names.
 const BACKENDS: &[(&str, &[&str])] = &[
     ("log_backend", &["journalctl", "none"]),
     ("network_backend", &["ifconfig"]),
@@ -141,26 +125,22 @@ impl Drop for Tools {
     }
 }
 
-// Faults: a page advertised without its handler (the Hub offers a page
-// that times out), a handled page the Hub gates on an advertisement left
-// unadvertised (the console falls back to its defaults and offers network
-// controls this agent lacks), an advertisement in a form Go never sends,
-// or a heartbeat capability (terminal, files, ...) this agent cannot serve,
-// or a handler for a request the Hub never sends (a page registered under
-// the wrong message type is dead code the console cannot reach).
-//
-// Checked for a host with systemctl, journalctl and a package manager and for one with
-// neither. On the second Go sends `cap_services=""`, `cap_packages=""`
-// and `cap_logs=stored` with backend `none` while still answering the
-// request; that one form is allowed for a handled page.
+// Faults: a handled request whose word is missing or misspelt (the Hub
+// refuses a page this agent answers), a word with no handler (the Hub
+// offers a page that times out), a word or key the Hub does not know, an
+// empty `cap_*` value, or a heartbeat without `agent_capability_mode=explicit`
+// (the Hub then offers every page, as to a Go agent). Checked for a host
+// with every tool, one with only `rpm` and one with none; on macOS the
+// `PATH` changes nothing.
 #[test]
-fn advertisements_match_handlers() {
+fn every_handler_has_its_word_and_every_word_a_handler() {
     let full = Tools::new(
         "full",
         &["systemctl", "apt-get", "dpkg-query", "journalctl"],
     );
+    let rpm_only = Tools::new("rpm-only", &["rpm"]);
     let bare = Tools::new("bare", &[]);
-    for search_path in [full.path(), bare.path()] {
+    for search_path in [full.path(), rpm_only.path(), bare.path()] {
         check_host(&search_path);
     }
 }
@@ -168,111 +148,137 @@ fn advertisements_match_handlers() {
 fn check_host(search_path: &str) {
     let features = features(search_path);
     let handled: BTreeSet<&str> = features.message_types().into_iter().collect();
-    let advertised = features.advertised();
-
-    let mut implied = BTreeSet::new();
-    for (key, value) in &advertised.metadata {
+    let metadata = features.advertised().metadata.clone();
+    let mode = metadata.get("agent_capability_mode").map(String::as_str);
+    assert_eq!(mode, Some("explicit"), "{search_path}");
+    for request in &handled {
+        let (_, key, token) = HUB_WORDS
+            .iter()
+            .find(|(r, _, _)| r == request)
+            .unwrap_or_else(|| panic!("{request} is handled but the Hub has no word for it"));
+        let value = metadata.get(*key).map_or("", String::as_str);
+        assert!(
+            value.split(',').any(|t| t == *token),
+            "{request} is handled but {key}={value:?} does not say {token}"
+        );
+    }
+    for (key, value) in &metadata {
+        if key == "agent_capability_mode" || key == "agent_edition" {
+            continue;
+        }
         if let Some((_, allowed)) = BACKENDS.iter().find(|(name, _)| name == key) {
-            assert!(
-                allowed.contains(&value.as_str()),
-                "{key}={value} is not a value this agent may send"
-            );
+            assert!(allowed.contains(&value.as_str()), "{key}={value}");
             continue;
         }
         assert!(key.starts_with("cap_"), "unknown advertised key {key}");
-        for token in value.split(',').map(str::trim).filter(|t| !t.is_empty()) {
+        for token in value.split(',') {
             if NO_REQUEST.contains(&(key.as_str(), token)) {
                 continue;
             }
-            let row = CAP_VALUES.iter().find(|(k, v, _)| k == key && *v == token);
-            let (_, _, request) =
-                row.unwrap_or_else(|| panic!("{key}={token} has no row in CAP_VALUES"));
-            implied.insert(*request);
-        }
-    }
-    for name in &advertised.capabilities {
-        let row = CAPABILITIES.iter().find(|(n, _)| n == name);
-        implied.insert(
-            row.unwrap_or_else(|| panic!("capability {name} has no row"))
-                .1,
-        );
-    }
-    for request in &implied {
-        assert!(
-            handled.contains(request),
-            "advertised {request} has no handler"
-        );
-    }
-    // Go's form for a missing program (`cap_services=""`, `cap_logs=stored`)
-    // still names the page, and the agent still answers its request.
-    let tool_missing = |key: &str| {
-        advertised
-            .metadata
-            .get(key)
-            .is_some_and(|value| NO_TOOL.contains(&(key, value.as_str())))
-    };
-    let no_tool_form = |request: &&str| {
-        CAP_VALUES
-            .iter()
-            .any(|(key, _, r)| r == request && tool_missing(key))
-    };
-    for request in &handled {
-        assert!(
-            implied.contains(request) || UNGATED.contains(request) || no_tool_form(request),
-            "{request} is handled but the Hub never sends it to this agent"
-        );
-    }
-    for (key, value, request) in CAP_VALUES {
-        if handled.contains(request) && !tool_missing(key) {
+            let (request, _, _) = HUB_WORDS
+                .iter()
+                .find(|(_, k, t)| k == key && *t == token)
+                .unwrap_or_else(|| panic!("{key}={value:?}: {token:?} is not a Hub word"));
             assert!(
-                implied.contains(request),
-                "{request} is handled but {key} does not say {value}"
-            );
-        }
-    }
-    for (name, request) in CAPABILITIES {
-        if handled.contains(request) {
-            assert!(
-                implied.contains(request),
-                "{request} is handled but capability {name} is not advertised"
+                handled.contains(request),
+                "{key}={token} is advertised but {request} has no handler"
             );
         }
     }
 }
 
-// Faults: the services or packages page advertises `action` (the Hub then
-// offers start, stop, install and remove, which this agent lacks), names
-// another backend than Go's, or stops sending Go's empty form on a host
-// without the tool.
+/// The advertisement's keys and values, sorted by key.
+#[cfg(target_os = "linux")]
+fn words(search_path: &str) -> Vec<(String, String)> {
+    features(search_path)
+        .advertised()
+        .metadata
+        .clone()
+        .into_iter()
+        .collect()
+}
+
+/// Checks a Linux host's whole advertisement and its handlers: what every
+/// Linux host sends and handles, plus `words_too` and `handled_too`.
+#[cfg(target_os = "linux")]
+fn assert_linux_host(tools: &Tools, words_too: &[(&str, &str)], handled_too: &[&str]) {
+    let mut want: Vec<(String, String)> = [
+        ("agent_capability_mode", "explicit"),
+        ("cap_disks", "list"),
+        ("cap_network", "list"),
+        ("cap_processes", "list"),
+        ("cap_schedules", "list"),
+        ("cap_users", "list"),
+        ("network_action_backend", "none"),
+        ("network_backend", "ifconfig"),
+    ]
+    .iter()
+    .chain(words_too)
+    .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+    .collect();
+    want.sort();
+    assert_eq!(words(&tools.path()), want, "{}", tools.path());
+    let mut handled = features(&tools.path()).message_types();
+    handled.sort_unstable();
+    let mut want_handled = vec![
+        "cron.list",
+        "disk.list",
+        "network.list",
+        "process.list",
+        "users.list",
+    ];
+    want_handled.extend(handled_too);
+    want_handled.sort_unstable();
+    assert_eq!(handled, want_handled, "{}", tools.path());
+}
+
+// Faults: the Linux agent leaves out a page it answers or names one it
+// does not (`action` for services, packages or network; `kill`; a page
+// whose tool is missing), sends `cap_services=""` or `cap_packages=""`
+// (Go's form, which the console reads as supported), sends an edition (the
+// console would say "Monitoring only"), or names another backend than Go's.
 #[cfg(target_os = "linux")]
 #[test]
-fn services_and_packages_advertise_list_only() {
-    let meta = |search_path: &str, key: &str| {
-        features(search_path)
-            .advertised()
-            .metadata
-            .get(key)
-            .cloned()
-    };
-    let full = Tools::new("list-only", &["systemctl", "apt-get", "dpkg-query", "rpm"]);
-    let rpm_only = Tools::new("rpm-only", &["rpm"]);
-    let bare = Tools::new("none", &[]);
-    let rows = [
-        (full.path(), ["list", "systemd", "list", "apt-get"]),
-        (rpm_only.path(), ["", "none", "list", "rpm"]),
-        (bare.path(), ["", "none", "", "none"]),
-    ];
-    for (search_path, want) in rows {
-        let keys = [
-            "cap_services",
-            "service_backend",
-            "cap_packages",
-            "package_backend",
-        ];
-        let got: Vec<Option<String>> = keys.iter().map(|k| meta(&search_path, k)).collect();
-        let want: Vec<Option<String>> = want.iter().map(|v| Some((*v).to_owned())).collect();
-        assert_eq!(got, want, "{search_path}");
-    }
+fn linux_sends_the_words_of_the_pages_it_answers() {
+    let full = Tools::new(
+        "words-full",
+        &["systemctl", "apt-get", "dpkg-query", "journalctl"],
+    );
+    assert_linux_host(
+        &full,
+        &[
+            ("cap_logs", "stored,query,stream"),
+            ("cap_packages", "list"),
+            ("cap_services", "list"),
+            ("log_backend", "journalctl"),
+            ("package_backend", "apt-get"),
+            ("service_backend", "systemd"),
+        ],
+        &["journal.query", "package.list", "service.list"],
+    );
+    let rpm_only = Tools::new("words-rpm", &["rpm"]);
+    assert_linux_host(
+        &rpm_only,
+        &[
+            ("cap_logs", "stored"),
+            ("cap_packages", "list"),
+            ("log_backend", "none"),
+            ("package_backend", "rpm"),
+            ("service_backend", "none"),
+        ],
+        &["package.list"],
+    );
+    let bare = Tools::new("words-bare", &[]);
+    assert_linux_host(
+        &bare,
+        &[
+            ("cap_logs", "stored"),
+            ("log_backend", "none"),
+            ("package_backend", "none"),
+            ("service_backend", "none"),
+        ],
+        &[],
+    );
 }
 
 // Faults: the logs page advertises `query` or `stream` on a host without

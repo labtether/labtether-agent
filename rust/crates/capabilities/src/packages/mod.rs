@@ -10,7 +10,8 @@
 //! Advertised as Go's Linux agent does, without the action part:
 //! `cap_packages=list` and `package_backend=<tool>` for the first package
 //! manager in the agent's `PATH` (else `dpkg-query` or `rpm`); Go says
-//! `list,action` for a manager. With no tool, Go's `cap_packages=""` and
+//! `list,action` for a manager. With no tool the list is not registered,
+//! no `cap_packages` is sent (Go sends `""` and still answers) and
 //! `package_backend=none`. `package.action` is not in this agent.
 
 mod lists;
@@ -41,20 +42,14 @@ const MAX_REQUEST_ID_BYTES: usize = 512;
 
 pub fn register(features: &mut Features, _settings: &Settings, commands: &Commands) {
     let policy = Arc::clone(&commands.policy);
-    let (capability, backend) = advertisement(detect_backend(policy.search_path()));
+    let Some(backend) = detect_backend(policy.search_path()) else {
+        features.advertise("package_backend", "none");
+        return;
+    };
     features.on_message(MSG_PACKAGE_LIST, move |message| {
         Some(handle(message, &policy, lists::UPGRADABLE_TIMEOUT))
     });
-    features.advertise("cap_packages", capability);
     features.advertise("package_backend", backend);
-}
-
-/// `cap_packages` and `package_backend` for the detected tool.
-pub(crate) fn advertisement(backend: Option<&'static str>) -> (&'static str, &'static str) {
-    match backend {
-        Some(backend) => ("list", backend),
-        None => ("", "none"),
-    }
 }
 
 /// Go's `packageListRequestWire`. A JSON `null` payload is an empty

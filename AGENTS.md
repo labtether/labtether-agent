@@ -138,6 +138,10 @@ Read user-facing text once against this list before you ship it.
   read while it runs (`rust/clippy.toml` refuses `Command::new`
   elsewhere). A feature that sends without a request adds a producer
   (`Features::on_start`); it runs on its own thread, not a worker. The
+  heartbeat says `agent_capability_mode=explicit` (the Hub refuses what is
+  not advertised); a page's `cap_*` word comes only from registering its
+  handler (`crates/core/src/offers.rs` copies the Hub's `internal/agentcaps`
+  table), and the macOS build adds `agent_edition=monitoring`. The
   binary builds one policy and hands it to `capabilities::all`; pages that run a program go in `COMMAND_PAGES`. The
   users and cron readers are checked against the Go agent's own answers in
   `crates/platform/testdata/go/`. Its cases live in
