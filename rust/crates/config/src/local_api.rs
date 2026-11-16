@@ -153,6 +153,8 @@ pub const IGNORED_APP_VARIABLES: &[&str] = &[
     "LABTETHER_DOCKER_SOCKET",
     "LABTETHER_DOCKER_DISCOVERY_INTERVAL",
     "LABTETHER_FILES_ROOT_MODE",
+    // Read on Linux, where the logs page streams the system log.
+    #[cfg(target_os = "macos")]
     "LABTETHER_LOG_STREAM_ENABLED",
     "LABTETHER_WEBRTC_ENABLED",
     "LABTETHER_WEBRTC_STUN_URL",

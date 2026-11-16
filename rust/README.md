@@ -61,6 +61,20 @@ On Linux, the `labtether-agent-rs` binary:
     (none when `systemctl` is missing), then reads the user crontabs in
     `/var/spool/cron/crontabs` and `/var/spool/cron`, `/etc/cron.d` and
     `/etc/crontab` with Go's skip rules and Go's error text;
+- answers the Logs page on Linux, `journalctl` through the command rules:
+  - `journal.query`: `journalctl --no-pager --output=json --lines=N
+    --reverse` plus `--since`, `--until`, `--unit`, `--priority` and
+    `--grep` when set (Go passes the short forms `-n -r -u -p`), 200 entries
+    by default and at most 1000, 20 s, 8 MiB of output, lines of up to
+    256 KiB, and Go's error texts;
+  - the live stream: `journalctl --follow --output=json --lines=0` runs for
+    the life of the agent and new entries go to the Hub as `log.batch`
+    messages the Hub did not ask for: at most 50 per batch, a batch sent
+    when full or when an entry arrives more than 2 s after the last send,
+    entries dropped while no connection is open, a line of 256 KiB or
+    more skipped, and a failed `journalctl` started again after 1 s,
+    doubling to 32 s, as Go's `LogManager`.
+    `LABTETHER_LOG_STREAM_ENABLED=false` turns it off;
 - checks the agent token's capability claims before any handler runs, with
   the Go agent's table (`command_authorization.go`); the Hub's opaque tokens
   carry no claims and are not checked, as in Go;
@@ -81,7 +95,9 @@ The heartbeat advertises `cap_network=list`, `network_backend=ifconfig` and
 package actions, so it sends `list`, the value Go itself uses for a host
 with only a query tool. Without the tool it sends Go's empty value and
 `none`. Both agents decide these once at start. On Linux it always sends
-`cap_schedules=list`, as Go does. The `capabilities` list
+`cap_schedules=list`, as Go does. With `journalctl` it sends
+`cap_logs=stored,query,stream` and `log_backend=journalctl`, without it
+`cap_logs=stored` and `none`, as Go does. The `capabilities` list
 stays empty, so the Hub offers no terminal, desktop, files or power for it. Heartbeat details the Go agent
 learns by running a program (`tailscale status`) are not sent.
 
@@ -134,7 +150,10 @@ arithmetic, host details) is safe code in `crates/platform/src/macos/`.
 starts (`internal/securityruntime`). The binary builds one `CommandPolicy`
 at start from the settings and the environment it read, and hands it to
 `capabilities::all` inside a `Commands` value; the service, package,
-users and scheduled jobs pages start every program through it, on their worker threads.
+users, scheduled jobs and logs pages start every program through it, on
+their worker threads; the log stream's `journalctl --follow` starts with
+`CommandPolicy::start_streaming`, the same checks with the output read while
+it runs, and ends with the agent.
 
 - Exec allowlist: Go's default program list, `LABTETHER_EXEC_ALLOWLIST_MODE`
   with `LABTETHER_EXEC_ALLOWLIST_ACCEPT_RISK`, `LABTETHER_EXEC_ALLOWED_BINARIES`
@@ -218,7 +237,8 @@ must be read when its feature arrives: `LABTETHER_AUTO_UPDATE` (no
 self-update; the apps set it to `false`), `LABTETHER_OUTBOUND_ALLOW_LOOPBACK`
 (no outbound rules yet, so loopback is never refused),
 `LABTETHER_DOCKER_*`, `LABTETHER_FILES_ROOT_MODE`,
-`LABTETHER_LOG_STREAM_ENABLED`, `LABTETHER_WEBRTC_*`,
+`LABTETHER_LOG_STREAM_ENABLED` (on macOS only; read on Linux),
+`LABTETHER_WEBRTC_*`,
 `LABTETHER_CAPTURE_FPS` and the `LABTETHER_SERVICES_DISCOVERY_*` switches.
 The agent lists the ones that are set in one debug line at start.
 
@@ -241,8 +261,10 @@ This binary is not hardened and not a replacement for the Go agent:
 - no start without a Hub address: Go runs on and its status page says
   `disconnected`; this agent exits (the apps never start it without one);
 - no Windows parent watch (Go waits on a process handle there);
-- no logs, Docker, web service discovery, terminal, files or Remote View
-  pages;
+- no Docker, web service discovery, terminal, files or Remote View pages;
+- a stream line of 256 KiB or more: this agent skips it and goes on, as
+  the Go agent does from its fix for that line; a Go agent without the fix
+  stops streaming there until it restarts;
 - Go starts `systemctl list-timers` without its command rules; this agent
   starts it through them, so a blocked `systemctl` is refused and the child
   gets the cleaned environment;
@@ -256,8 +278,8 @@ This binary is not hardened and not a replacement for the Go agent:
 | `crates/config` | The settings, read from the environment and `agent-config.json` |
 | `crates/platform` | Linux readers (`linux/`): `/proc`, `/sys`, `statfs`, the interface list from netlink, the mount and process lists, the PATH lookup, process-group stop, the parsers of `systemctl` and package-tool output (`linux/tool_output/`), `who` and `systemctl list-timers` text, crontab files, and Go's `time.Local` and time parsing (`gotime/`). macOS readers (`macos/`): telemetry, host details, the interface table and mount list, on top of `crates/macos-sys` |
 | `crates/macos-sys` | macOS only: the system calls behind safe functions (`sysctl`, the interface table and its counters, Mach host statistics, `getfsstat`, `getattrlist`, `gethostuuid`); the one crate with `unsafe` |
-| `crates/security` | The command rules and `CommandPolicy::run`, the one way to start a process |
-| `crates/core` | Device key, TLS, enrollment, connection, reconnect, token check, dispatch, request workers, heartbeat, telemetry loop, offline buffer, `config.update` |
+| `crates/security` | The command rules, `CommandPolicy::run` and `CommandPolicy::start_streaming`, the only ways to start a process |
+| `crates/core` | Device key, TLS, enrollment, connection, reconnect, token check, dispatch, request workers, producers (features that send on their own), heartbeat, telemetry loop, offline buffer, `config.update` |
 | `crates/capabilities` | One module per device page: its request handlers and what the heartbeat advertises; `Commands`, the command rules handed to pages that run a program |
 | `crates/local-api` | The local HTTP API the apps poll, reading the agent through `Agent::status_view()` |
 | `agent` | The binary: reads settings, builds the features, starts the connection and the local API, stops on SIGTERM or when the parent process is gone |
@@ -279,7 +301,17 @@ This binary is not hardened and not a replacement for the Go agent:
    every program with `commands.policy.run`, and goes in `COMMAND_PAGES`
    (Linux only). Go replies to some requests it cannot use (`package.list`
    does); such a page uses `features.on_message`, which gets the whole
-   message, instead of `on_request`.
+   message, instead of `on_request`. A page that sends messages the Hub did
+   not ask for (the log stream) adds a producer with
+   `features.on_start(name, produce)`: it runs on its own thread for the
+   life of the agent, outside the request workers, and sends through the
+   `HubSender` it is given. A send waits until its frame is written and
+   fails when no connection is open or the connection ends first, as Go's
+   `Send`; the message is then dropped, never sent on a later connection.
+   It waits at most the write timeout plus 1 s, whatever the connection's
+   writer does.
+   The `Stop` it is given is set when the agent stops; `stop.on_stop` ends a
+   program the producer started.
 4. If the page brings a new `cap_*` value, add its row to
    `crates/capabilities/tests/advertised.rs`.
 
@@ -319,7 +351,13 @@ The `who`, `systemctl list-timers` and crontab readers are compared with
 the Go agent's own answers for the same fixtures, recorded in
 `crates/platform/testdata/go/` in three time zones. The Users and
 Scheduled jobs handlers run stand-in programs through the command rules
-(`crates/capabilities/tests/command_pages.rs`). CI
+(`crates/capabilities/tests/command_pages.rs`). The journal line reader and
+the logs query are compared with the Go agent's own answers for the same
+fixtures and stand-in `journalctl` programs
+(`crates/platform/testdata/go/journal-lines.json`,
+`crates/capabilities/src/tests/testdata/go/`). The producer path is tested
+against a Hub that stops reading, drops the connection or is offline
+(`crates/core/tests/producers.rs`). CI
 runs the checks on Linux and on macOS. A test fails when a page is
 advertised without its handler, or handled without its advertisement. Behaviour on a real Hub is checked on
 the lab machines, not in CI.

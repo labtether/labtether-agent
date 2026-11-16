@@ -26,6 +26,19 @@ const CAP_VALUES: &[(&str, &str, &str)] = &[
     ("cap_logs", "query", "journal.query"),
 ];
 
+/// Advertised values that make the Hub send nothing: it reads the logs it
+/// stores (`stored`) and takes the `log.batch` messages the agent sends on
+/// its own (`stream`).
+const NO_REQUEST: &[(&str, &str)] = &[("cap_logs", "stored"), ("cap_logs", "stream")];
+
+/// What Go sends for a page whose program is missing while it still
+/// answers the request: the Hub then never sends that request.
+const NO_TOOL: &[(&str, &str)] = &[
+    ("cap_services", ""),
+    ("cap_packages", ""),
+    ("cap_logs", "stored"),
+];
+
 /// `(heartbeat capability, request it makes the Hub send)`.
 const CAPABILITIES: &[(&str, &str)] = &[
     ("terminal", "terminal.start"),
@@ -43,6 +56,7 @@ const UNGATED: &[&str] = &["disk.list", "process.list", "users.list"];
 /// Backend keys and the values allowed for them: Go's names. An action
 /// backend other than `none` needs the matching `action` value.
 const BACKENDS: &[(&str, &[&str])] = &[
+    ("log_backend", &["journalctl", "none"]),
     ("network_backend", &["ifconfig"]),
     ("network_action_backend", &["none"]),
     ("service_backend", &["systemd", "none"]),
@@ -64,13 +78,27 @@ const BACKENDS: &[(&str, &[&str])] = &[
 
 /// The features of an agent whose `PATH` is `search_path`.
 fn features(search_path: &str) -> labtether_agent_core::Features {
+    features_with(search_path, &[])
+}
+
+/// As [`features`], with more variables set.
+fn features_with(search_path: &str, extra: &[(&str, &str)]) -> labtether_agent_core::Features {
     let dir = std::env::temp_dir().join("lt-capabilities-unused");
     let path = |name: &str| dir.join(name).display().to_string();
-    let env = Environment::from_pairs([
-        ("LABTETHER_TOKEN_FILE", path("agent-token")),
-        ("LABTETHER_AGENT_SETTINGS_FILE", path("agent-config.json")),
-        ("PATH", search_path.to_owned()),
-    ]);
+    let mut pairs = vec![
+        ("LABTETHER_TOKEN_FILE".to_owned(), path("agent-token")),
+        (
+            "LABTETHER_AGENT_SETTINGS_FILE".to_owned(),
+            path("agent-config.json"),
+        ),
+        ("PATH".to_owned(), search_path.to_owned()),
+    ];
+    pairs.extend(
+        extra
+            .iter()
+            .map(|(k, v)| ((*k).to_owned(), (*v).to_owned())),
+    );
+    let env = Environment::from_pairs(pairs);
     let host = HostFacts {
         hostname: "nas01".into(),
         version: "0.1.0".into(),
@@ -121,13 +149,16 @@ impl Drop for Tools {
 // or a handler for a request the Hub never sends (a page registered under
 // the wrong message type is dead code the console cannot reach).
 //
-// Checked for a host with systemctl and a package manager and for one with
-// neither. On the second Go sends `cap_services=""` and
-// `cap_packages=""` with backend `none` while still answering the
+// Checked for a host with systemctl, journalctl and a package manager and for one with
+// neither. On the second Go sends `cap_services=""`, `cap_packages=""`
+// and `cap_logs=stored` with backend `none` while still answering the
 // request; that one form is allowed for a handled page.
 #[test]
 fn advertisements_match_handlers() {
-    let full = Tools::new("full", &["systemctl", "apt-get", "dpkg-query"]);
+    let full = Tools::new(
+        "full",
+        &["systemctl", "apt-get", "dpkg-query", "journalctl"],
+    );
     let bare = Tools::new("bare", &[]);
     for search_path in [full.path(), bare.path()] {
         check_host(&search_path);
@@ -150,6 +181,9 @@ fn check_host(search_path: &str) {
         }
         assert!(key.starts_with("cap_"), "unknown advertised key {key}");
         for token in value.split(',').map(str::trim).filter(|t| !t.is_empty()) {
+            if NO_REQUEST.contains(&(key.as_str(), token)) {
+                continue;
+            }
             let row = CAP_VALUES.iter().find(|(k, v, _)| k == key && *v == token);
             let (_, _, request) =
                 row.unwrap_or_else(|| panic!("{key}={token} has no row in CAP_VALUES"));
@@ -169,22 +203,27 @@ fn check_host(search_path: &str) {
             "advertised {request} has no handler"
         );
     }
-    // Go's empty form (`cap_services=""` on a host without the tool) still
-    // names the page, and the Hub keeps sending its request.
-    let empty_form = |request: &&str| {
-        CAP_VALUES.iter().any(|(key, _, r)| {
-            r == request && advertised.metadata.get(*key).is_some_and(String::is_empty)
-        })
+    // Go's form for a missing program (`cap_services=""`, `cap_logs=stored`)
+    // still names the page, and the agent still answers its request.
+    let tool_missing = |key: &str| {
+        advertised
+            .metadata
+            .get(key)
+            .is_some_and(|value| NO_TOOL.contains(&(key, value.as_str())))
+    };
+    let no_tool_form = |request: &&str| {
+        CAP_VALUES
+            .iter()
+            .any(|(key, _, r)| r == request && tool_missing(key))
     };
     for request in &handled {
         assert!(
-            implied.contains(request) || UNGATED.contains(request) || empty_form(request),
+            implied.contains(request) || UNGATED.contains(request) || no_tool_form(request),
             "{request} is handled but the Hub never sends it to this agent"
         );
     }
     for (key, value, request) in CAP_VALUES {
-        let tool_missing = advertised.metadata.get(*key).is_some_and(String::is_empty);
-        if handled.contains(request) && !tool_missing {
+        if handled.contains(request) && !tool_missing(key) {
             assert!(
                 implied.contains(request),
                 "{request} is handled but {key} does not say {value}"
@@ -234,4 +273,30 @@ fn services_and_packages_advertise_list_only() {
         let want: Vec<Option<String>> = want.iter().map(|v| Some((*v).to_owned())).collect();
         assert_eq!(got, want, "{search_path}");
     }
+}
+
+// Faults: the logs page advertises `query` or `stream` on a host without
+// journalctl (the Hub offers a query that can only fail), drops `stream`
+// or `stored` where Go sends them, or names another backend than Go's; the
+// live stream is off by default (Go streams unless
+// LABTETHER_LOG_STREAM_ENABLED=false) or stays on when turned off.
+#[cfg(target_os = "linux")]
+#[test]
+fn logs_advertise_as_go() {
+    let meta = |search_path: &str| {
+        let features = features(search_path);
+        let get = |key: &str| features.advertised().metadata.get(key).cloned();
+        (get("cap_logs"), get("log_backend"))
+    };
+    let with = Tools::new("journal", &["journalctl"]);
+    let without = Tools::new("no-journal", &[]);
+    let some = |a: &str, b: &str| (Some(a.to_owned()), Some(b.to_owned()));
+    assert_eq!(
+        meta(&with.path()),
+        some("stored,query,stream", "journalctl")
+    );
+    assert_eq!(meta(&without.path()), some("stored", "none"));
+    assert_eq!(features(&with.path()).producer_names(), ["log-stream"]);
+    let off = features_with(&with.path(), &[("LABTETHER_LOG_STREAM_ENABLED", "false")]);
+    assert!(off.producer_names().is_empty());
 }

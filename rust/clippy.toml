@@ -1,6 +1,7 @@
 # Every process the agent starts goes through
-# labtether_agent_security::CommandPolicy::run, which applies the exec
-# allowlist, the sanitized child environment, the output limit and the
+# labtether_agent_security::CommandPolicy::run (or start_streaming, for a
+# command read while it runs), which applies the exec allowlist and the
+# sanitized child environment; run also applies the output limit and the
 # timeout. Starting a process anywhere else fails clippy.
 disallowed-methods = [
   { path = "std::process::Command::new", reason = "start processes through labtether_agent_security::CommandPolicy::run" },

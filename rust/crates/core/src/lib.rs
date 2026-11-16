@@ -1,7 +1,7 @@
 //! The LabTether Rust agent's connection to the Hub: device key, TLS trust,
 //! enrollment, the WebSocket, reconnect, the token check and dispatch of
-//! Hub messages, bounded request workers, heartbeat, telemetry and the
-//! Hub's interval changes. Features (the device pages) live in the
+//! Hub messages, bounded request workers, producers that send on their own,
+//! heartbeat, telemetry and the Hub's interval changes. Features (the device pages) live in the
 //! `labtether-agent-capabilities` crate and reach this one as a
 //! [`Features`] value.
 //!
@@ -29,6 +29,7 @@ pub mod link_status;
 mod net;
 pub mod outbox;
 mod post;
+pub mod producers;
 mod reconnect;
 mod session;
 pub mod state;
@@ -41,6 +42,7 @@ pub mod workers;
 
 pub use agent::{Agent, StartError};
 pub use features::{Advertised, Features, Work};
+pub use producers::{HubSender, OnStop, Producer, Stop};
 pub use timing::Timing;
 
 #[cfg(test)]

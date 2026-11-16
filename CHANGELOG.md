@@ -38,6 +38,13 @@ All notable changes to `labtether-agent` are documented in this file.
   rules, reads crontab files with the
   Go agent's rules, reads login times in the host's time zone as Go does,
   and advertises `cap_schedules=list`.
+- The Rust agent answers the hub's Logs page on Linux: journal queries
+  (`journal.query`) with the Go agent's options, limits (200 by default, at
+  most 1000) and error texts, and the live stream of new journal lines as
+  `log.batch` messages with Go's batching (50 entries, 2 s) and restart
+  waits. It runs `journalctl` through its command rules and advertises
+  `cap_logs=stored,query,stream` where `journalctl` is installed.
+  `LABTETHER_LOG_STREAM_ENABLED=false` turns the stream off.
 - The Rust agent serves the Go agent's local API (`/agent/status`,
   `/agent/info`, `/agent/telemetry`, `/metrics`, `/healthz`, `/readyz`,
   `/version`) with the same port, bind address, bearer token rules, bodies,

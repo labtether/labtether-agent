@@ -511,6 +511,7 @@ dependencies = [
  "labtether-agent-macos-sys",
  "log",
  "rustix",
+ "serde",
  "serde_json",
  "thiserror",
 ]

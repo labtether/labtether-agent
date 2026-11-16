@@ -3,6 +3,7 @@
 //! `ErrCommandOutputLimit`, `errors.Join`), so a page can build Go's reply.
 
 use std::os::unix::process::ExitStatusExt;
+use std::process::ExitStatus;
 
 use crate::run::{Finished, RunError};
 
@@ -67,6 +68,24 @@ fn signal_text(signal: i32) -> String {
     }
 }
 
+/// Go's `*exec.ExitError` text for `status` (`None` for a clean exit) and
+/// its `ExitCode()`.
+pub fn exit_error(status: ExitStatus) -> (Option<String>, i32) {
+    match (status.code(), status.signal()) {
+        (Some(0), _) => (None, 0),
+        (Some(code), _) => (Some(format!("exit status {code}")), code),
+        (None, Some(signal)) => {
+            let core = if status.core_dumped() {
+                " (core dumped)"
+            } else {
+                ""
+            };
+            (Some(format!("signal: {}{core}", signal_text(signal))), -1)
+        }
+        (None, None) => (Some(format!("{status}")), -1),
+    }
+}
+
 /// Go's result for a run with output limit `limit`.
 pub fn go_outcome(result: Result<Finished, RunError>, limit: usize) -> GoOutcome {
     let finished = match result {
@@ -79,20 +98,7 @@ pub fn go_outcome(result: Result<Finished, RunError>, limit: usize) -> GoOutcome
             };
         }
     };
-    let status = finished.status;
-    let (run_error, exit_code) = match (status.code(), status.signal()) {
-        (Some(0), _) => (None, 0),
-        (Some(code), _) => (Some(format!("exit status {code}")), code),
-        (None, Some(signal)) => {
-            let core = if status.core_dumped() {
-                " (core dumped)"
-            } else {
-                ""
-            };
-            (Some(format!("signal: {}{core}", signal_text(signal))), -1)
-        }
-        (None, None) => (Some(format!("{status}")), -1),
-    };
+    let (run_error, exit_code) = exit_error(finished.status);
     // Go's `exec.ErrWaitDelay`, reported only when the command itself
     // succeeded.
     let run_error = match run_error {

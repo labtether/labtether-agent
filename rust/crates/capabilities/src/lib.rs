@@ -12,7 +12,9 @@
 //! advertisement and handlers do not match; add a row to its table when a
 //! page brings a new `cap_*` value. A page that starts a program goes in
 //! [`COMMAND_PAGES`] instead and is also given the [`Commands`] it must
-//! start programs through.
+//! start programs through. A page that sends messages the Hub did not ask
+//! for adds a producer with [`Features::on_start`] (the logs page's live
+//! stream).
 //!
 //! On macOS the agent is the monitoring edition the Mac App Store app
 //! bundles: it runs in the App Sandbox and starts no program. Only the pages
@@ -26,6 +28,8 @@ mod commands;
 #[cfg(target_os = "linux")]
 mod cron;
 mod disks;
+#[cfg(target_os = "linux")]
+mod logs;
 mod network;
 #[cfg(target_os = "linux")]
 mod packages;
@@ -54,6 +58,7 @@ pub const PAGES: &[fn(&mut Features, &Settings)] = &[
 #[cfg(target_os = "linux")]
 pub const COMMAND_PAGES: &[fn(&mut Features, &Settings, &Commands)] = &[
     cron::register,
+    logs::register,
     packages::register,
     services::register,
     users::register,

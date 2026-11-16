@@ -1,5 +1,6 @@
 //! What the features crate hands the connection: the request handlers to
-//! run off the read loop, and what the heartbeat tells the Hub about them.
+//! run off the read loop, the producers that send on their own (see
+//! [`crate::producers`]), and what the heartbeat tells the Hub about them.
 //! `core` knows no feature; the binary builds a [`Features`] and passes it
 //! to [`crate::Agent::start_with`].
 //!
@@ -18,6 +19,8 @@ use labtether_protocol::{
 };
 use serde::Serialize;
 use serde::de::DeserializeOwned;
+
+use crate::producers::{HubSender, Producer, Stop};
 
 /// A handler run on a worker thread: the request in, the reply (if any) out.
 pub type Work = Arc<dyn Fn(&Message) -> Option<Message> + Send + Sync>;
@@ -44,6 +47,7 @@ pub struct Advertised {
 #[derive(Clone, Default)]
 pub struct Features {
     work: Vec<(&'static str, Work)>,
+    producers: Vec<(&'static str, Producer)>,
     advertised: Advertised,
 }
 
@@ -51,6 +55,7 @@ impl std::fmt::Debug for Features {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Features")
             .field("handles", &self.message_types())
+            .field("producers", &self.producer_names())
             .field("advertised", &self.advertised)
             .finish()
     }
@@ -117,6 +122,34 @@ impl Features {
             "{request} has two handlers"
         );
         self.work.push((request, Arc::new(answer)));
+    }
+
+    /// Runs `produce` on its own thread while the agent runs, for a feature
+    /// that sends messages the Hub did not ask for (Go starts such a
+    /// feature as a goroutine holding the transport). It sends through the
+    /// [`HubSender`] and returns when [`Stop`] is set.
+    ///
+    /// # Panics
+    /// When a producer named `name` is already added.
+    pub fn on_start(
+        &mut self,
+        name: &'static str,
+        produce: impl Fn(&dyn HubSender, &Stop) + Send + Sync + 'static,
+    ) {
+        assert!(
+            !self.producer_names().contains(&name),
+            "{name} is started twice"
+        );
+        self.producers.push((name, Arc::new(produce)));
+    }
+
+    /// The producers' names, in the order they were added.
+    pub fn producer_names(&self) -> Vec<&'static str> {
+        self.producers.iter().map(|(name, _)| *name).collect()
+    }
+
+    pub(crate) fn producers(&self) -> impl Iterator<Item = &(&'static str, Producer)> {
+        self.producers.iter()
     }
 
     /// Adds a heartbeat metadata key, such as `cap_network`.

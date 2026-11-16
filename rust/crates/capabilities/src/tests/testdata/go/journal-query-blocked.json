@@ -1,0 +1,1 @@
+[{"type":"journal.entries","id":"q3","data":{"request_id":"q3","entries":null,"error":"journalctl command blocked by runtime policy: command \"journalctl\" blocked by runtime policy"}}]

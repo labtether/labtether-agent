@@ -1,5 +1,7 @@
 //! Unit tests for the telemetry buffer and the heartbeat's metric keys.
 
+use std::time::Duration;
+
 use labtether_agent_platform::Sample;
 use labtether_protocol::Message;
 
@@ -35,7 +37,7 @@ fn buffer_keeps_the_newest_samples_and_replays_them_in_order() {
         buffer.push(sample(f64::from(cpu)));
     }
     assert_eq!(buffer.len(), 60);
-    let (outbox, mut queue) = Outbox::new(64, false);
+    let (outbox, mut queue) = Outbox::new(64, false, Duration::from_secs(10));
     let done = buffer.flush("nas01", &outbox);
     assert_eq!((done.sent, done.stopped), (60, None));
     let expected: Vec<f64> = (5..=64).map(f64::from).collect();
@@ -51,7 +53,7 @@ fn replay_never_overfills_the_send_queue_and_keeps_the_rest() {
     for cpu in 1..=60 {
         buffer.push(sample(f64::from(cpu)));
     }
-    let (outbox, mut queue) = Outbox::new(8, false);
+    let (outbox, mut queue) = Outbox::new(8, false, Duration::from_secs(10));
     let done = buffer.flush("nas01", &outbox);
     assert_eq!((done.sent, done.stopped), (8, Some(SendError::Full)));
     assert_eq!(outbox.queued(), 8, "the queue holds no more than its bound");
@@ -82,7 +84,7 @@ fn a_sample_that_cannot_be_encoded_is_dropped_alone() {
         ..sample(2.0)
     });
     buffer.push(sample(21.0));
-    let (outbox, mut queue) = Outbox::new(8, false);
+    let (outbox, mut queue) = Outbox::new(8, false, Duration::from_secs(10));
     let done = buffer.flush("nas01", &outbox);
     assert_eq!((done.sent, done.discarded), (1, 3));
     assert_eq!(drain_cpu(&mut queue), vec![21.0]);

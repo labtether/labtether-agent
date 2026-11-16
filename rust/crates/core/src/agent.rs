@@ -17,6 +17,7 @@ use crate::identity::{self, DeviceIdentity, IdentityError};
 use crate::intervals::IntervalControl;
 use crate::link_status::{LinkStatus, TOKEN_PERSISTENCE_FAILED};
 use crate::outbox::Outbox;
+use crate::producers::Stop;
 use crate::state::StateFiles;
 use crate::status::{LatestCell, StartTime};
 use crate::timing::Timing;
@@ -163,10 +164,16 @@ impl Agent {
 
     /// Keeps the agent connected and sampling until `shutdown` turns true.
     /// Both loops run on the caller's task, so no thread is added.
+    /// The producers run on their own threads; when both loops end they
+    /// are stopped and waited for, at most the write timeout.
     pub async fn run(self: Arc<Self>, shutdown: watch::Receiver<bool>) {
+        let stop = Stop::new();
+        let producers = crate::producers::start(&self, &stop);
         let telemetry = crate::telemetry::run(&self, shutdown.clone());
         let connection = crate::reconnect::run(self.clone(), shutdown);
         tokio::join!(telemetry, connection);
+        stop.stop();
+        crate::producers::join(producers, self.timing.write_timeout).await;
     }
 
     pub(crate) fn re_enroll_state(&self) -> MutexGuard<'_, ReEnroll> {

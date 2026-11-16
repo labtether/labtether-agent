@@ -4,7 +4,7 @@
 
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::PathBuf;
-use std::process::{ExitStatus, Stdio};
+use std::process::{Command, ExitStatus, Stdio};
 use std::sync::mpsc::{RecvTimeoutError, channel};
 use std::thread;
 use std::time::Duration;
@@ -137,30 +137,7 @@ impl CommandPolicy {
     /// no stdin, and its own process group. It blocks the calling thread;
     /// async callers use `spawn_blocking`.
     pub fn run(&self, request: &RunRequest) -> Result<Finished, RunError> {
-        let checked = self.resolve_exec_program(&request.program)?;
-        if request.output_limit == 0 {
-            return Err(RunError::InvalidLimit);
-        }
-        let path = match checked {
-            Some(path) => path,
-            None => self.resolve(&request.program)?,
-        };
-        // The one place a process is started (see rust/clippy.toml).
-        #[allow(clippy::disallowed_methods)]
-        let mut command = std::process::Command::new(path);
-        command
-            .arg0(&request.program)
-            .args(&request.args)
-            .env_clear()
-            .envs(self.child_env.iter().map(|(key, value)| (key, value)))
-            .envs(
-                request
-                    .env_overrides
-                    .iter()
-                    .map(|(key, value)| (key, value)),
-            )
-            .stdin(Stdio::null())
-            .process_group(0);
+        let mut command = self.command(request)?;
 
         // Dropping `cancel_tx` stops every reader still waiting on a pipe.
         // Both ends are close-on-exec, so the command never inherits them.
@@ -249,6 +226,37 @@ impl CommandPolicy {
             timed_out,
             output_held: !closed,
         })
+    }
+
+    /// The checked command for `request`, not started: the program checked
+    /// against the exec rules and found, the sanitized environment, no
+    /// stdin, its own process group.
+    pub(crate) fn command(&self, request: &RunRequest) -> Result<Command, RunError> {
+        let checked = self.resolve_exec_program(&request.program)?;
+        if request.output_limit == 0 {
+            return Err(RunError::InvalidLimit);
+        }
+        let path = match checked {
+            Some(path) => path,
+            None => self.resolve(&request.program)?,
+        };
+        // The one place a process is built (see rust/clippy.toml).
+        #[allow(clippy::disallowed_methods)]
+        let mut command = Command::new(path);
+        command
+            .arg0(&request.program)
+            .args(&request.args)
+            .env_clear()
+            .envs(self.child_env.iter().map(|(key, value)| (key, value)))
+            .envs(
+                request
+                    .env_overrides
+                    .iter()
+                    .map(|(key, value)| (key, value)),
+            )
+            .stdin(Stdio::null())
+            .process_group(0);
+        Ok(command)
     }
 
     /// Go's `exec.Command` lookup: only a bare name (its own `Base`) is
