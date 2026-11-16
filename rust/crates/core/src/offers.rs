@@ -8,15 +8,15 @@
 //!
 //! The Hub's other words are not here: the heartbeat's `capabilities` list
 //! (`terminal`, `files`, `desktop`, `webrtc`, `power`) and `cap_wol`,
-//! `cap_ssh_keys`, `cap_docker`, `cap_web_services`, `cap_commands`,
-//! `cap_settings` and `cap_updates`. This agent answers none of those
-//! requests, so a handler for one cannot be registered until its row is
-//! added from the Hub's table, and the `capabilities` list stays empty.
+//! `cap_ssh_keys`, `cap_docker`, `cap_commands`, `cap_settings` and
+//! `cap_updates`. This agent answers none of those requests, so a handler
+//! for one cannot be registered until its row is added from the Hub's
+//! table, and the `capabilities` list stays empty.
 
 use labtether_protocol::{
     MSG_CRON_LIST, MSG_DISK_LIST, MSG_JOURNAL_QUERY, MSG_NETWORK_ACTION, MSG_NETWORK_LIST,
     MSG_PACKAGE_ACTION, MSG_PACKAGE_LIST, MSG_PROCESS_KILL, MSG_PROCESS_LIST, MSG_SERVICE_ACTION,
-    MSG_SERVICE_LIST, MSG_USERS_LIST,
+    MSG_SERVICE_LIST, MSG_USERS_LIST, MSG_WEBSERVICE_SYNC,
 };
 
 /// The key that tells the Hub the advertisement is complete, and its only
@@ -45,6 +45,7 @@ const REQUEST_WORDS: &[(&str, &str, &str)] = &[
     (MSG_CRON_LIST, "cap_schedules", "list"),
     (MSG_USERS_LIST, "cap_users", "list"),
     (MSG_JOURNAL_QUERY, "cap_logs", "query"),
+    (MSG_WEBSERVICE_SYNC, "cap_web_services", "sync"),
 ];
 
 /// Tokens that make the Hub send nothing, so no handler stands behind

@@ -13,9 +13,9 @@ use labtether_agent_config::{Environment, HostFacts, load};
 
 /// The Hub's rule, copied from `messageNeeds` in the Hub's
 /// `internal/agentcaps/agentcaps.go`: `(request, key, token)`. Only the
-/// rows of the data pages: the Hub's other words (the heartbeat list's
-/// `terminal`, `files`, `desktop`, `webrtc`, `power`; `cap_wol`,
-/// `cap_ssh_keys`, `cap_docker`, `cap_web_services`, `cap_commands`,
+/// rows of the data pages and the web services' sync: the Hub's other
+/// words (the heartbeat list's `terminal`, `files`, `desktop`, `webrtc`,
+/// `power`; `cap_wol`, `cap_ssh_keys`, `cap_docker`, `cap_commands`,
 /// `cap_settings`, `cap_updates`) have no handler here, so any of them in
 /// the heartbeat fails as unknown.
 const HUB_WORDS: &[(&str, &str, &str)] = &[
@@ -31,6 +31,7 @@ const HUB_WORDS: &[(&str, &str, &str)] = &[
     ("cron.list", "cap_schedules", "list"),
     ("users.list", "cap_users", "list"),
     ("journal.query", "cap_logs", "query"),
+    ("webservice.sync", "cap_web_services", "sync"),
 ];
 
 /// Advertised tokens that make the Hub send nothing: it reads the logs it
@@ -212,6 +213,7 @@ fn assert_linux_host(tools: &Tools, words_too: &[(&str, &str)], handled_too: &[&
         ("cap_processes", "list"),
         ("cap_schedules", "list"),
         ("cap_users", "list"),
+        ("cap_web_services", "sync"),
         ("network_action_backend", "none"),
         ("network_backend", "ifconfig"),
     ]
@@ -229,6 +231,7 @@ fn assert_linux_host(tools: &Tools, words_too: &[(&str, &str)], handled_too: &[&
         "network.list",
         "process.list",
         "users.list",
+        "webservice.sync",
     ];
     want_handled.extend(handled_too);
     want_handled.sort_unstable();
@@ -237,7 +240,8 @@ fn assert_linux_host(tools: &Tools, words_too: &[(&str, &str)], handled_too: &[&
 
 // Faults: the Linux agent leaves out a page it answers or names one it
 // does not (`action` for services, packages or network; `kill`; a page
-// whose tool is missing), sends `cap_services=""` or `cap_packages=""`
+// whose tool is missing; the web services' sync, which the Hub then
+// refuses with 422), sends `cap_services=""` or `cap_packages=""`
 // (Go's form, which the console reads as supported), sends an edition (the
 // console would say "Monitoring only"), or names another backend than Go's.
 #[cfg(target_os = "linux")]

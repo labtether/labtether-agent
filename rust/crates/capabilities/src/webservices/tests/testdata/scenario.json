@@ -14,6 +14,12 @@
   },
   "fail": {
    "status": 500
+  },
+  "r": {
+   "file": "containers-r.json"
+  },
+  "c": {
+   "file": "containers-c.json"
   }
  },
  "probes": {
@@ -127,7 +133,8 @@
    "HEAD http://localhost:3000/healthz": 200,
    "HEAD https://192.0.2.10:18106": 200,
    "HEAD https://192.0.2.10:7443": 200
-  }
+  },
+  "none": {}
  },
  "runs": [
   {
@@ -178,7 +185,8 @@
      "asset": "nas01",
      "engine": "a"
     }
-   ]
+   ],
+   "digest": true
   },
   {
    "name": "docker-off",
@@ -201,6 +209,422 @@
      "probes": "base"
     }
    ]
+  },
+  {
+   "name": "recognition",
+   "docker": "on",
+   "steps": [
+    {
+     "at": 0,
+     "engine": "r",
+     "probes": "none",
+     "sites": "products"
+    },
+    {
+     "at": 60
+    }
+   ]
+  },
+  {
+   "name": "recognition-cache",
+   "docker": "on",
+   "steps": [
+    {
+     "at": 0,
+     "engine": "c",
+     "probes": "none",
+     "sites": "cache"
+    },
+    {
+     "at": 179
+    },
+    {
+     "at": 180
+    },
+    {
+     "at": 200,
+     "sites": "cache-later"
+    },
+    {
+     "at": 299
+    },
+    {
+     "at": 300
+    },
+    {
+     "at": 380
+    },
+    {
+     "at": 599
+    },
+    {
+     "at": 600
+    },
+    {
+     "at": 899
+    },
+    {
+     "at": 900
+    }
+   ]
   }
- ]
+ ],
+ "sites": {
+  "products": {
+   "http://192.0.2.10:18201": {
+    "/": {
+     "status": 200,
+     "body": "<html><head><title>TrueNAS - Storage</title></head></html>"
+    },
+    "*": 404
+   },
+   "http://192.0.2.10:18202": {
+    "/": {
+     "status": 301,
+     "body": "",
+     "location": "/ui/"
+    },
+    "/ui/": {
+     "status": 200,
+     "body": "<title>TrueNAS</title>"
+    },
+    "*": 404
+   },
+   "http://192.0.2.10:18203": {
+    "/": {
+     "status": 200,
+     "body": "<title>My NAS</title>"
+    },
+    "/api/v2.0/system/version": {
+     "status": 200,
+     "body": "\"TrueNAS-SCALE-24.10.2\""
+    },
+    "*": 404
+   },
+   "http://192.0.2.10:18204": {
+    "/": {
+     "status": 200,
+     "body": "<title>NAS Login</title>"
+    },
+    "/webapi/query.cgi?api=SYNO.API.Info&version=1&method=query": {
+     "status": 200,
+     "body": "{\"data\":{\"SYNO.API.Auth\":{\"maxVersion\":7,\"minVersion\":1,\"path\":\"auth.cgi\"}},\"success\":true}"
+    },
+    "*": 404
+   },
+   "http://192.0.2.10:18205": {
+    "/": {
+     "status": 200,
+     "body": "<title>NAS Login</title>"
+    },
+    "/cgi-bin/authLogin.cgi": {
+     "status": 200,
+     "body": "<?xml version=\"1.0\" encoding=\"UTF-8\"?><QDocRoot><authSid>none</authSid><QNAP_SID/></QDocRoot>"
+    },
+    "*": 404
+   },
+   "https://192.0.2.10:8007": {
+    "/": {
+     "status": 200,
+     "body": "<title>Proxmox Backup Server</title><p>Proxmox Virtual Environment</p>"
+    },
+    "/api2/json/version": {
+     "status": 200,
+     "body": "{\"data\":{\"release\":\"3.2\",\"repoid\":\"a1\",\"version\":\"3.2.7\"}}"
+    },
+    "*": 401
+   },
+   "https://192.0.2.10:8006": {
+    "/": {
+     "status": 200,
+     "body": "<title>Proxmox Virtual Environment</title>"
+    },
+    "*": 401
+   },
+   "http://192.0.2.10:18208": {
+    "/": {
+     "status": 200,
+     "body": "<html>login</html>"
+    },
+    "/api2/json/version": {
+     "status": 200,
+     "body": "{\"data\":{\"release\":\"8.2\",\"repoid\":\"b2\",\"version\":\"8.2.4\"}}"
+    },
+    "*": 404
+   },
+   "http://192.0.2.10:18209": {
+    "/api2/json/version": {
+     "status": 200,
+     "body": "{\"data\":{\"release\":\"3.2\",\"version\":\"3.2.7\"},\"product\":\"Proxmox Backup\"}"
+    },
+    "*": 404
+   },
+   "https://192.0.2.10:9443": {
+    "/api/status": {
+     "status": 200,
+     "body": "{\"Version\":\"2.21.4\",\"InstanceID\":\"0d6c\"}"
+    },
+    "/": {
+     "status": 200,
+     "body": "<title>Portainer</title>"
+    },
+    "*": 404
+   },
+   "http://192.0.2.10:18211": {
+    "/": {
+     "status": 200,
+     "body": "<html><title>Portainer</title></html>"
+    },
+    "*": 404
+   },
+   "http://192.0.2.10:8123": {
+    "/api": {
+     "status": 200,
+     "body": "{\"message\":\"API running.\"}"
+    },
+    "*": 404
+   },
+   "http://192.0.2.10:18213": {
+    "/": {
+     "status": 200,
+     "body": "<html><body><home-assistant></home-assistant></body></html>"
+    },
+    "*": 404
+   },
+   "http://192.0.2.10:2375": {
+    "/version": {
+     "status": 200,
+     "body": "{\"ApiVersion\":\"1.45\",\"Os\":\"linux\",\"Version\":\"27.3.1\"}"
+    },
+    "*": 404
+   },
+   "http://192.0.2.10:2376": {
+    "/_ping": {
+     "status": 200,
+     "body": "OK"
+    },
+    "*": 404
+   },
+   "http://192.0.2.10:18216": {
+    "/": {
+     "status": 200,
+     "body": "<title>pfSense - Login</title>"
+    },
+    "*": 404
+   },
+   "http://192.0.2.10:18217": {
+    "/": {
+     "status": 200,
+     "body": "<title>OPNsense - Login</title>"
+    },
+    "*": 404
+   },
+   "http://192.0.2.10:18218": {
+    "/": {
+     "status": 200,
+     "body": "<title>Pi-hole Admin Console</title>"
+    },
+    "*": 404
+   },
+   "http://192.0.2.10:18219": {
+    "/": {
+     "status": 200,
+     "body": "<body>UNİFİ NETWORK</body>"
+    },
+    "*": 404
+   },
+   "http://192.0.2.10:18220": {
+    "/": {
+     "status": 200,
+     "body": "<html><head><base href=\"/cockpit/@localhost/\"></head></html>"
+    },
+    "*": 404
+   },
+   "http://192.0.2.10:18221": {
+    "/": {
+     "status": 200,
+     "body": "<body>PVE Manager</body>"
+    },
+    "*": 404
+   },
+   "http://192.0.2.10:18222": {
+    "/": {
+     "status": 200,
+     "body": "<body>DiskStation Manager</body>"
+    },
+    "*": 404
+   },
+   "http://192.0.2.10:18223": {
+    "/healthz": {
+     "status": 200,
+     "body": "{\"service\":\"labtether\",\"status\":\"ok\"}"
+    },
+    "*": 404
+   },
+   "http://192.0.2.10:18224": {
+    "/healthz": {
+     "status": 200,
+     "body": "{\"redirect\":\"https on port 8443\",\"status\":\"redirect_active\"}"
+    },
+    "*": {
+     "status": 301,
+     "body": "",
+     "location": "https://hub.example.test:8443/"
+    }
+   },
+   "http://192.0.2.10:18225": {
+    "/api/health": {
+     "status": 200,
+     "body": "{\"status\":\"ok\"}"
+    },
+    "/login": {
+     "status": 200,
+     "body": "<title>LabTether Console</title>"
+    },
+    "*": 404
+   },
+   "http://192.0.2.10:18226": {
+    "/api/health": {
+     "status": 401,
+     "body": "{\"error\":\"unauthorized\"}"
+    },
+    "/login": {
+     "status": 307,
+     "body": "",
+     "location": "/en/login"
+    },
+    "/en/login": {
+     "status": 200,
+     "body": "<title>LabTether Console</title>"
+    },
+    "/api/auth/login": 405,
+    "*": {
+     "status": 307,
+     "body": "",
+     "location": "/en/"
+    }
+   },
+   "http://192.0.2.10:18227": {
+    "/api/health": {
+     "status": 200,
+     "body": "{\"database\":\"ok\",\"version\":\"11.0.0\"}"
+    },
+    "/login": {
+     "status": 200,
+     "body": "<title>Grafana</title>"
+    },
+    "*": 404
+   },
+   "http://192.0.2.10:18228": {
+    "/": {
+     "status": 200,
+     "body": "<title>My App</title>"
+    },
+    "*": 404
+   },
+   "https://192.0.2.10:18229": {
+    "/": {
+     "status": 200,
+     "body": "<title>TrueNAS</title>"
+    },
+    "*": 404
+   },
+   "http://192.0.2.10:18231": {
+    "*": {
+     "status": 503,
+     "body": "<title>TrueNAS</title>"
+    }
+   },
+   "http://192.0.2.10:18232": {
+    "/": {
+     "status": 200,
+     "body": "<title>TrueNAS</title>",
+     "pad": 70000
+    },
+    "*": 404
+   },
+   "http://192.0.2.10:18233": {
+    "/": {
+     "status": 200,
+     "body": "truenas",
+     "pad": 65533
+    },
+    "*": 404
+   },
+   "http://192.0.2.10:18234": {
+    "/": {
+     "status": 200,
+     "body": "<title>TrueNAS</title>",
+     "unreadable": true
+    },
+    "*": 404
+   },
+   "http://192.0.2.10:18235": {
+    "/api": {
+     "status": 200,
+     "body": "{\"message\":\"API running.\"}"
+    },
+    "*": 404
+   },
+   "http://192.0.2.10:18236": {
+    "*": 200
+   },
+   "http://192.0.2.10:18237": {
+    "*": 200
+   },
+   "http://192.0.2.10:18238": {
+    "*": 200
+   }
+  },
+  "cache": {
+   "http://192.0.2.10:18251": {
+    "/": {
+     "status": 200,
+     "body": "<title>My App</title>"
+    },
+    "*": 404
+   },
+   "http://192.0.2.10:18252": {
+    "/": {
+     "status": 200,
+     "body": "<title>TrueNAS</title>"
+    },
+    "*": 404
+   },
+   "http://192.0.2.10:18253": {
+    "/": {
+     "status": 200,
+     "body": "<title>Later</title>"
+    },
+    "*": 404
+   }
+  },
+  "cache-later": {
+   "http://192.0.2.10:18251": {
+    "/": {
+     "status": 200,
+     "body": "<title>My App</title>"
+    },
+    "*": 404
+   },
+   "http://192.0.2.10:18252": {
+    "/": {
+     "status": 200,
+     "body": "<title>TrueNAS</title>"
+    },
+    "*": 404
+   },
+   "http://192.0.2.10:18253": {
+    "/api/status": {
+     "status": 200,
+     "body": "{\"Version\":\"2.21.4\"}"
+    },
+    "/": {
+     "status": 200,
+     "body": "<title>Portainer</title>"
+    },
+    "*": 404
+   }
+  }
+ }
 }

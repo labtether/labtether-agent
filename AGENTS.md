@@ -145,8 +145,10 @@ Read user-facing text once against this list before you ship it.
   collector's own output. The web service page
   (`crates/capabilities/src/webservices/`, Linux only) sends
   `webservice.report` from the Docker page's containers, with the Go
-  registry in one Rust file per category; its tests replay container lists
-  and probe answers against the Go collector's own reports. The
+  registry in one Rust file per category and Go's recognition and
+  connector probes, and answers `webservice.sync`; its tests replay
+  container lists and probe answers against the Go collector's own
+  reports and requests. The
   heartbeat says `agent_capability_mode=explicit` (the Hub refuses what is
   not advertised); a page's `cap_*` word comes only from registering its
   handler (`crates/core/src/offers.rs` copies the Hub's `internal/agentcaps`

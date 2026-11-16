@@ -19,8 +19,8 @@
 //! [`COMMAND_PAGES`] instead and is also given the [`Commands`] it must
 //! start programs through. A page that sends messages the Hub did not ask
 //! for adds a producer with [`Features::on_start`] (the logs page's live
-//! stream, and the Docker inventory and the web service report, which
-//! register no handler at all).
+//! stream, the Docker inventory, which registers no handler at all, and
+//! the web service report, whose only handler is the page's sync).
 //!
 //! On macOS the agent is the monitoring edition the Mac App Store app
 //! bundles (`agent_edition=monitoring`): it runs in the App Sandbox and

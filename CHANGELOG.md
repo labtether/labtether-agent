@@ -73,9 +73,15 @@ All notable changes to `labtether-agent` are documented in this file.
   named by the Go agent's registry of known services and by `labtether.*`
   labels, each checked for health with the Go agent's probes, timers and
   cache, every 60 s by default (`LABTETHER_SERVICES_DISCOVERY_INTERVAL`).
-  The Services page lists them. Reverse-proxy routes, the port scans, the
-  probes that name unknown services and `webservice.sync` are not in it.
-  `LABTETHER_DOCKER_ENABLED=false` turns it off.
+  The Services page lists them. Containers the registry does not know are
+  named by the Go agent's recognition probes (LabTether, TrueNAS,
+  Synology, QNAP, Proxmox, pfSense, OPNsense, Home Assistant, Pi-hole,
+  UniFi, Cockpit), and the Go agent's connector probes give the hub its
+  connector suggestions (Portainer, Home Assistant, TrueNAS, Proxmox
+  Backup Server, Proxmox VE, Docker). The Services page's sync runs a
+  discovery at once (`webservice.sync`, advertised as
+  `cap_web_services=sync`). Reverse-proxy routes and the port scans are
+  not in it. `LABTETHER_DOCKER_ENABLED=false` turns it off.
 - The Rust agent builds and runs on macOS as the monitoring edition for the
   Mac App Store app: CPU, memory, disk and network telemetry, the host
   details in the heartbeat, and the disk and network interface lists, read

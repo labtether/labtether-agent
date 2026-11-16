@@ -122,9 +122,22 @@ On Linux, the `labtether-agent-rs` binary:
   better answer winning and its scheme becoming the URL; 2 s a request,
   no redirect followed, any certificate first and then the system roots;
   `up` under 500; a result kept three intervals when up and one when down;
-  16 checks at once. LabTether's console and API are named, and the API is
-  hidden when the console is listed. The report says the proxy, local scan
-  and LAN scan sources are not enabled;
+  16 checks at once. A service the registry does not know is named by Go's
+  recognition probes: LabTether's own `/healthz`, `/version`, `/api/health`
+  and login page (one redirect on the same host followed), the root page's
+  product names (and `/ui/` after a redirect), then the TrueNAS, Synology
+  and QNAP APIs; every service then goes through Go's connector probes
+  (Portainer, Home Assistant, TrueNAS, Proxmox Backup Server, Proxmox VE,
+  Docker API, in an order set by the port), whose match of at least 0.60
+  goes into `compat_*` metadata for the Hub's connector suggestions. The
+  probes run one after another before the health checks, read the first
+  64 KiB of a page (gzip decoded) within the same 2 s, try the other scheme
+  only when nothing answered, and keep a name 15 minutes (none 5) and a
+  connector match 10 minutes (none 3). LabTether's console and API are
+  named, and the API is hidden when the console is listed. The report says
+  the proxy, local scan and LAN scan sources are not enabled.
+  `webservice.sync` (the Services page's sync) runs one cycle at once, after
+  any cycle in progress, and advertises `cap_web_services=sync`;
 - checks the agent token's capability claims before any handler runs, with
   the Go agent's table (`command_authorization.go`); the Hub's opaque tokens
   carry no claims and are not checked, as in Go;
@@ -141,8 +154,9 @@ with 422 `agent_unsupported` (the Hub's `internal/agentcaps`). Each `cap_*`
 word comes with the handler that answers it: registering a handler adds the
 Hub's word for that request (`crates/core/src/offers.rs`), and no page can
 set a `cap_*` key itself. On Linux that is `cap_disks=list`,
-`cap_network=list`, `cap_processes=list`, `cap_users=list` and
-`cap_schedules=list`; with `systemctl` in the agent's `PATH`
+`cap_network=list`, `cap_processes=list`, `cap_users=list`,
+`cap_schedules=list` and `cap_web_services=sync`; with `systemctl` in the
+agent's `PATH`
 `cap_services=list`; with a package tool `cap_packages=list`; with
 `journalctl` `cap_logs=stored,query,stream`, without it `cap_logs=stored`.
 A page whose program is missing is not registered and sends no `cap_*` key
@@ -328,11 +342,9 @@ This binary is not hardened and not a replacement for the Go agent:
   (`cap_docker=manage`), so the Hub refuses them; Docker is read only over
   a Unix socket (Go also reads an http(s) endpoint);
 - web services from containers only: no reverse-proxy routes (Traefik,
-  Caddy, NPM), no local or LAN port scan, no names for unknown services
-  from their pages or APIs and no connector suggestions (`compat_*`), and no
-  `webservice.sync` (not advertised, so the Hub's sync leaves this device
-  out). The probes read no `HTTP_PROXY` variable, speak HTTP/1.1 only and
-  open a connection per request;
+  Caddy, NPM) and no local or LAN port scan. The probes read no
+  `HTTP_PROXY` variable, speak HTTP/1.1 only and open a connection per
+  request;
 - no terminal, files or Remote View pages;
 - a stream line of 256 KiB or more: this agent skips it and goes on, as
   the Go agent does from its fix for that line; a Go agent without the fix
@@ -436,11 +448,13 @@ fixtures and stand-in `journalctl` programs
 Docker Engine answers recorded on a lab host and compares every message,
 step by step, with what the Go collector sent for the same answers
 (`crates/capabilities/src/docker/tests/testdata/`). The web service page
-runs recorded container lists and a table of probe answers through each
-cycle and compares every report and every probe request with what the Go
-collector did for the same inputs, and its registry and lookups with Go's
-(`crates/capabilities/src/webservices/tests/testdata/`); its probe client
-is tested against stand-in services on loopback. The producer path is tested
+runs recorded container lists and tables of probe answers (pages and APIs
+like each product the Go probes know) through each cycle and compares
+every report and every probe request, the recognition probes in order,
+with what the Go collector did for the same inputs; its registry, the
+login page's redirect target and the cache pruning are compared with Go's
+too (`crates/capabilities/src/webservices/tests/testdata/`); its probe
+client is tested against stand-in services on loopback. The producer path is tested
 against a Hub that stops reading, drops the connection or is offline
 (`crates/core/tests/producers.rs`). CI
 runs the checks on Linux and on macOS. A test fails when a page is

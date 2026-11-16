@@ -15,6 +15,7 @@ use std::time::{Duration, Instant, SystemTime};
 use futures_util::StreamExt;
 use labtether_protocol::DiscoveredWebService;
 
+use super::pages::Fetching;
 use super::urls::alternate_scheme_url;
 
 /// Go's `maxHealthCheckConcurrency` and `maxHealthCacheEntries`.
@@ -41,6 +42,10 @@ pub(crate) type Pending<'a> = Pin<Box<dyn Future<Output = Option<u16>> + Send + 
 /// no answer came (Go's `client.Do` error).
 pub(crate) trait Prober: Send + Sync {
     fn attempt<'a>(&'a self, client: Client, method: Method, url: &'a str) -> Pending<'a>;
+
+    /// A recognition probe's GET: the status, `Location` and the first
+    /// 64 KiB of the page, or `None` when no answer came.
+    fn fetch<'a>(&'a self, client: Client, url: &'a str) -> Fetching<'a>;
 }
 
 /// Go's `doHealthRequest`: https goes to the client that does not check

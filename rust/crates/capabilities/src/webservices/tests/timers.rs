@@ -1,5 +1,6 @@
 //! The producer's timers, as Go's `Run`: a cycle at start, then one per
-//! interval; nothing while not connected.
+//! interval; nothing while not connected; one cycle at once per
+//! `webservice.sync`.
 
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -12,6 +13,7 @@ use serde_json::{Value, json};
 
 use super::Recorder;
 use crate::webservices::run;
+use crate::webservices::sync::{Requests, Woken};
 
 const INTERVAL: Duration = Duration::from_millis(1000);
 
@@ -32,7 +34,15 @@ fn reports(
     let (thread_sender, thread_stop) = (Arc::clone(&sender), stop.clone());
     let started = Instant::now();
     std::thread::spawn(move || {
-        run(&*thread_sender, &thread_stop, &config, None, "nas01");
+        let requests = Arc::new(Requests::default());
+        run(
+            &*thread_sender,
+            &thread_stop,
+            &config,
+            None,
+            "nas01",
+            &requests,
+        );
         let _ = done.send(());
     });
     let (mut times, mut data) = (Vec::new(), Vec::new());
@@ -91,4 +101,119 @@ fn waits_a_whole_interval_when_offline_at_start() {
     assert_eq!(times.len(), 1, "{times:?}");
     assert!(times[0] >= Duration::from_millis(900), "{times:?}");
     assert!(ended);
+}
+
+/// Collects reports with their times from `started` until `until`.
+fn collect(sender: &Recorder, started: Instant, until: Duration, into: &mut Vec<Duration>) {
+    while started.elapsed() < until {
+        for (kind, _) in sender.take() {
+            assert_eq!(kind, "webservice.report");
+            into.push(started.elapsed());
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+// Faults: a sync request runs no cycle (the Services page's sync shows
+// nothing new until the next interval); it restarts the interval (Go's ticker keeps its times); it returns
+// before its cycle ran (Go's worker holds its slot through the cycle);
+// it never returns when the collector is not running or the agent stops
+// (each such request keeps a worker slot, and at 20 the agent closes its
+// connections, as Go's); the collector's wait for a request misses the
+// agent's stop (the agent's shutdown waits up to an interval).
+#[test]
+fn sync_runs_one_cycle_per_request_at_once() {
+    let sender = Arc::new(Recorder::default());
+    let requests = Arc::new(Requests::default());
+    let quick = Instant::now();
+    requests.ask();
+    assert!(quick.elapsed() < Duration::from_millis(100), "not running");
+    let stop = Stop::new();
+    let config = WebServiceSettings {
+        interval: INTERVAL,
+        docker_enabled: true,
+    };
+    let (done, ended) = mpsc::channel();
+    let started = Instant::now();
+    let (thread_sender, thread_stop, thread_requests) =
+        (Arc::clone(&sender), stop.clone(), Arc::clone(&requests));
+    std::thread::spawn(move || {
+        run(
+            &*thread_sender,
+            &thread_stop,
+            &config,
+            None,
+            "nas01",
+            &thread_requests,
+        );
+        let _ = done.send(());
+    });
+    let mut times = Vec::new();
+    collect(&sender, started, Duration::from_millis(300), &mut times);
+    assert_eq!(times.len(), 1, "the report at start: {times:?}");
+    let asks: Vec<_> = (0..2)
+        .map(|_| {
+            let requests = Arc::clone(&requests);
+            let sender = Arc::clone(&sender);
+            std::thread::spawn(move || {
+                requests.ask();
+                sender.sent.lock().unwrap().len()
+            })
+        })
+        .collect();
+    let seen: Vec<usize> = asks.into_iter().map(|a| a.join().unwrap()).collect();
+    assert!(
+        seen.iter().all(|n| *n >= 1),
+        "returned before its cycle: {seen:?}"
+    );
+    collect(&sender, started, Duration::from_millis(1600), &mut times);
+    assert_eq!(times.len(), 4, "{times:?}");
+    assert!(times[1] < Duration::from_millis(700), "{times:?}");
+    assert!(times[2] < Duration::from_millis(700), "{times:?}");
+    let tick = times[3];
+    assert!(
+        tick >= Duration::from_millis(900) && tick < Duration::from_millis(1250),
+        "the interval moved: {times:?}"
+    );
+    // The next tick is about 0.4 s away: the stop must not wait for it.
+    stop.stop();
+    assert!(ended.recv_timeout(Duration::from_millis(300)).is_ok());
+    let after = Instant::now();
+    requests.ask();
+    assert!(
+        after.elapsed() < Duration::from_millis(100),
+        "after the stop"
+    );
+}
+
+// Faults: requests that came together get one cycle, or a request that
+// came during a cycle is served by it (Go runs a cycle per request, each
+// after the one before, so a sync always sees what changed before it).
+#[test]
+fn each_sync_request_gets_its_own_cycle() {
+    let requests = Arc::new(Requests::default());
+    let stop = Stop::new();
+    let _open = requests.open(&stop);
+    let asks: Vec<_> = (0..2)
+        .map(|_| {
+            let requests = Arc::clone(&requests);
+            std::thread::spawn(move || requests.ask())
+        })
+        .collect();
+    let soon = || Instant::now() + Duration::from_secs(2);
+    assert_eq!(requests.wait(soon(), &stop), Woken::Sync);
+    // Both requests are in before the first cycle ends.
+    std::thread::sleep(Duration::from_millis(100));
+    requests.served();
+    assert_eq!(
+        requests.wait(soon(), &stop),
+        Woken::Sync,
+        "the second cycle"
+    );
+    requests.served();
+    for ask in asks {
+        ask.join().unwrap();
+    }
+    let short = Instant::now() + Duration::from_millis(50);
+    assert_eq!(requests.wait(short, &stop), Woken::Due);
 }
