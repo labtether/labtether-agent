@@ -3,6 +3,7 @@ package agentcore
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
 	"net"
@@ -30,12 +31,15 @@ type lateHub struct {
 	identity     *deviceIdentity
 	enrollStatus atomic.Int32 // the answer to POST /api/v1/enroll
 	onPending    func()       // called for each socket without a token
+	secure       bool         // serves https and wss; set before the agent starts
+	caPEM        string       // the CA in the enrollment answer
 
 	mu         sync.Mutex
 	server     *httptest.Server
 	enrolls    []string // the enrollment token of each request
 	pending    int      // sockets without a token
 	authorized []string // Authorization headers of sockets with a token
+	requests   []string // Authorization headers of other requests (heartbeats)
 }
 
 func newLateHub(t *testing.T, identity *deviceIdentity) *lateHub {
@@ -57,11 +61,26 @@ func newLateHub(t *testing.T, identity *deviceIdentity) *lateHub {
 	return hub
 }
 
-func (h *lateHub) wsURL() string { return "ws://" + h.addr + "/ws/agent" }
+func (h *lateHub) wsURL() string {
+	if h.secure {
+		return "wss://" + h.addr + "/ws/agent"
+	}
+	return "ws://" + h.addr + "/ws/agent"
+}
+
+func (h *lateHub) apiURL() string {
+	if h.secure {
+		return "https://" + h.addr
+	}
+	return "http://" + h.addr
+}
 
 // listen starts the Hub. It runs on the reconnect loop's goroutine, so it
 // reports problems with Errorf.
-func (h *lateHub) listen() {
+func (h *lateHub) listen() { h.serve(nil) }
+
+// serve starts the Hub, with serverTLS when the Hub is secure.
+func (h *lateHub) serve(serverTLS *tls.Config) {
 	listener, err := net.Listen("tcp", h.addr)
 	if err != nil {
 		h.t.Errorf("listen on the reserved Hub address: %v", err)
@@ -70,13 +89,34 @@ func (h *lateHub) listen() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/enroll", h.enroll)
 	mux.HandleFunc("/ws/agent", h.socket)
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		h.mu.Lock()
+		h.requests = append(h.requests, r.Header.Get("Authorization"))
+		h.mu.Unlock()
+	})
 	server := httptest.NewUnstartedServer(mux)
 	_ = server.Listener.Close()
 	server.Listener = listener
-	server.Start()
+	if serverTLS != nil {
+		server.TLS = serverTLS
+		server.StartTLS()
+	} else {
+		server.Start()
+	}
 	h.mu.Lock()
 	h.server = server
 	h.mu.Unlock()
+}
+
+// stop closes the Hub so another can listen on its address.
+func (h *lateHub) stop() {
+	h.mu.Lock()
+	server := h.server
+	h.server = nil
+	h.mu.Unlock()
+	if server != nil {
+		server.Close()
+	}
 }
 
 func (h *lateHub) enroll(w http.ResponseWriter, r *http.Request) {
@@ -100,7 +140,8 @@ func (h *lateHub) enroll(w http.ResponseWriter, r *http.Request) {
 			AgentToken: "issued-agent-token",
 			AssetID:    "nas01",
 			HubWSURL:   h.wsURL(),
-			HubAPIURL:  "http://" + h.addr,
+			HubAPIURL:  h.apiURL(),
+			CACertPEM:  h.caPEM,
 		})
 	case http.StatusUnauthorized:
 		w.WriteHeader(status)
@@ -143,23 +184,28 @@ func (h *lateHub) seen() (enrolls []string, pending int, authorized []string) {
 
 // startAgentWithoutHub loads the configuration and runs start-up enrollment
 // as Run does, while nothing listens at the Hub address. It returns the
-// transport Run would build, with re-enrollment and late enrollment armed
-// the same way.
-func startAgentWithoutHub(t *testing.T, ctx context.Context, hub *lateHub, dir string) (RuntimeConfig, *wsTransport) {
+// transport and HTTP heartbeat fallback Run would build, with re-enrollment
+// and late enrollment armed the same way.
+func startAgentWithoutHub(t *testing.T, ctx context.Context, hub *lateHub, dir string) (RuntimeConfig, *wsTransport, HeartbeatPublisher) {
 	t.Helper()
 	cfg := LoadConfig("test-agent", "8090", "test")
 	startErr := resolveTokenWithIdentity(ctx, &cfg, hub.identity)
 	if startErr == nil || cfg.APIToken != "" {
 		t.Fatalf("start-up enrollment without a Hub: err=%v token set=%v", startErr, cfg.APIToken != "")
 	}
-	transport := newWSTransportWithRuntimeIdentity(newRuntimeIdentitySource(cfg), "linux", "test", nil, cfg.TokenFilePath, hub.identity)
+	if cfg.TLSSkipVerify && cfg.TLSCAFile != "" {
+		cfg.TLSSkipVerify = false // Run: a configured CA takes priority
+	}
+	identity := newRuntimeIdentitySource(cfg)
+	fallback := newHeartbeatPublisherWithRuntimeIdentity(cfg, nil, identity)
+	transport := newWSTransportWithRuntimeIdentity(identity, "linux", "test", buildTLSConfig(&cfg), cfg.TokenFilePath, hub.identity)
 	transport.jitter = func(time.Duration) time.Duration { return 0 }
 	transport.reEnrollFn = func() (string, error) { return reEnrollAgainstActiveHub(ctx, cfg, transport) }
 	if startEnrollmentUnanswered(cfg, startErr) {
-		armEnrollmentWhenHubReachable(cfg, transport)
+		armEnrollmentWhenHubReachable(cfg, transport, fallback)
 	}
 	t.Cleanup(transport.Close)
-	return cfg, transport
+	return cfg, transport, fallback
 }
 
 func lateHubAgent(t *testing.T) (*lateHub, string, string) {
@@ -225,7 +271,7 @@ func TestStagedTokenEnrollsWhenHubComesBack(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	hub.onPending = cancel
-	_, transport := startAgentWithoutHub(t, ctx, hub, dir)
+	_, transport, _ := startAgentWithoutHub(t, ctx, hub, dir)
 
 	var waits []time.Duration
 	var stateWithoutHub []string
@@ -297,7 +343,7 @@ func TestRefusedStagedTokenFallsBackToPendingOnce(t *testing.T) {
 	hub.enrollStatus.Store(http.StatusUnauthorized)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	_, transport := startAgentWithoutHub(t, ctx, hub, dir)
+	_, transport, _ := startAgentWithoutHub(t, ctx, hub, dir)
 
 	waitCalls, pendingSockets := 0, 0
 	transport.timeAfter = func(time.Duration) <-chan time.Time {

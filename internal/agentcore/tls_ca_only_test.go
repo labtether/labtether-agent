@@ -161,6 +161,19 @@ func (a testAuthority) pem() []byte {
 // authority signed, valid for 127.0.0.1, ::1 and localhost.
 func (a testAuthority) startServer(t *testing.T) *httptest.Server {
 	t.Helper()
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("ok"))
+	}))
+	server.TLS = a.serverTLS(t)
+	server.StartTLS()
+	t.Cleanup(server.Close)
+	return server
+}
+
+// serverTLS is a server setup with a certificate this authority signed,
+// valid for 127.0.0.1, ::1 and localhost.
+func (a testAuthority) serverTLS(t *testing.T) *tls.Config {
+	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -175,11 +188,5 @@ func (a testAuthority) startServer(t *testing.T) *httptest.Server {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte("ok"))
-	}))
-	server.TLS = &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{{Certificate: [][]byte{der}, PrivateKey: key}}}
-	server.StartTLS()
-	t.Cleanup(server.Close)
-	return server
+	return &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{{Certificate: [][]byte{der}, PrivateKey: key}}}
 }

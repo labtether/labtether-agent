@@ -76,7 +76,6 @@ type wsTransport struct {
 	identityOnce      sync.Once
 	platform          string
 	agentVersion      string
-	tlsConfig         *tls.Config
 	tokenFilePath     string
 	deviceIdentity    *deviceIdentity
 
@@ -102,6 +101,10 @@ type wsTransport struct {
 	enrollmentRefusal          string // the Hub's words for the last refused enrollment
 	enrollmentRejected         bool   // an admin rejected the pending request; wait for a token
 	tlsCAOnly                  bool   // LABTETHER_TLS_CA_ONLY: only the CA file is trusted
+	// tlsConfig is the TLS setup for the next dial. A late enrollment
+	// replaces it and sets enrolledTrust (enroll_when_reachable.go).
+	tlsConfig     *tls.Config
+	enrolledTrust *enrolledHubTrust
 
 	networkChanged <-chan struct{} // signaled when local IPs change
 
@@ -276,7 +279,7 @@ func (t *wsTransport) connectWithResponse(ctx context.Context) (*http.Response, 
 
 	dialer := websocket.Dialer{
 		HandshakeTimeout: 10 * time.Second,
-		TLSClientConfig:  t.tlsConfig,
+		TLSClientConfig:  t.hubTLSConfig(),
 	}
 
 	conn, resp, err := dialer.DialContext(ctx, identitySnapshot.WSBaseURL, header)

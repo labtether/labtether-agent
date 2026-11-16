@@ -19,7 +19,9 @@ On Linux, the `labtether-agent-rs` binary:
   `LABTETHER_ENROLLMENT_TOKEN_FILE`), or waits for approval in the Hub when
   it has no token, and saves the agent token (mode 0600); a token that found
   no Hub at start is used as soon as the Hub answers, before any wait for
-  approval;
+  approval; the CA the Hub returns is saved as `ca.crt` and trusted from the
+  next connection, at start or later (not with CA-only on or over a CA file
+  you set);
 - keeps one WebSocket open, pings every 25 s, reconnects with a growing wait
   (1 s to 60 s), and re-enrolls with a staged token after three refused
   connects, also when its first enrollment failed (the token is kept until
