@@ -4,8 +4,8 @@
 //! domain hint work from indexes built once, in Go's order (keys sorted;
 //! the first key wins a shared image or hint). Go's descriptions are left
 //! out: nothing reads them. The port indexes (`LookupByPort`,
-//! `LookupUniqueByPort`) and `LookupByKey` come with the parts that read
-//! them (the port scan, the proxy routes and the recognition probes).
+//! `LookupUniqueByPort`) come with the parts that read them (the port
+//! scan and the proxy routes).
 
 mod databases;
 mod development;
@@ -163,6 +163,11 @@ pub(crate) fn by_hint(hint: &str) -> Option<&'static KnownService> {
         seen.push(normalized);
     }
     None
+}
+
+/// Go's `LookupByKey`.
+pub(crate) fn by_key(key: &str) -> Option<&'static KnownService> {
+    REGISTRY.get(key)
 }
 
 /// Every known service, sorted by key.

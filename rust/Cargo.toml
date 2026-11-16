@@ -21,6 +21,9 @@ labtether-protocol = { git = "https://github.com/labtether/protocol", rev = "483
 
 data-encoding = "2.11"
 ed25519-dalek = "3.0"
+# Gzip pages for the web service probes, as Go's transport decodes them.
+# Pure Rust (miniz_oxide).
+flate2 = { version = "1.1.11", default-features = false, features = ["rust_backend"] }
 futures-util = { version = "0.3.34", default-features = false, features = ["sink", "std"] }
 getrandom = "0.4"
 http = "1.5"

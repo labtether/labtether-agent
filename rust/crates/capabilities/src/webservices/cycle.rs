@@ -1,13 +1,15 @@
 //! One discovery cycle and its report: Go's `RunCycle` and `sendReport`
-//! (`collector.go`) for the sources this part reads. Only while connected:
-//! the running containers' services (when the Docker source is on and the
-//! Docker collector runs), the last report's Docker services again when the
-//! container list fails, LabTether naming, health checks, then one
-//! `webservice.report` with the asset ID in use when it is sent.
+//! (`collector.go`) for the sources this agent reads. Only while
+//! connected: the running containers' services (when the Docker source is
+//! on and the Docker collector runs), the last report's Docker services
+//! again when the container list fails, the recognition probes (names for
+//! unknown services and the connector suggestions' `compat_*` metadata),
+//! LabTether naming, health checks, then one `webservice.report` with the
+//! asset ID in use when it is sent.
 //!
-//! Go also reads reverse-proxy routes and runs a local and a LAN port scan
-//! and names unknown services by probing them; those come in later parts,
-//! so their sources are reported as not enabled.
+//! Go also reads reverse-proxy routes and runs a local and a LAN port
+//! scan; those come in later parts, so their sources are reported as not
+//! enabled.
 
 use std::collections::BTreeMap;
 use std::future::Future;
@@ -21,6 +23,7 @@ use labtether_protocol::{
 };
 use tokio::sync::watch;
 
+use super::fingerprint::Recognizer;
 use super::health::{HealthCache, Prober};
 use super::{containers, labtether};
 use crate::docker::engine::{self, EngineApi};
@@ -98,6 +101,7 @@ pub(crate) struct Collector {
     /// Go's `DockerEnabled`: the Docker source's setting.
     pub docker_enabled: bool,
     health: HealthCache,
+    recognizer: Recognizer,
     /// The last sent report's services and the connection it went on: Go's
     /// `lastServices`, which its reconnect callback clears.
     last: Option<(u64, Vec<DiscoveredWebService>)>,
@@ -109,24 +113,27 @@ impl Collector {
             host_ip,
             docker_enabled,
             health: HealthCache::new(interval),
+            recognizer: Recognizer::default(),
             last: None,
         }
     }
 
     /// Go's `RunCycle`. `docker` is the engine when the Docker collector
-    /// runs; `now` is the time the health results are kept by.
+    /// runs; `clock` is Go's `wsc.now()`: read once at the start for the
+    /// health results and at each recognition cache look-up.
     pub fn run(
         &mut self,
         sender: &dyn HubSender,
         docker: Option<&dyn EngineApi>,
         prober: &dyn Prober,
         runner: &Runner,
-        now: SystemTime,
+        clock: &dyn Fn() -> SystemTime,
     ) {
         if !sender.connected() {
             return;
         }
         let started = Instant::now();
+        let now = clock();
         let mut sources: BTreeMap<String, WebServiceDiscoverySourceStat> = SOURCES
             .iter()
             .map(|name| ((*name).to_owned(), WebServiceDiscoverySourceStat::default()))
@@ -172,8 +179,12 @@ impl Collector {
             );
         }
         let mut services = dedupe(services);
-        labtether::normalize(&mut services);
-        let checked = runner.run(self.health.apply(prober, &mut services, now));
+        let (recognizer, health) = (&mut self.recognizer, &mut self.health);
+        let checked = runner.run(async {
+            recognizer.apply(prober, &mut services, clock).await;
+            labtether::normalize(&mut services);
+            health.apply(prober, &mut services, now).await;
+        });
         if checked.is_none() {
             return;
         }

@@ -1,6 +1,5 @@
 //! The probe client: Go's two `http.Client`s of `NewWebServiceCollector`.
-//! One request each, 2 s for the whole exchange up to the status line and
-//! headers (the body is not read), no redirect followed, TLS 1.2 or later,
+//! One request each, no redirect followed, TLS 1.2 or later,
 //! `User-Agent: LabTether-Agent/1.0`. The secure client checks the
 //! certificate against the system roots; the insecure one takes any
 //! certificate but still checks the server's key, as Go's
@@ -8,13 +7,20 @@
 //! connections alive between probes) and speaks HTTP/1.1 only (Go also
 //! offers HTTP/2 over TLS). Go's client also reads the `HTTP_PROXY`
 //! variables; this one connects directly.
+//!
+//! Go's 2 s limit covers the whole exchange: a health check reads only the
+//! status line and headers; a recognition probe also reads the first
+//! 64 KiB of the body, decoded when the service sent it gzip-compressed
+//! (Go's transport asks for gzip on a GET and decodes the answer).
 
+use std::io::Write as _;
 use std::sync::Arc;
 use std::time::Duration;
 
-use http::{Request, header};
-use http_body_util::Empty;
-use hyper::body::Bytes;
+use flate2::write::MultiGzDecoder;
+use http::{Request, Response, header};
+use http_body_util::{BodyExt, Empty};
+use hyper::body::{Bytes, Incoming};
 use hyper::client::conn::http1;
 use hyper::rt::{Read, Write};
 use hyper_util::rt::TokioIo;
@@ -23,9 +29,11 @@ use labtether_agent_core::tls::{TlsError, client_config};
 use rustls::ClientConfig;
 use rustls::pki_types::ServerName;
 use tokio::net::TcpStream;
+use tokio::time::{Instant, timeout_at};
 use tokio_rustls::TlsConnector;
 
 use super::health::{Client, Method, Pending, Prober};
+use super::pages::{Fetching, MAX_BODY, Page};
 use super::urls::Target;
 
 /// Go's `healthCheckTimeout`.
@@ -62,7 +70,14 @@ impl HttpProber {
         })
     }
 
-    async fn exchange(&self, client: Client, method: Method, url: &str) -> Option<u16> {
+    /// One request on a new connection: the answer's head, with the
+    /// connection kept open while the body is read.
+    async fn exchange(
+        &self,
+        client: Client,
+        method: Method,
+        url: &str,
+    ) -> Option<(Response<Incoming>, Connection)> {
         let target = Target::parse(url)?;
         let stream = TcpStream::connect((target.host.as_str(), target.port))
             .await
@@ -86,16 +101,50 @@ impl HttpProber {
 impl Prober for HttpProber {
     fn attempt<'a>(&'a self, client: Client, method: Method, url: &'a str) -> Pending<'a> {
         Box::pin(async move {
-            tokio::time::timeout(self.timeout, self.exchange(client, method, url))
+            let (response, _connection) =
+                tokio::time::timeout(self.timeout, self.exchange(client, method, url))
+                    .await
+                    .ok()
+                    .flatten()?;
+            Some(response.status().as_u16())
+        })
+    }
+
+    fn fetch<'a>(&'a self, client: Client, url: &'a str) -> Fetching<'a> {
+        Box::pin(async move {
+            let deadline = Instant::now() + self.timeout;
+            let (response, connection) =
+                timeout_at(deadline, self.exchange(client, Method::Get, url))
+                    .await
+                    .ok()
+                    .flatten()?;
+            let status = response.status().as_u16();
+            let first = |name| {
+                response
+                    .headers()
+                    .get(name)
+                    .map(|value| String::from_utf8_lossy(value.as_bytes()).into_owned())
+                    .unwrap_or_default()
+            };
+            let location = first(header::LOCATION);
+            let gzip = first(header::CONTENT_ENCODING).eq_ignore_ascii_case("gzip");
+            let body = timeout_at(deadline, read_body(response.into_body(), gzip))
                 .await
                 .ok()
-                .flatten()
+                .flatten();
+            drop(connection);
+            Some(Page {
+                status,
+                location,
+                body,
+            })
         })
     }
 }
 
-/// One request on a new connection; the status of the answer.
-async fn send<T>(io: T, method: Method, target: &Target) -> Option<u16>
+/// One request on a new connection; the answer's head and the
+/// connection, which ends when dropped.
+async fn send<T>(io: T, method: Method, target: &Target) -> Option<(Response<Incoming>, Connection)>
 where
     T: Read + Write + Unpin + Send + 'static,
 {
@@ -105,7 +154,7 @@ where
         .handshake(io)
         .await
         .ok()?;
-    let _connection = Connection(tokio::spawn(async move {
+    let connection = Connection(tokio::spawn(async move {
         let _ = connection.await;
     }));
     let builder = Request::builder()
@@ -121,5 +170,52 @@ where
     };
     let request = builder.body(Empty::<Bytes>::new()).ok()?;
     let response = sender.send_request(request).await.ok()?;
-    Some(response.status().as_u16())
+    Some((response, connection))
+}
+
+/// Go's `io.ReadAll(io.LimitReader(resp.Body, 64 KiB))` over the body Go's
+/// transport hands back: the first 64 KiB, decoded first when gzip;
+/// `None` when reading or decoding fails before then (Go's read error).
+async fn read_body(mut body: Incoming, gzip: bool) -> Option<Vec<u8>> {
+    let mut plain = Vec::new();
+    let mut decoder = gzip.then(|| MultiGzDecoder::new(Vec::new()));
+    let mut compressed = false;
+    while let Some(frame) = body.frame().await {
+        let Ok(data) = frame.ok()?.into_data() else {
+            continue;
+        };
+        let out = match decoder.as_mut() {
+            None => {
+                plain.extend_from_slice(&data);
+                &mut plain
+            }
+            Some(decoder) => {
+                compressed |= !data.is_empty();
+                decoder.write_all(&data).ok()?;
+                decoder.flush().ok()?;
+                decoder.get_mut()
+            }
+        };
+        if out.len() >= MAX_BODY {
+            out.truncate(MAX_BODY);
+            return Some(std::mem::take(out));
+        }
+    }
+    match decoder {
+        None => Some(plain),
+        // Go's gzip reader takes an empty body as an empty page.
+        Some(_) if !compressed => Some(Vec::new()),
+        Some(mut decoder) => {
+            // The end of the stream (its checksum) counts only when Go
+            // would read that far: before 64 KiB of the page.
+            let finished = decoder.try_finish();
+            let out = decoder.get_mut();
+            if out.len() >= MAX_BODY {
+                out.truncate(MAX_BODY);
+            } else {
+                finished.ok()?;
+            }
+            Some(std::mem::take(out))
+        }
+    }
 }
