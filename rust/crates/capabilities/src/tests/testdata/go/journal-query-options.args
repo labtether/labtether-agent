@@ -1,0 +1,15 @@
+--no-pager
+--output=json
+-n
+1000
+-r
+--since
+1h ago
+--until
+now
+-u
+--rotate
+-p
+err
+--grep
+a b

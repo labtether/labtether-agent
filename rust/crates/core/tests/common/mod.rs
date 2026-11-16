@@ -74,6 +74,8 @@ pub struct Behaviour {
     pub pending: Pending,
     /// Stop reading after the upgrade: no pongs, no reads.
     pub stall: bool,
+    /// Pause this long after each message read: a slow Hub.
+    pub read_pause: Duration,
     /// Close each socket right after the upgrade.
     pub close_at_once: bool,
     /// Answer every upgrade with 503, as a Hub that is down behind a proxy.
@@ -93,6 +95,7 @@ impl Default for Behaviour {
             ca_pem_in_answer: None,
             pending: Pending::Ignore,
             stall: false,
+            read_pause: Duration::ZERO,
             close_at_once: false,
             refuse_upgrade: false,
             enroll_refusal: "enrollment token is invalid or used".to_owned(),

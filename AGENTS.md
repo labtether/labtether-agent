@@ -134,9 +134,11 @@ Read user-facing text once against this list before you ship it.
   `crates/macos-sys` is the only crate allowed `unsafe` (one call per
   block, each with a `SAFETY` comment); everything else forbids it.
   `crates/security` holds the command rules; its `CommandPolicy::run` is the
-  only way Rust code may start a process (`rust/clippy.toml` refuses
-  `Command::new` elsewhere). The binary builds one policy and hands it to
-  `capabilities::all`; pages that run a program go in `COMMAND_PAGES`. The
+  only way Rust code may start a process, with `start_streaming` for one
+  read while it runs (`rust/clippy.toml` refuses `Command::new`
+  elsewhere). A feature that sends without a request adds a producer
+  (`Features::on_start`); it runs on its own thread, not a worker. The
+  binary builds one policy and hands it to `capabilities::all`; pages that run a program go in `COMMAND_PAGES`. The
   users and cron readers are checked against the Go agent's own answers in
   `crates/platform/testdata/go/`. Its cases live in
   `internal/securityruntime/testdata/` and the Go tests read them too, so

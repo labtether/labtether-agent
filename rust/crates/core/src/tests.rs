@@ -13,7 +13,7 @@ use tokio::net::{TcpListener, TcpStream};
 
 use crate::credential::{CommitOutcome, HubIdentity, commit};
 use crate::net::HubStream;
-use crate::outbox::{Outbox, SendError};
+use crate::outbox::{Outbox, Outgoing, SendError, WAIT_MARGIN};
 use crate::state::StateFiles;
 
 struct TempDir(PathBuf);
@@ -148,7 +148,7 @@ async fn send_queue_stays_bounded_when_the_socket_stalls() {
     let (sink, _stream) = socket.split();
 
     let capacity = 8;
-    let (outbox, queue) = Outbox::new(capacity, false);
+    let (outbox, queue) = Outbox::new(capacity, false, Duration::from_millis(300));
     let write_timeout = Duration::from_millis(300);
     let writer = tokio::spawn(crate::session::writer(
         sink,
@@ -192,11 +192,73 @@ async fn send_queue_stays_bounded_when_the_socket_stalls() {
 // Hub approved it (Go's errEnrollmentPending).
 #[test]
 fn pending_socket_sends_only_the_enrollment_proof() {
-    let (outbox, _queue) = Outbox::new(4, true);
+    let (outbox, _queue) = Outbox::new(4, true, Duration::from_secs(10));
     assert_eq!(
         outbox.send(&Message::bare(MSG_HEARTBEAT, "")),
         Err(SendError::EnrollmentPending)
     );
     let proof = Message::bare(labtether_protocol::MSG_ENROLLMENT_PROOF, "");
     assert_eq!(outbox.send(&proof), Ok(()));
+}
+
+/// Starts `send_and_wait` on its own thread, as a producer does; the
+/// receiver gets what it returned and how long it took.
+fn waiting_send(outbox: &Outbox) -> std::sync::mpsc::Receiver<(Result<(), SendError>, Duration)> {
+    let (done, result) = std::sync::mpsc::channel();
+    let outbox = outbox.clone();
+    std::thread::spawn(move || {
+        let started = std::time::Instant::now();
+        let sent = outbox.send_and_wait(&Message::bare(MSG_PONG, ""));
+        let _ = done.send((sent, started.elapsed()));
+    });
+    result
+}
+
+/// Waits for a waiting send to end and checks it gave up after `limit`.
+fn gives_up(
+    result: &std::sync::mpsc::Receiver<(Result<(), SendError>, Duration)>,
+    limit: Duration,
+) {
+    let (sent, took) = result
+        .recv_timeout(limit + Duration::from_secs(5))
+        .expect("the send still waits");
+    assert_eq!(sent, Err(SendError::Closed));
+    assert!(
+        took >= limit - Duration::from_millis(50) && took < limit + Duration::from_secs(1),
+        "took {took:?}"
+    );
+}
+
+// Faults: a producer's waiting send depends on the writer to end it, so it
+// blocks for ever when the writer holds on without writing or ending: a
+// queue nobody reads (with room, or full), or a message taken and kept;
+// it waits longer than the write timeout plus the margin; or a message
+// given up on is still written when the writer reaches it later.
+#[test]
+fn a_waiting_send_gives_up_on_its_own() {
+    let write_timeout = Duration::from_millis(200);
+    let limit = write_timeout + WAIT_MARGIN;
+
+    let (outbox, mut queue) = Outbox::new(4, false, write_timeout);
+    gives_up(&waiting_send(&outbox), limit);
+    match queue.try_recv() {
+        Ok(Outgoing::Waited(_, waiter)) => assert!(!waiter.start(), "written after giving up"),
+        other => panic!("expected the waited message, got {other:?}"),
+    }
+
+    let (outbox, _queue) = Outbox::new(1, false, write_timeout);
+    outbox.send(&Message::bare(MSG_HEARTBEAT, "")).unwrap();
+    gives_up(&waiting_send(&outbox), limit);
+
+    let (outbox, mut queue) = Outbox::new(4, false, write_timeout);
+    let result = waiting_send(&outbox);
+    let held = loop {
+        if let Ok(Outgoing::Waited(_, waiter)) = queue.try_recv() {
+            assert!(waiter.start());
+            break waiter;
+        }
+        std::thread::sleep(Duration::from_millis(1));
+    };
+    gives_up(&result, limit);
+    drop(held);
 }

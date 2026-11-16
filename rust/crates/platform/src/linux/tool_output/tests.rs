@@ -10,6 +10,7 @@ use std::collections::{HashMap, HashSet};
 use super::gotext::{ERR_TOO_LONG, MAX_SCAN_LINE, fields, go_quote, lossy, scan_lines, trim_space};
 use super::services::{ServiceRow, parse_unit_files, parse_units, unloaded_units};
 
+mod journal;
 mod packages;
 mod upgradable;
 

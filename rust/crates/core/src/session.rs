@@ -72,6 +72,16 @@ pub(crate) async fn writer(
                     }
                     stats.sent.fetch_add(1, Ordering::Relaxed);
                 }
+                // Not written when its sender has given up waiting.
+                Some(Outgoing::Waited(text, waiter)) => {
+                    if waiter.start() {
+                        if !send_frame(&mut sink, Frame::text(text), write_timeout).await {
+                            return;
+                        }
+                        stats.sent.fetch_add(1, Ordering::Relaxed);
+                        waiter.written();
+                    }
+                }
                 Some(Outgoing::Close) | None => {
                     let _ = send_frame(&mut sink, Frame::Close(None), write_timeout).await;
                     return;
@@ -115,7 +125,11 @@ pub async fn run(
 ) -> SessionEnd {
     let timing = &agent.timing;
     let (sink, mut stream) = connection.stream.split();
-    let (outbox, queue) = Outbox::new(timing.send_queue, connection.pending_enrollment);
+    let (outbox, queue) = Outbox::new(
+        timing.send_queue,
+        connection.pending_enrollment,
+        timing.write_timeout,
+    );
     let mut writer_task = tokio::spawn(writer(
         sink,
         queue,

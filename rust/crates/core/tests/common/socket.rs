@@ -40,6 +40,7 @@ where
         let _ = stream.shutdown().await;
         return;
     }
+    let read_pause = shared.behaviour.lock().unwrap().read_pause;
     let (accepted, canonical, stall, pending, close_at_once) = {
         let behaviour = shared.behaviour.lock().unwrap();
         let token = bearer(&head);
@@ -121,6 +122,9 @@ where
                 Some(Ok(Frame::Text(text))) => {
                     let message: Value = serde_json::from_str(text.as_str()).unwrap_or(Value::Null);
                     emit(&shared, Event::Message { id, message: message.clone() });
+                    if !read_pause.is_zero() {
+                        tokio::time::sleep(read_pause).await;
+                    }
                     if message["type"] == "enrollment.proof" {
                         let valid = proof_is_valid(&message["data"]);
                         emit(&shared, Event::Proof { valid });

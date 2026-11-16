@@ -138,6 +138,10 @@ pub struct Settings {
     pub local_api: LocalApiSettings,
     /// `LABTETHER_PARENT_PID`: stop when that process is gone.
     pub parent_pid: ParentPid,
+    /// `LABTETHER_LOG_STREAM_ENABLED` (Go's `parseBoolEnv`): stream the
+    /// system log to the Hub. On by default, except on macOS, where Go
+    /// turns it off by default and this agent has no logs page at all.
+    pub log_stream_enabled: bool,
     /// Variables an app sets that this agent does not use, when set.
     pub ignored_app_variables: Vec<&'static str>,
 }
@@ -377,6 +381,7 @@ pub fn load(env: &Environment, host: &HostFacts) -> Result<Loaded, ConfigError> 
         time_zone: env.raw("TZ").map(str::to_owned),
         local_api: local_api::load(env),
         parent_pid: local_api::parent_pid(env),
+        log_stream_enabled: env.bool_or("LABTETHER_LOG_STREAM_ENABLED", !cfg!(target_os = "macos")),
         ignored_app_variables: local_api::ignored_variables_set(env),
     };
     Ok(Loaded { settings, warnings })

@@ -22,6 +22,10 @@ use crate::{Commands, disks, network};
 #[cfg(target_os = "linux")]
 pub(crate) mod fakebin;
 #[cfg(target_os = "linux")]
+mod log_stream;
+#[cfg(target_os = "linux")]
+mod logs;
+#[cfg(target_os = "linux")]
 mod services;
 
 /// The command rules over the test machine's usual `PATH`.

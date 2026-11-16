@@ -13,6 +13,12 @@ pub const ERR_TOO_LONG: &str = "bufio.Scanner: token too long";
 /// of [`MAX_SCAN_LINE`] bytes or more ends the scan: the lines before it
 /// come back with `Err`, as Go's loop sees them before `scanner.Err()`.
 pub fn scan_lines(out: &[u8]) -> (Vec<&[u8]>, Result<(), &'static str>) {
+    scan_lines_max(out, MAX_SCAN_LINE)
+}
+
+/// [`scan_lines`] with `scanner.Buffer(nil, max)`: a line of `max` bytes or
+/// more ends the scan.
+pub fn scan_lines_max(out: &[u8], max: usize) -> (Vec<&[u8]>, Result<(), &'static str>) {
     let mut lines = Vec::new();
     let mut rest = out;
     while !rest.is_empty() {
@@ -20,7 +26,7 @@ pub fn scan_lines(out: &[u8]) -> (Vec<&[u8]>, Result<(), &'static str>) {
             Some(end) => (&rest[..end], &rest[end + 1..]),
             None => (rest, &rest[rest.len()..]),
         };
-        if line.len() >= MAX_SCAN_LINE {
+        if line.len() >= max {
             return (lines, Err(ERR_TOO_LONG));
         }
         lines.push(line.strip_suffix(b"\r").unwrap_or(line));

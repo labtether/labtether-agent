@@ -8,12 +8,14 @@
 //!
 //! Settings are read once at start (`labtether_agent_config::
 //! CommandSecuritySettings`) and passed in as a [`CommandPolicy`]; nothing
-//! here reads the environment later. [`CommandPolicy::run`] is the only way
-//! the agent starts a process; `rust/clippy.toml` refuses
-//! `std::process::Command::new` everywhere else.
+//! here reads the environment later. The agent starts a process only with
+//! [`CommandPolicy::run`], which waits for it, or
+//! [`CommandPolicy::start_streaming`], whose output is read while it runs
+//! (the log stream). Both build the process in one place;
+//! `rust/clippy.toml` refuses `std::process::Command::new` everywhere else.
 //!
 //! Not here yet: the outbound network rules, file scope and log
-//! redaction, and long-running processes (terminal and desktop sessions).
+//! redaction, and interactive sessions (terminal and desktop).
 
 #![forbid(unsafe_code)]
 // Linux only. On macOS the agent is the App Store monitoring edition and
@@ -31,11 +33,13 @@ mod parse;
 mod policy;
 mod readonly;
 mod run;
+mod stream;
 
 pub use capture::CappedBuffer;
 pub use child_env::{is_allowed_child_env_key, sanitized_child_env};
 pub use error::Refusal;
-pub use goerror::{GoOutcome, go_outcome};
+pub use goerror::{GoOutcome, exit_error, go_outcome};
 pub use parse::{normalize_executable_name, parse_command_line};
 pub use policy::CommandPolicy;
 pub use run::{Capture, DEFAULT_WAIT_DELAY, Finished, RunError, RunRequest};
+pub use stream::{Stopper, Streaming};

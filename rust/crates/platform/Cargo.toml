@@ -11,6 +11,11 @@ publish.workspace = true
 rustix.workspace = true
 thiserror.workspace = true
 
+# Linux only: the journal reader decodes journalctl's JSON lines.
+[target.'cfg(target_os = "linux")'.dependencies]
+serde.workspace = true
+serde_json.workspace = true
+
 [target.'cfg(target_os = "macos")'.dependencies]
 labtether-agent-macos-sys.workspace = true
 log.workspace = true
