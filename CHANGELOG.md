@@ -62,6 +62,9 @@ All notable changes to `labtether-agent` are documented in this file.
 
 ### Fixed
 
+- Linux: a journal entry of 256 KiB or more no longer stops the live log
+  stream. Before, the stream stayed silent until the agent restarted; now
+  that one entry is skipped and the stream goes on.
 - macOS (Rust agent): network byte counters past 4 GiB are reported whole.
   The interface table the agent read gives programs outside macOS itself
   only the low 32 bits, rounded down to 1 KiB, so `network.list` showed a
