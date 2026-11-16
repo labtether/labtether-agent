@@ -23,6 +23,8 @@
 #![forbid(unsafe_code)]
 
 mod commands;
+#[cfg(target_os = "linux")]
+mod cron;
 mod disks;
 mod network;
 #[cfg(target_os = "linux")]
@@ -31,6 +33,8 @@ mod packages;
 mod processes;
 #[cfg(target_os = "linux")]
 mod services;
+#[cfg(target_os = "linux")]
+mod users;
 
 use labtether_agent_config::Settings;
 use labtether_agent_core::Features;
@@ -48,8 +52,12 @@ pub const PAGES: &[fn(&mut Features, &Settings)] = &[
 /// The pages that start programs, each given the command rules. Linux
 /// only: the macOS edition starts no program.
 #[cfg(target_os = "linux")]
-pub const COMMAND_PAGES: &[fn(&mut Features, &Settings, &Commands)] =
-    &[packages::register, services::register];
+pub const COMMAND_PAGES: &[fn(&mut Features, &Settings, &Commands)] = &[
+    cron::register,
+    packages::register,
+    services::register,
+    users::register,
+];
 
 /// Every feature in this build.
 pub fn all(settings: &Settings, commands: &Commands) -> Features {

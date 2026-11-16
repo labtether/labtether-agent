@@ -88,6 +88,11 @@ where
     let Ok(mut socket) = tokio_tungstenite::accept_hdr_async(stream, callback).await else {
         return;
     };
+    // Subscribe before telling the test the agent is connected: a message
+    // the test sends as soon as it sees `Connected` must reach this socket
+    // (a broadcast sent before the subscription is lost).
+    let mut kick = kick_receiver(&shared);
+    let mut push = push_receiver(&shared);
     let id = next_id(&shared);
     emit(
         &shared,
@@ -96,8 +101,6 @@ where
             headers: head.headers.clone(),
         },
     );
-    let mut kick = kick_receiver(&shared);
-    let mut push = push_receiver(&shared);
     if close_at_once {
         let _ = socket.close(None).await;
         emit(&shared, Event::Closed { id });

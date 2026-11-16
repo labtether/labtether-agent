@@ -12,7 +12,9 @@ use super::sampler::{Sampler, SysPaths};
 
 mod pages;
 mod processes;
+mod schedules;
 mod sensors;
+mod zones;
 
 pub(crate) struct TempDir(pub PathBuf);
 

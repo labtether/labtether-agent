@@ -1,0 +1,20 @@
+demo     pts/0        2026-11-16 12:15 (192.0.2.10)
+demo     pts/1        2026-11-16 12:16 (192.0.2.10)
+demo     pts/2        2026-11-16 09:02 (tmux(4649).%0)
+backup   tty1         2026-10-04 02:30
+backup   tty2         2026-04-05 02:30
+ops      pts/3        Dec 25 08:00 (nas01)
+ops      pts/4        16 Nov 10:00 (:0)
+ops      pts/5        Feb 29 10:00
+ops      pts/6        nov  6 10:00 ()
+ops      pts/7        2026-11-16
+ops      pts/8        (192.0.2.11)
+ops      pts/9        sometime later today
+short line
+
+ops      pts/10       2026-13-01 10:00
+ops      pts/11       2026-11-16 1:05
+ops      pts/12       2026-11-31 10:00
+	  ops	pts/13	2026-11-16 12:15   (192.0.2.12)
+dâ‚mo pts/14 2026-11-16 12:15 (192.0.2.13)
+last  pts/15  2026-02-29 10:00

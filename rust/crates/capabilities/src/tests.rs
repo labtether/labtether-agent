@@ -211,6 +211,10 @@ fn registered_handlers_reply_with_their_types() {
         ("process.list", "process.listed"),
         #[cfg(target_os = "linux")]
         ("service.list", "service.listed"),
+        #[cfg(target_os = "linux")]
+        ("users.list", "users.listed"),
+        #[cfg(target_os = "linux")]
+        ("cron.list", "cron.listed"),
     ] {
         let handler = features
             .handler(request)
@@ -223,7 +227,11 @@ fn registered_handlers_reply_with_their_types() {
         assert_eq!((answer.r#type.as_str(), answer.id.as_str()), (reply, "q7"));
         let data: Value = answer.decode().unwrap();
         assert_eq!(data["request_id"], "q7");
-        assert_eq!(data["error"], Value::Null, "{request}: {data}");
+        // A user who is not root may not read /var/spool/cron/crontabs, so
+        // cron.list can carry an error on a test machine; the others not.
+        if request != "cron.list" {
+            assert_eq!(data["error"], Value::Null, "{request}: {data}");
+        }
         let bad: Message =
             serde_json::from_value(json!({"type": request, "data": {"request_id": 5}})).unwrap();
         assert!(handler(&bad).is_none(), "{request} answered a bad request");

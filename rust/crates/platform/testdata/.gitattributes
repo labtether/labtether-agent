@@ -1,0 +1,3 @@
+# Fixtures are byte-exact input: carriage returns and odd spacing are
+# deliberate, and zone files are binary.
+* -text -whitespace

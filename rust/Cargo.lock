@@ -510,6 +510,7 @@ version = "0.1.0"
 dependencies = [
  "labtether-agent-macos-sys",
  "rustix",
+ "serde_json",
  "thiserror",
 ]
 

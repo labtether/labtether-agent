@@ -1,0 +1,23 @@
+junk before the header
+NEXT                        LEFT LAST PASSED UNIT ACTIVATES
+Mon 2026-11-16 12:33:43 AEDT 18min Mon 2026-11-16 11:31:18 AEDT 43min ago a.timer a.service
+Sun 2026-04-05 02:30:00 AEST 1h - - b.timer b.service
+Sun 2026-04-05 02:30:00 AEDT 1h - - b2.timer b2.service
+Sun 2026-10-04 02:30:00 AEDT 1h - - b3.timer b3.service
+Tue 2026-11-17 00:00:00 UTC 11h n/a n/a c.timer c.service
+n/a n/a Mon 2026-11-16 00:00:10 AEDT 12h ago d.timer d.service
+-                                   - Mon 2026-11-16 12:15:00 AEDT       1s ago e.timer e.service
+Mon 2026-11-16 12:33:43 CET 18min - - f.timer f.service
+Mon 2026-11-16 12:33:43 EST 18min - - f2.timer f2.service
+Mon 2026-11-16 12:33:43 GMT+3 18min - - g.timer g.service
+Mon 2026-11-16 12:33:43 +0530 x y h.timer h.service
+Mon 2026-11-16 12:33:43 +11 x y i.timer i.service
+mon 2026-11-16 12:33:43.123 AEDT x y j.timer j.service
+Mon 2026-11-16 12:33:43 AEDTX x y k.timer k.service
+Fri 2040-07-06 12:00:00 AEST x y l.timer l.service
+Fri 2040-12-07 12:00:00 AEDT x y l2.timer l2.service
+2026-11-16 12:33:43 AEDT x y m.timer m.service
+Mon 2026-02-30 12:00:00 AEDT x y n.timer n.service
+too few fields here
+5 timers listed.
+Mon 2026-11-16 12:33:43 AEDT 18min Mon 2026-11-16 11:31:18 AEDT 43min ago after.timer after.service

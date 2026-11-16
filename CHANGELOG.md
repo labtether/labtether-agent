@@ -32,6 +32,12 @@ All notable changes to `labtether-agent` are documented in this file.
   timeouts, limits and error replies, each through its command rules. It
   advertises `cap_services=list` and `cap_packages=list`; service and
   package actions are not in it.
+- The Rust agent answers the hub's signed-in users and scheduled jobs pages
+  (`users.list`, `cron.list`) on Linux with the Go agent's fields, order and
+  error text. It runs `who` and `systemctl list-timers` through its command
+  rules, reads crontab files with the
+  Go agent's rules, reads login times in the host's time zone as Go does,
+  and advertises `cap_schedules=list`.
 - The Rust agent serves the Go agent's local API (`/agent/status`,
   `/agent/info`, `/agent/telemetry`, `/metrics`, `/healthz`, `/readyz`,
   `/version`) with the same port, bind address, bearer token rules, bodies,
