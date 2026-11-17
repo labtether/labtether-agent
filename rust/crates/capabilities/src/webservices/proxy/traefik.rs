@@ -4,7 +4,9 @@
 //! router in its labels (the API at that router's first host, https when
 //! its entry points or TLS labels say so), or at `LABTETHER_TRAEFIK_URL`.
 //! The routers and services lists give one route per host in each enabled
-//! router's rule, Traefik's own (`@internal`) left out.
+//! router's rule, Traefik's own (`@internal`) left out, its backend the
+//! first server of the router's service (a bare service name taken in the
+//! router's provider).
 //!
 //! Go reads the labels in map order, so with two `api@internal` routers it
 //! takes either; this takes the first by label name.
@@ -131,7 +133,7 @@ pub(crate) async fn fetch(
         }
         let tls = router.tls.is_some() || has_secure_entry_point(&router.entry_points);
         let backend_url = by_name
-            .get(&router.service)
+            .get(&service_name(&router.name, &router.service))
             .and_then(|s| s.load_balancer.as_ref())
             .and_then(|lb| lb.servers.first())
             .map(|server| server.url.clone())
@@ -147,6 +149,23 @@ pub(crate) async fn fetch(
         }
     }
     Ok(routes)
+}
+
+/// Go's `traefikServiceName`: the services list's name for a router's
+/// service. The routers list gives the service as configured: `app` for a
+/// service in the router's own provider, `app@docker` for one in another.
+/// Traefik v2 and v3 give a name without `@` the router's provider, the
+/// text after the router name's first `@` (`provider.AddInContext` and
+/// `GetQualifiedName` in Traefik), so router `app@file` with service `app`
+/// uses `app@file`. A name with `@` is used as it is.
+fn service_name(router: &str, service: &str) -> String {
+    if service.is_empty() || service.contains('@') {
+        return service.to_owned();
+    }
+    match router.split('@').nth(1) {
+        Some(provider) => format!("{service}@{provider}"),
+        None => service.to_owned(),
+    }
 }
 
 /// `c` is `want` (lower case) under Go's case folding.

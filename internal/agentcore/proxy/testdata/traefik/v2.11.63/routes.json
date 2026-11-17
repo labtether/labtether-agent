@@ -1,0 +1,56 @@
+[
+ {
+  "domain": "d1.ltqa.example",
+  "backend_url": "http://192.168.32.4:18473",
+  "tls": false,
+  "router_name": "d1"
+ },
+ {
+  "domain": "grafana.ltqa.example",
+  "backend_url": "http://127.0.0.1:18489",
+  "tls": false,
+  "router_name": "ext"
+ },
+ {
+  "domain": "d1-file.ltqa.example",
+  "backend_url": "http://192.168.32.4:18473",
+  "tls": false,
+  "router_name": "f-d1"
+ },
+ {
+  "domain": "f1-own.ltqa.example",
+  "backend_url": "http://ltqa-tsp-f1:18471",
+  "tls": false,
+  "router_name": "f1-own"
+ },
+ {
+  "domain": "f1.ltqa.example",
+  "backend_url": "http://ltqa-tsp-f1:18471",
+  "tls": false,
+  "router_name": "f1"
+ },
+ {
+  "domain": "f2-alt.ltqa.example",
+  "backend_url": "http://ltqa-tsp-f2:18472",
+  "tls": false,
+  "router_name": "f2-alt"
+ },
+ {
+  "domain": "www.f2.ltqa.example",
+  "backend_url": "http://ltqa-tsp-f2:18472",
+  "tls": false,
+  "router_name": "f2-alt"
+ },
+ {
+  "domain": "f2.ltqa.example",
+  "backend_url": "http://ltqa-tsp-f2:18472",
+  "tls": true,
+  "router_name": "f2"
+ },
+ {
+  "domain": "ltqa-tsp-d2.ltqa.example",
+  "backend_url": "http://192.168.32.5:18474",
+  "tls": true,
+  "router_name": "ltqa-tsp-d2"
+ }
+]

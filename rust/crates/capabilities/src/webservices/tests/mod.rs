@@ -14,6 +14,7 @@ mod registry;
 mod scan;
 mod steps;
 mod timers;
+mod traefik;
 
 use std::collections::BTreeMap;
 use std::sync::Mutex;

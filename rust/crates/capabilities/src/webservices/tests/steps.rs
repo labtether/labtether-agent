@@ -305,7 +305,8 @@ fn go_steps() -> BTreeMap<(String, usize), GoStep> {
 // client follows it, the auth kept on another host); a request the
 // outbound rules refuse sent, or one they allow refused; a route read
 // otherwise (internal or disabled routers, the rule's hosts, TLS, the
-// backend, Caddy's nested routes and TLS ports, NPM's disabled hosts); a
+// backend, a Traefik service named without its provider looked up as it
+// is, Caddy's nested routes and TLS ports, NPM's disabled hosts); a
 // route given to another service (router labels, private port, public
 // port, the same backend twice) or made a service of its own with
 // another ID, name, category or metadata; the `raw_url`, `alt_urls` and
