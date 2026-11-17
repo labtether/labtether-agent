@@ -37,7 +37,7 @@ pub use local_api::{LocalApiSettings, LocalAuth, ParentPid};
 pub use secret::Secret;
 pub use settings_file::SettingsFileError;
 use urls::UrlKind;
-pub use web_services::WebServiceSettings;
+pub use web_services::{PortScanSettings, WebServiceSettings};
 
 /// Where the Go agent keeps its state on Linux.
 pub const DEFAULT_STATE_DIR: &str = "/etc/labtether";
@@ -308,11 +308,11 @@ pub fn load(env: &Environment, host: &HostFacts) -> Result<Loaded, ConfigError> 
     };
 
     let mut file_docker = docker::FileDocker::default();
-    let mut file_services_docker = None;
+    let mut file_services = web_services::FileServices::default();
     match settings_file::load(&settings_file) {
         Ok(file) => {
             file_docker = file.docker;
-            file_services_docker = file.services_docker_enabled;
+            file_services = file.services;
             if let Some(raw) = file.tls_ca_file {
                 tls.ca_file = Some(raw).filter(|raw| !raw.is_empty()).map(PathBuf::from);
             }
@@ -397,7 +397,7 @@ pub fn load(env: &Environment, host: &HostFacts) -> Result<Loaded, ConfigError> 
         parent_pid: local_api::parent_pid(env),
         log_stream_enabled: env.bool_or("LABTETHER_LOG_STREAM_ENABLED", !cfg!(target_os = "macos")),
         docker: docker::load(env, &file_docker, low_power),
-        web_services: web_services::load(env, file_services_docker, low_power),
+        web_services: web_services::load(env, &file_services, low_power),
         ignored_app_variables: local_api::ignored_variables_set(env),
     };
     Ok(Loaded { settings, warnings })

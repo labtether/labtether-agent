@@ -2,10 +2,10 @@
 //! (`internal/agentcore/webservice/registry*.go`): one file per category
 //! holds its services, and the lookups by Docker image and by a name or
 //! domain hint work from indexes built once, in Go's order (keys sorted;
-//! the first key wins a shared image or hint). Go's descriptions are left
-//! out: nothing reads them. The port indexes (`LookupByPort`,
-//! `LookupUniqueByPort`) come with the parts that read them (the port
-//! scan and the proxy routes).
+//! the first key wins a shared image or hint), as does the lookup by
+//! default port, which names a port only when one service has it (Go's
+//! `LookupUniqueByPort`; its `LookupByPort` is read only by Go's tests).
+//! Go's descriptions are left out: nothing reads them.
 
 mod databases;
 mod development;
@@ -74,6 +74,9 @@ struct Registry {
     services: BTreeMap<&'static str, &'static KnownService>,
     images: HashMap<String, &'static str>,
     hints: HashMap<String, &'static str>,
+    /// Go's `portIndex` (the first key for a port) and how many services
+    /// have each default port.
+    ports: HashMap<u16, (&'static str, usize)>,
 }
 
 impl Registry {
@@ -92,6 +95,7 @@ impl Registry {
             services,
             images: HashMap::new(),
             hints: HashMap::new(),
+            ports: HashMap::new(),
         };
         let all: Vec<&'static KnownService> = registry.services.values().copied().collect();
         for service in all {
@@ -113,6 +117,13 @@ impl Registry {
                 {
                     registry.add_hint(key, &normalized[slash + 1..]);
                 }
+            }
+            if service.default_port > 0 {
+                registry
+                    .ports
+                    .entry(service.default_port)
+                    .or_insert((key, 0))
+                    .1 += 1;
             }
         }
         for (key, alias) in BASELINE_ALIASES {
@@ -163,6 +174,16 @@ pub(crate) fn by_hint(hint: &str) -> Option<&'static KnownService> {
         seen.push(normalized);
     }
     None
+}
+
+/// Go's `LookupUniqueByPort`: the service with this default port, when
+/// no other has it.
+pub(crate) fn unique_by_port(port: u16) -> Option<&'static KnownService> {
+    REGISTRY
+        .ports
+        .get(&port)
+        .filter(|(_, count)| *count == 1)
+        .and_then(|(key, _)| REGISTRY.get(key))
 }
 
 /// Go's `LookupByKey`.

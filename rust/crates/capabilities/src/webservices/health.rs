@@ -50,7 +50,8 @@ pub(crate) trait Prober: Send + Sync {
 
 /// Go's `doHealthRequest`: https goes to the client that does not check
 /// certificates first and, when that gets no answer, to the one that does.
-async fn request(prober: &dyn Prober, method: Method, url: &str) -> Option<u16> {
+/// The port scan's HTTP check uses it too.
+pub(crate) async fn request(prober: &dyn Prober, method: Method, url: &str) -> Option<u16> {
     let https = url.trim().to_ascii_lowercase().starts_with("https://");
     let first = if https {
         Client::Insecure

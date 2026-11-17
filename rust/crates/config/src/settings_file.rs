@@ -11,6 +11,7 @@ use crate::LogLevel;
 use crate::docker::FileDocker;
 use crate::env::parse_go_bool;
 use crate::files::{self, MAX_STATE_FILE_BYTES};
+use crate::web_services::{FileServices, normalize_port_list};
 
 pub(crate) const KEY_COLLECT_INTERVAL_SEC: &str = "collect_interval_sec";
 pub(crate) const KEY_HEARTBEAT_INTERVAL_SEC: &str = "heartbeat_interval_sec";
@@ -21,6 +22,9 @@ pub(crate) const KEY_DOCKER_ENABLED: &str = "docker_enabled";
 pub(crate) const KEY_DOCKER_ENDPOINT: &str = "docker_endpoint";
 pub(crate) const KEY_DOCKER_INTERVAL_SEC: &str = "docker_discovery_interval_sec";
 pub(crate) const KEY_SERVICES_DOCKER_ENABLED: &str = "services_discovery_docker_enabled";
+pub(crate) const KEY_PORT_SCAN_ENABLED: &str = "services_discovery_port_scan_enabled";
+pub(crate) const KEY_PORT_SCAN_LISTENING: &str = "services_discovery_port_scan_include_listening";
+pub(crate) const KEY_PORT_SCAN_PORTS: &str = "services_discovery_port_scan_ports";
 
 #[derive(Deserialize)]
 struct RawFile {
@@ -38,8 +42,9 @@ pub(crate) struct FileValues {
     /// Present means the file sets it, even to the empty string.
     pub tls_ca_file: Option<String>,
     pub docker: FileDocker,
-    /// `services_discovery_docker_enabled`, read with Go's `ParseBool`.
-    pub services_docker_enabled: Option<bool>,
+    /// The `services_discovery_*` keys, switches read with Go's
+    /// `ParseBool`.
+    pub services: FileServices,
 }
 
 /// Why the file was not used.
@@ -100,6 +105,11 @@ fn parse_values(values: &BTreeMap<String, String>) -> FileValues {
                 .and_then(|raw| raw.parse::<u64>().ok())
                 .filter(|seconds| (5..=3600).contains(seconds)),
         },
-        services_docker_enabled: get(KEY_SERVICES_DOCKER_ENABLED).and_then(parse_go_bool),
+        services: FileServices {
+            docker_enabled: get(KEY_SERVICES_DOCKER_ENABLED).and_then(parse_go_bool),
+            port_scan_enabled: get(KEY_PORT_SCAN_ENABLED).and_then(parse_go_bool),
+            port_scan_include_listening: get(KEY_PORT_SCAN_LISTENING).and_then(parse_go_bool),
+            port_scan_ports: get(KEY_PORT_SCAN_PORTS).and_then(normalize_port_list),
+        },
     }
 }

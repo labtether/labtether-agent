@@ -10,6 +10,7 @@ pub mod metadata;
 pub mod mounts;
 pub mod netid;
 pub mod netlink;
+pub mod proc_net;
 pub mod process;
 pub mod processes;
 pub mod procfs;
