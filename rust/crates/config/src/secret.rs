@@ -15,6 +15,13 @@ impl Secret {
         (!trimmed.is_empty()).then(|| Self(trimmed.to_owned()))
     }
 
+    /// Wraps a non-empty value exactly as written: a password, which Go
+    /// sends untrimmed.
+    pub fn exact(value: impl Into<String>) -> Option<Self> {
+        let value = value.into();
+        (!value.is_empty()).then_some(Self(value))
+    }
+
     /// The raw value, for the one place that must send or store it.
     pub fn expose(&self) -> &str {
         &self.0

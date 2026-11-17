@@ -8,19 +8,23 @@
 //!
 //! Services on the host outside Docker come from the local port scan
 //! (`scan.rs`): Go's default ports and the listening ones, dialled on the
-//! host's own address only.
+//! host's own address only. Reverse proxies (Traefik, Caddy, Nginx Proxy
+//! Manager) found among the containers give services their proxied URLs
+//! and add the routes to services not found otherwise (`proxy/`,
+//! `routes.rs`).
 //!
 //! The report needs no capability word: the Hub takes it from any agent.
 //! `webservice.sync` (the page's sync) runs one cycle at once
 //! (`sync.rs`); its handler advertises `cap_web_services=sync`.
-//! Reverse-proxy routes and the LAN scan are later parts; the report says
-//! their sources are not enabled.
+//! The LAN scan is a later part; the report says its source is not
+//! enabled.
 //!
-//! Timers as Go's `Run`: the host's address is read once at start, a cycle
-//! runs at start only if the agent is already connected (in the agent it
-//! never is, so the first report comes an interval after start) and then
-//! one every `LABTETHER_SERVICES_DISCOVERY_INTERVAL` (60 s by default),
-//! a missed tick running once at once, as Go's ticker.
+//! Timers as Go's `Run`: the host's address is read once at start and a
+//! cycle runs every `LABTETHER_SERVICES_DISCOVERY_INTERVAL` (60 s by
+//! default), a missed tick running once at once, as Go's ticker. Go's
+//! `Run` also runs a cycle as it starts, but in the agent that is before
+//! the first connection, so it never sends: the first report comes one
+//! interval after start. No cycle runs at start here.
 
 mod cache;
 mod client;
@@ -29,11 +33,14 @@ mod compat_probes;
 mod containers;
 mod cycle;
 mod fingerprint;
+mod gourl;
 mod health;
 mod labtether;
 mod location;
 mod pages;
+mod proxy;
 mod registry;
+mod routes;
 mod scan;
 mod scan_host;
 mod sync;
@@ -52,6 +59,8 @@ use crate::docker::engine::{Blocking, EngineApi, Socket};
 use crate::docker::schedule::Ticker;
 use client::{HttpProber, TIMEOUT};
 use cycle::{Collector, Runner};
+use proxy::Providers;
+use proxy::http::HttpApi;
 use scan_host::LocalHost;
 use sync::{Requests, Woken};
 
@@ -96,11 +105,9 @@ fn run(
     requests: &Arc<Requests>,
 ) {
     // Go's first cycle runs as the collector starts, before the agent's
-    // first connection, so it sends nothing: the first report comes an
-    // interval later. The connection is checked before the slower set-up
-    // below (the system CA roots), as Go's order is.
+    // first connection, so it never sends: the first report comes an
+    // interval after start, even when this thread starts connected.
     let started = Instant::now();
-    let connected_at_start = sender.connected();
     let host_ip = host_ip();
     let runner = match Runner::new(stop) {
         Ok(runner) => runner,
@@ -114,6 +121,10 @@ fn run(
         Ok(host) => host,
         Err(error) => return log::error!("{PRODUCER}: could not start: {error}"),
     };
+    let api = match HttpApi::new() {
+        Ok(api) => api,
+        Err(error) => return log::error!("{PRODUCER}: could not start: {error}"),
+    };
     let engine = docker.and_then(|socket| {
         Blocking::new(socket, stop)
             .map_err(|error| log::error!("{PRODUCER}: Docker source not started: {error}"))
@@ -123,21 +134,18 @@ fn run(
     log::info!("{name}: Web service collector enabled (host IP: {host_ip})");
     let mut collector = Collector::new(host_ip, config.docker_enabled, config.interval);
     collector.scan = config.port_scan.clone();
+    collector.proxy = Providers::new(&config.proxy);
     let mut ticker = Ticker::new(config.interval, started);
     let clock = SystemTime::now;
     let _open = requests.open(stop);
-    if connected_at_start {
-        collector.run(sender, docker, &prober, &host, &runner, &clock);
-        ticker = Ticker::new(config.interval, Instant::now());
-    }
     while !stop.is_stopped() {
         if ticker.due(Instant::now()) {
-            collector.run(sender, docker, &prober, &host, &runner, &clock);
+            collector.run(sender, docker, &api, &prober, &host, &runner, &clock);
             continue;
         }
         match requests.wait(ticker.next, stop) {
             Woken::Sync => {
-                collector.run(sender, docker, &prober, &host, &runner, &clock);
+                collector.run(sender, docker, &api, &prober, &host, &runner, &clock);
                 requests.served();
             }
             Woken::Due => {}

@@ -144,3 +144,60 @@ fn port_scan_settings_follow_go() {
     let bad = Some(r#"{"services_discovery_port_scan_ports":"80,abc"}"#);
     assert_eq!(scan(&[], bad).2, Vec::<u16>::new());
 }
+
+fn proxy(env: &[(&str, &str)], file: Option<&str>) -> (bool, bool, bool, bool) {
+    let p = settings(env, file).proxy;
+    (p.enabled, p.traefik, p.caddy, p.npm)
+}
+
+// Faults: the proxy source or a provider off by default; Go's older
+// `LABTETHER_PROXY_DISABLED` not read, or read for any value (off only
+// for true, 1 or on); a value saved in agent-config.json from an earlier
+// Hub push replacing a choice made in the environment (either name for
+// the source), or not read at all; NPM found over http for Go's other
+// true words (`t`) or over https for `yes`; an address keeping its
+// trailing `/`, NPM's not trimmed, or a password trimmed; the outbound
+// private switch taken as unset when it does not read as one (Go then
+// refuses private addresses).
+#[test]
+fn proxy_settings_follow_go() {
+    const ON: &str = "LABTETHER_SERVICES_DISCOVERY_PROXY_ENABLED";
+    const OFF: &str = "LABTETHER_PROXY_DISABLED";
+    const NPM: &str = "LABTETHER_SERVICES_DISCOVERY_PROXY_NPM_ENABLED";
+    let file = Some(
+        r#"{"services_discovery_proxy_enabled":"false",
+            "services_discovery_proxy_traefik_enabled":"0",
+            "services_discovery_proxy_caddy_enabled":"F",
+            "services_discovery_proxy_npm_enabled":"no"}"#,
+    );
+    assert_eq!(proxy(&[], None), (true, true, true, true));
+    assert_eq!(proxy(&[], file), (false, false, false, true));
+    assert!(proxy(&[(ON, "true")], file).0);
+    assert!(proxy(&[(OFF, "nope")], file).0);
+    assert!(proxy(&[(ON, "maybe")], file).0);
+    assert_eq!(proxy(&[(NPM, "false")], None), (true, true, true, false));
+    for (raw, enabled) in [("TRUE", false), ("on", false), ("1", false), ("yes", true)] {
+        assert_eq!(proxy(&[(ON, "true"), (OFF, raw)], None).0, enabled, "{raw}");
+    }
+    let p = settings(
+        &[
+            ("LABTETHER_TRAEFIK_URL", "http://localhost:8080//"),
+            ("LABTETHER_NPM_URL", " http://npm.lan:81/ "),
+            ("LABTETHER_NPM_PASSWORD", " made up "),
+            ("LABTETHER_ALLOW_INSECURE_TRANSPORT", " Yes "),
+            ("LABTETHER_OUTBOUND_ALLOW_PRIVATE", "maybe"),
+        ],
+        None,
+    )
+    .proxy;
+    assert_eq!(p.traefik_url, "http://localhost:8080");
+    assert_eq!(p.npm_url, "http://npm.lan:81");
+    assert_eq!(p.npm_password.unwrap().expose(), " made up ");
+    assert!(p.npm_http);
+    assert!(!p.outbound.allow_insecure);
+    assert_eq!(p.outbound.allow_private, Some(false));
+    let t = settings(&[("LABTETHER_ALLOW_INSECURE_TRANSPORT", "t")], None).proxy;
+    assert!(!t.npm_http && t.outbound.allow_insecure);
+    assert_eq!(t.outbound.schemes, ["https", "wss", "http", "ws"]);
+    assert_eq!(t.outbound.allow_private, None);
+}

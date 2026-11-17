@@ -23,6 +23,18 @@
   },
   "s": {
    "file": "containers-s.json"
+  },
+  "p": {
+   "file": "containers-p.json"
+  },
+  "p-stopped": {
+   "file": "containers-p-stopped.json"
+  },
+  "p-labels": {
+   "file": "containers-p-labels.json"
+  },
+  "p-noadmin": {
+   "file": "containers-p-noadmin.json"
   }
  },
  "probes": {
@@ -348,6 +360,307 @@
      "listeners": "s1"
     }
    ]
+  },
+  {
+   "name": "proxy-traefik",
+   "docker": "on",
+   "digest": true,
+   "digest_health": true,
+   "proxy": {
+    "enabled": true,
+    "traefik": true,
+    "caddy": false,
+    "npm": false,
+    "env": {
+     "LABTETHER_TRAEFIK_USER": "ltqa",
+     "LABTETHER_TRAEFIK_PASSWORD": "made-up"
+    }
+   },
+   "steps": [
+    {
+     "at": 0,
+     "engine": "p",
+     "api": "t-ok"
+    },
+    {
+     "at": 60
+    },
+    {
+     "at": 120,
+     "api": "t-fail"
+    },
+    {
+     "at": 180
+    },
+    {
+     "at": 240,
+     "reconnect": true
+    },
+    {
+     "at": 300,
+     "engine": "p-stopped",
+     "api": "t-ok"
+    },
+    {
+     "at": 360,
+     "engine": "p-labels",
+     "api": "t-labels"
+    },
+    {
+     "at": 420,
+     "engine": "p",
+     "api": "t-ok"
+    }
+   ]
+  },
+  {
+   "name": "proxy-traefik-manual",
+   "docker": "on",
+   "digest": true,
+   "digest_health": true,
+   "proxy": {
+    "enabled": true,
+    "traefik": true,
+    "caddy": false,
+    "npm": false,
+    "env": {
+     "LABTETHER_TRAEFIK_URL": "http://localhost:18391//"
+    }
+   },
+   "steps": [
+    {
+     "at": 0,
+     "engine": "c",
+     "api": "t-manual"
+    }
+   ]
+  },
+  {
+   "name": "proxy-caddy",
+   "docker": "on",
+   "digest": true,
+   "digest_health": true,
+   "proxy": {
+    "enabled": true,
+    "traefik": false,
+    "caddy": true,
+    "npm": false,
+    "env": {}
+   },
+   "steps": [
+    {
+     "at": 0,
+     "engine": "p",
+     "api": "c-ok"
+    },
+    {
+     "at": 60,
+     "api": "c-403"
+    },
+    {
+     "at": 120,
+     "api": "c-null"
+    },
+    {
+     "at": 180,
+     "engine": "p-noadmin",
+     "api": "c-ok"
+    },
+    {
+     "at": 240,
+     "engine": "fail",
+     "api": "c-ok"
+    }
+   ]
+  },
+  {
+   "name": "proxy-npm-default",
+   "docker": "on",
+   "digest": true,
+   "digest_health": true,
+   "proxy": {
+    "enabled": true,
+    "traefik": false,
+    "caddy": false,
+    "npm": true,
+    "env": {
+     "LABTETHER_NPM_EMAIL": "ltqa@example.com",
+     "LABTETHER_NPM_PASSWORD": "made-up <pw>&\"x\""
+    }
+   },
+   "steps": [
+    {
+     "at": 0,
+     "engine": "p",
+     "api": "n-ok"
+    },
+    {
+     "at": 60
+    }
+   ]
+  },
+  {
+   "name": "proxy-npm-nologin",
+   "docker": "on",
+   "digest": true,
+   "digest_health": true,
+   "proxy": {
+    "enabled": true,
+    "traefik": false,
+    "caddy": false,
+    "npm": true,
+    "env": {
+     "LABTETHER_ALLOW_INSECURE_TRANSPORT": "true",
+     "LABTETHER_OUTBOUND_ALLOW_LOOPBACK": "true",
+     "LABTETHER_NPM_EMAIL": "ltqa@example.com"
+    }
+   },
+   "steps": [
+    {
+     "at": 0,
+     "engine": "p",
+     "api": "n-ok"
+    }
+   ]
+  },
+  {
+   "name": "proxy-npm",
+   "docker": "on",
+   "digest": true,
+   "digest_health": true,
+   "proxy": {
+    "enabled": true,
+    "traefik": false,
+    "caddy": false,
+    "npm": true,
+    "env": {
+     "LABTETHER_NPM_EMAIL": "ltqa@example.com",
+     "LABTETHER_NPM_PASSWORD": "made-up <pw>&\"x\"",
+     "LABTETHER_ALLOW_INSECURE_TRANSPORT": "true",
+     "LABTETHER_OUTBOUND_ALLOW_LOOPBACK": "true"
+    }
+   },
+   "steps": [
+    {
+     "at": 0,
+     "engine": "p",
+     "api": "n-ok"
+    },
+    {
+     "at": 60
+    },
+    {
+     "at": 120,
+     "api": "n-401"
+    },
+    {
+     "at": 180,
+     "api": "n-gone"
+    }
+   ]
+  },
+  {
+   "name": "proxy-npm-http",
+   "docker": "on",
+   "digest": true,
+   "digest_health": true,
+   "proxy": {
+    "enabled": true,
+    "traefik": false,
+    "caddy": false,
+    "npm": true,
+    "env": {
+     "LABTETHER_NPM_EMAIL": "ltqa@example.com",
+     "LABTETHER_NPM_PASSWORD": "made-up <pw>&\"x\"",
+     "LABTETHER_NPM_URL": "http://localhost:18383",
+     "LABTETHER_OUTBOUND_ALLOW_LOOPBACK": "true",
+     "LABTETHER_OUTBOUND_ALLOWED_SCHEMES": "http,https"
+    }
+   },
+   "steps": [
+    {
+     "at": 0,
+     "engine": "p",
+     "api": "n-ok"
+    }
+   ]
+  },
+  {
+   "name": "proxy-npm-url",
+   "docker": "on",
+   "digest": true,
+   "digest_health": true,
+   "proxy": {
+    "enabled": true,
+    "traefik": false,
+    "caddy": false,
+    "npm": true,
+    "env": {
+     "LABTETHER_NPM_EMAIL": "ltqa@example.com",
+     "LABTETHER_NPM_PASSWORD": "made-up <pw>&\"x\"",
+     "LABTETHER_ALLOW_INSECURE_TRANSPORT": "true",
+     "LABTETHER_OUTBOUND_ALLOW_LOOPBACK": "true",
+     "LABTETHER_NPM_URL": " http://npm.ltqa.example:81/base/ ",
+     "LABTETHER_OUTBOUND_ALLOWLIST_MODE": "true",
+     "LABTETHER_OUTBOUND_ALLOWED_HOSTS": "*.ltqa.example, 10.0.0.0/8"
+    }
+   },
+   "steps": [
+    {
+     "at": 0,
+     "engine": "c",
+     "api": "n-url"
+    }
+   ]
+  },
+  {
+   "name": "proxy-mixed",
+   "docker": "on",
+   "digest": true,
+   "digest_health": true,
+   "proxy": {
+    "enabled": true,
+    "traefik": true,
+    "caddy": true,
+    "npm": true,
+    "env": {
+     "LABTETHER_NPM_EMAIL": "ltqa@example.com",
+     "LABTETHER_NPM_PASSWORD": "made-up <pw>&\"x\""
+    }
+   },
+   "steps": [
+    {
+     "at": 0,
+     "engine": "p",
+     "api": "mixed"
+    },
+    {
+     "at": 60
+    }
+   ]
+  },
+  {
+   "name": "proxy-off",
+   "docker": "on",
+   "digest": true,
+   "digest_health": true,
+   "proxy": {
+    "enabled": false,
+    "traefik": true,
+    "caddy": true,
+    "npm": true,
+    "env": {
+     "LABTETHER_NPM_EMAIL": "ltqa@example.com",
+     "LABTETHER_NPM_PASSWORD": "made-up <pw>&\"x\""
+    }
+   },
+   "steps": [
+    {
+     "at": 0,
+     "engine": "p",
+     "api": "mixed"
+    }
+   ]
   }
  ],
  "sites": {
@@ -510,7 +823,7 @@
    "http://192.0.2.10:18219": {
     "/": {
      "status": 200,
-     "body": "<body>UNİFİ NETWORK</body>"
+     "body": "<body>UN\u0130F\u0130 NETWORK</body>"
     },
     "*": 404
    },
@@ -1271,5 +1584,126 @@
     ]
    }
   ]
+ },
+ "apis": {
+  "t-ok": {
+   "GET http://localhost:18380/api/http/routers?per_page=1000": {
+    "status": 200,
+    "body": "[{\"name\": \"app@docker\", \"rule\": \"Host(`app.ltqa.example`)\", \"service\": \"app@docker\", \"status\": \"enabled\", \"entryPoints\": [\"websecure\"]}, {\"name\": \"app-alt@docker\", \"rule\": \"Host(`app2.ltqa.example`) || Host(\\\"www.app.ltqa.example\\\")\", \"service\": \"app@docker\", \"status\": \"enabled\", \"entryPoints\": [\"web\"], \"tls\": {\"certResolver\": \"le\"}}, {\"name\": \"two@file\", \"rule\": \"Host(`two.ltqa.example`)\", \"service\": \"two@file\", \"status\": \"enabled\", \"entryPoints\": [\"web\"]}, {\"name\": \"shows@file\", \"rule\": \"Host(`tv.ltqa.example`)\", \"service\": \"sonarr@file\", \"status\": \"enabled\", \"entryPoints\": [\"websecure\"]}, {\"name\": \"wiki@file\", \"rule\": \"host(`wiki.ltqa.example`, `kb.ltqa.example`)\", \"service\": \"wiki@file\", \"status\": \"enabled\", \"entryPoints\": [\"web\"]}, {\"name\": \"plain@file\", \"rule\": \"Host(`plain.ltqa.example`)\", \"service\": \"missing@file\", \"status\": \"enabled\", \"entryPoints\": [\"web\"]}, {\"name\": \"direct@file\", \"rule\": \"Host(`direct.ltqa.example`)\", \"service\": \"direct@file\", \"status\": \"enabled\", \"entryPoints\": [\"web\"]}, {\"name\": \"dashboard@internal\", \"rule\": \"Host(`dash.ltqa.example`) && PathPrefix(`/api`)\", \"service\": \"api@internal\", \"status\": \"enabled\", \"entryPoints\": [\"web\"]}, {\"name\": \"off@file\", \"rule\": \"Host(`off.ltqa.example`)\", \"service\": \"two@file\", \"status\": \"disabled\", \"entryPoints\": [\"web\"]}, {\"name\": \"pattern@file\", \"rule\": \"HostRegexp(`{sub:[a-z]+}.ltqa.example`)\", \"service\": \"two@file\", \"status\": \"enabled\", \"entryPoints\": [\"web\"]}, {\"name\": \"fixed@file\", \"rule\": \"HOSTREGEXP(`fixed.ltqa.example`) && PathPrefix(`/x`)\", \"service\": \"fixed@file\", \"status\": \"enabled\", \"entryPoints\": [\"web\"]}, {\"name\": \"path@file\", \"rule\": \"PathPrefix(`/only`)\", \"service\": \"two@file\", \"status\": \"enabled\", \"entryPoints\": [\"web\"]}]"
+   },
+   "GET http://localhost:18380/api/http/services?per_page=1000": {
+    "status": 200,
+    "body": "[{\"name\": \"app@docker\", \"loadBalancer\": {\"servers\": [{\"url\": \"http://172.18.0.3:80\"}]}, \"status\": \"enabled\"}, {\"name\": \"two@file\", \"loadBalancer\": {\"servers\": [{\"url\": \"http://172.18.0.4:8090\"}]}, \"status\": \"enabled\"}, {\"name\": \"sonarr@file\", \"loadBalancer\": {\"servers\": [{\"url\": \"http://192.0.2.10:8989\"}]}, \"status\": \"enabled\"}, {\"name\": \"wiki@file\", \"loadBalancer\": {\"servers\": [{\"url\": \"http://192.0.2.30:3000/\"}]}, \"status\": \"enabled\"}, {\"name\": \"direct@file\", \"loadBalancer\": {\"servers\": [{\"url\": \"http://192.0.2.10:18086\"}]}, \"status\": \"enabled\"}, {\"name\": \"fixed@file\", \"loadBalancer\": {\"servers\": [{\"url\": \"https://192.0.2.31\"}]}, \"status\": \"enabled\"}, {\"name\": \"weighted@file\", \"weighted\": {\"services\": []}}]"
+   }
+  },
+  "t-fail": {
+   "GET http://localhost:18380/api/http/routers?per_page=1000": {
+    "status": 500,
+    "body": "{\"message\": \"busy\"}"
+   }
+  },
+  "t-labels": {
+   "GET http://traefik.ltqa.example/api/http/routers?per_page=1000": {
+    "status": 302,
+    "body": "",
+    "location": "/api/http/routers?per_page=1000&page=1"
+   },
+   "GET http://traefik.ltqa.example/api/http/routers?per_page=1000&page=1": {
+    "status": 200,
+    "body": "[{\"name\": \"app@docker\", \"rule\": \"Host(`app.ltqa.example`)\", \"service\": \"app@docker\", \"status\": \"enabled\", \"entryPoints\": [\"websecure\"]}, {\"name\": \"app-alt@docker\", \"rule\": \"Host(`app2.ltqa.example`) || Host(\\\"www.app.ltqa.example\\\")\", \"service\": \"app@docker\", \"status\": \"enabled\", \"entryPoints\": [\"web\"], \"tls\": {\"certResolver\": \"le\"}}, {\"name\": \"two@file\", \"rule\": \"Host(`two.ltqa.example`)\", \"service\": \"two@file\", \"status\": \"enabled\", \"entryPoints\": [\"web\"]}]"
+   },
+   "GET http://traefik.ltqa.example/api/http/services?per_page=1000": {
+    "status": 301,
+    "body": "",
+    "location": "http://localhost:18390/svc"
+   },
+   "GET http://localhost:18390/svc": {
+    "status": 200,
+    "body": "[{\"name\": \"app@docker\", \"loadBalancer\": {\"servers\": [{\"url\": \"http://172.18.0.3:80\"}]}, \"status\": \"enabled\"}, {\"name\": \"two@file\", \"loadBalancer\": {\"servers\": [{\"url\": \"http://172.18.0.4:8090\"}]}, \"status\": \"enabled\"}]"
+   }
+  },
+  "t-manual": {
+   "GET http://localhost:18391/api/http/routers?per_page=1000": {
+    "status": 200,
+    "body": "[{\"name\": \"two@file\", \"rule\": \"Host(`two.ltqa.example`)\", \"service\": \"two@file\", \"status\": \"enabled\", \"entryPoints\": [\"web\"]}, {\"name\": \"shows@file\", \"rule\": \"Host(`tv.ltqa.example`)\", \"service\": \"sonarr@file\", \"status\": \"enabled\", \"entryPoints\": [\"websecure\"]}]"
+   },
+   "GET http://localhost:18391/api/http/services?per_page=1000": {
+    "status": 200,
+    "body": "[{\"name\": \"two@file\", \"loadBalancer\": {\"servers\": [{\"url\": \"http://172.18.0.4:8090\"}]}, \"status\": \"enabled\"}, {\"name\": \"sonarr@file\", \"loadBalancer\": {\"servers\": [{\"url\": \"http://192.0.2.10:8989\"}]}, \"status\": \"enabled\"}]"
+   }
+  },
+  "c-ok": {
+   "GET http://localhost:18385/config/": {
+    "status": 200,
+    "body": "{\"admin\": {\"listen\": \"0.0.0.0:2019\"}, \"apps\": {\"http\": {\"servers\": {\"srv0\": {\"listen\": [\":443\"], \"routes\": [{\"match\": [{\"host\": [\"files.ltqa.example\", \"files2.ltqa.example\"]}], \"handle\": [{\"handler\": \"subroute\", \"routes\": [{\"handle\": [{\"handler\": \"headers\"}, {\"handler\": \"reverse_proxy\", \"upstreams\": [{\"dial\": \"ltqa-a2i-app2:8090\"}]}]}]}]}, {\"match\": [{\"host\": [\"static.ltqa.example\"]}], \"handle\": [{\"handler\": \"static_response\", \"body\": \"hi\"}]}, {\"match\": [{\"host\": [\"grafana.ltqa.example\"]}], \"handle\": [{\"handler\": \"reverse_proxy\", \"upstreams\": [{\"dial\": \"{upstream}:3000\"}]}]}, {\"match\": [{\"host\": [\"db.ltqa.example\"], \"path\": [\"/ui/*\"]}], \"handle\": [{\"handler\": \"reverse_proxy\", \"upstreams\": [{\"dial\": \"192.0.2.40:5432\"}, {\"dial\": \"x:1\"}]}]}, {\"handle\": [{\"handler\": \"reverse_proxy\", \"upstreams\": [{\"dial\": \"192.0.2.41:80\"}]}]}]}}}}}"
+   }
+  },
+  "c-403": {
+   "GET http://localhost:18385/config/": {
+    "status": 403,
+    "body": "{\"error\": \"host not allowed\"}"
+   }
+  },
+  "c-null": {
+   "GET http://localhost:18385/config/": {
+    "status": 200,
+    "body": "null"
+   }
+  },
+  "n-ok": {
+   "POST http://localhost:18383/api/tokens": {
+    "status": 200,
+    "body": "{\"token\": \"made-up-token-1\", \"expires\": \"2026-11-18T00:00:00.000Z\"}"
+   },
+   "GET http://localhost:18383/api/nginx/proxy-hosts": {
+    "status": 200,
+    "body": "[{\"id\": 1, \"domain_names\": [\"npm-app.ltqa.example\"], \"forward_host\": \"ltqa-a2i-app3\", \"forward_port\": 8091, \"forward_scheme\": \"http\", \"ssl_forced\": true, \"enabled\": true, \"meta\": {\"letsencrypt_agree\": false}}, {\"id\": 2, \"domain_names\": [\"old.ltqa.example\"], \"forward_host\": \"192.0.2.50\", \"forward_port\": 80, \"forward_scheme\": \"http\", \"ssl_forced\": false, \"enabled\": false}, {\"id\": 3, \"domain_names\": [\"vault.ltqa.example\", \"v.ltqa.example\"], \"forward_host\": \"192.0.2.20\", \"forward_port\": 8200, \"forward_scheme\": \"https\", \"ssl_forced\": false, \"enabled\": true}]"
+   }
+  },
+  "n-401": {
+   "POST http://localhost:18383/api/tokens": {
+    "status": 200,
+    "body": "{\"token\": \"made-up-token-1\", \"expires\": \"2026-11-18T00:00:00.000Z\"}"
+   },
+   "GET http://localhost:18383/api/nginx/proxy-hosts": {
+    "status": 401,
+    "body": "{\"error\": {\"message\": \"expired\"}}"
+   }
+  },
+  "n-gone": {
+   "POST http://localhost:18383/api/tokens": {
+    "status": 200,
+    "body": "{\"token\": \"made-up-token-1\", \"expires\": \"2026-11-18T00:00:00.000Z\"}"
+   },
+   "GET http://localhost:18383/api/nginx/proxy-hosts": null
+  },
+  "n-url": {
+   "POST http://npm.ltqa.example:81/base/api/tokens": {
+    "status": 200,
+    "body": "{\"token\": \"made-up-token-1\", \"expires\": \"2026-11-18T00:00:00.000Z\"}"
+   },
+   "GET http://npm.ltqa.example:81/base/api/nginx/proxy-hosts": {
+    "status": 200,
+    "body": "[{\"id\": 3, \"domain_names\": [\"vault.ltqa.example\", \"v.ltqa.example\"], \"forward_host\": \"192.0.2.20\", \"forward_port\": 8200, \"forward_scheme\": \"https\", \"ssl_forced\": false, \"enabled\": true}]"
+   }
+  },
+  "mixed": {
+   "GET http://localhost:18380/api/http/routers?per_page=1000": {
+    "status": 200,
+    "body": "[{\"name\": \"app@docker\", \"rule\": \"Host(`app.ltqa.example`)\", \"service\": \"app@docker\", \"status\": \"enabled\", \"entryPoints\": [\"websecure\"]}, {\"name\": \"app-alt@docker\", \"rule\": \"Host(`app2.ltqa.example`) || Host(\\\"www.app.ltqa.example\\\")\", \"service\": \"app@docker\", \"status\": \"enabled\", \"entryPoints\": [\"web\"], \"tls\": {\"certResolver\": \"le\"}}, {\"name\": \"two@file\", \"rule\": \"Host(`two.ltqa.example`)\", \"service\": \"two@file\", \"status\": \"enabled\", \"entryPoints\": [\"web\"]}, {\"name\": \"shows@file\", \"rule\": \"Host(`tv.ltqa.example`)\", \"service\": \"sonarr@file\", \"status\": \"enabled\", \"entryPoints\": [\"websecure\"]}, {\"name\": \"wiki@file\", \"rule\": \"host(`wiki.ltqa.example`, `kb.ltqa.example`)\", \"service\": \"wiki@file\", \"status\": \"enabled\", \"entryPoints\": [\"web\"]}, {\"name\": \"plain@file\", \"rule\": \"Host(`plain.ltqa.example`)\", \"service\": \"missing@file\", \"status\": \"enabled\", \"entryPoints\": [\"web\"]}, {\"name\": \"direct@file\", \"rule\": \"Host(`direct.ltqa.example`)\", \"service\": \"direct@file\", \"status\": \"enabled\", \"entryPoints\": [\"web\"]}, {\"name\": \"dashboard@internal\", \"rule\": \"Host(`dash.ltqa.example`) && PathPrefix(`/api`)\", \"service\": \"api@internal\", \"status\": \"enabled\", \"entryPoints\": [\"web\"]}, {\"name\": \"off@file\", \"rule\": \"Host(`off.ltqa.example`)\", \"service\": \"two@file\", \"status\": \"disabled\", \"entryPoints\": [\"web\"]}, {\"name\": \"pattern@file\", \"rule\": \"HostRegexp(`{sub:[a-z]+}.ltqa.example`)\", \"service\": \"two@file\", \"status\": \"enabled\", \"entryPoints\": [\"web\"]}, {\"name\": \"fixed@file\", \"rule\": \"HOSTREGEXP(`fixed.ltqa.example`) && PathPrefix(`/x`)\", \"service\": \"fixed@file\", \"status\": \"enabled\", \"entryPoints\": [\"web\"]}, {\"name\": \"path@file\", \"rule\": \"PathPrefix(`/only`)\", \"service\": \"two@file\", \"status\": \"enabled\", \"entryPoints\": [\"web\"]}]"
+   },
+   "GET http://localhost:18380/api/http/services?per_page=1000": {
+    "status": 200,
+    "body": "[{\"name\": \"app@docker\", \"loadBalancer\": {\"servers\": [{\"url\": \"http://172.18.0.3:80\"}]}, \"status\": \"enabled\"}, {\"name\": \"two@file\", \"loadBalancer\": {\"servers\": [{\"url\": \"http://172.18.0.4:8090\"}]}, \"status\": \"enabled\"}, {\"name\": \"sonarr@file\", \"loadBalancer\": {\"servers\": [{\"url\": \"http://192.0.2.10:8989\"}]}, \"status\": \"enabled\"}, {\"name\": \"wiki@file\", \"loadBalancer\": {\"servers\": [{\"url\": \"http://192.0.2.30:3000/\"}]}, \"status\": \"enabled\"}, {\"name\": \"direct@file\", \"loadBalancer\": {\"servers\": [{\"url\": \"http://192.0.2.10:18086\"}]}, \"status\": \"enabled\"}, {\"name\": \"fixed@file\", \"loadBalancer\": {\"servers\": [{\"url\": \"https://192.0.2.31\"}]}, \"status\": \"enabled\"}, {\"name\": \"weighted@file\", \"weighted\": {\"services\": []}}]"
+   },
+   "GET http://localhost:18385/config/": {
+    "status": 200,
+    "body": "{\"apps\": {\"http\": {\"servers\": {\"srv0\": {\"listen\": [\":80\"], \"routes\": [{\"match\": [{\"host\": [\"files.ltqa.example\"]}], \"handle\": [{\"handler\": \"reverse_proxy\", \"upstreams\": [{\"dial\": \"ltqa-a2i-app3:8091\"}]}]}]}}}}}"
+   }
+  }
+ },
+ "hosts": {
+  "traefik.ltqa.example": "127.0.0.1",
+  "npm.ltqa.example": "127.0.0.1"
  }
 }

@@ -16,21 +16,28 @@
 //! them) and its HTTP checks (as a set: Go runs 16 at once). Go ran them in
 //! an empty network namespace with the scenario's listeners on loopback;
 //! [`FakeHost`] stands for it here.
+//!
+//! Runs with the reverse proxies set Go's environment for the run and
+//! compare every request the proxies' APIs got (each origin's in order:
+//! the providers run at once), served from the scenario's tables on
+//! loopback in the same namespace; [`TableApi`] stands for them here.
 
 use std::collections::BTreeMap;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use labtether_agent_config::PortScanSettings;
 use labtether_agent_config::web_services::normalize_port_list;
+use labtether_agent_config::{Environment, PortScanSettings, web_proxy};
 use labtether_agent_core::Stop;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
+use super::proxy_api::TableApi;
 use super::scan::{FakeHost, Listener};
 use super::{FixtureEngine, Recorder, Reply, Site, TESTDATA, TableProber};
 use crate::docker::engine::EngineApi;
 use crate::webservices::cycle::{Collector, Runner};
+use crate::webservices::proxy::Providers;
 use crate::webservices::scan::ScanHost;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -54,6 +61,17 @@ struct Step {
     #[serde(default)]
     reconnect: bool,
     listeners: Option<String>,
+    api: Option<String>,
+}
+
+/// A run's proxy settings: the switches and the environment Go had.
+#[derive(Debug, Clone, Deserialize)]
+struct ProxyRun {
+    enabled: bool,
+    traefik: bool,
+    caddy: bool,
+    npm: bool,
+    env: BTreeMap<String, String>,
 }
 
 /// A run's port scan setting: the list as written in the settings.
@@ -69,8 +87,12 @@ struct Run {
     docker: String,
     #[serde(default)]
     digest: bool,
+    /// The health checks kept as their count and SHA-256 too.
+    #[serde(default)]
+    digest_health: bool,
     host_ip: Option<String>,
     scan: Option<ScanSetting>,
+    proxy: Option<ProxyRun>,
     steps: Vec<Step>,
 }
 
@@ -84,6 +106,10 @@ struct Scenario {
     sites: BTreeMap<String, BTreeMap<String, Site>>,
     #[serde(default)]
     listeners: BTreeMap<String, Vec<Listener>>,
+    #[serde(default)]
+    apis: BTreeMap<String, BTreeMap<String, Option<Reply>>>,
+    #[serde(default)]
+    hosts: BTreeMap<String, String>,
     runs: Vec<Run>,
 }
 
@@ -94,7 +120,8 @@ struct GoStep {
     engine_asked: usize,
     /// The recognition requests in order, or their count and SHA-256.
     recognition: Value,
-    health: Vec<String>,
+    /// The health checks, sorted, or their count and SHA-256.
+    health: Value,
     report: Value,
     #[serde(default)]
     listening: Vec<u16>,
@@ -103,6 +130,9 @@ struct GoStep {
     /// The scan's HTTP checks, sorted, or their count and SHA-256.
     #[serde(default)]
     scan: Value,
+    /// The requests the proxies' APIs got.
+    #[serde(default)]
+    proxy: Vec<String>,
 }
 
 /// Requests in a row with the same client, method and origin on one
@@ -200,6 +230,28 @@ fn normalize(value: &Value) -> Value {
     }
 }
 
+/// A run's proxy providers, from the environment Go had, and the APIs
+/// its tables serve.
+fn proxy_setup(scenario: &Scenario, run: &Run) -> (Providers, TableApi) {
+    let Some(proxy) = &run.proxy else {
+        let off = web_proxy::ProxySettings::default();
+        return (Providers::new(&off), TableApi::default());
+    };
+    let env = Environment::from_pairs(proxy.env.clone());
+    let mut settings = web_proxy::from_environment(&env);
+    (settings.enabled, settings.traefik) = (proxy.enabled, proxy.traefik);
+    (settings.caddy, settings.npm) = (proxy.caddy, proxy.npm);
+    let tables: Vec<_> = run
+        .steps
+        .iter()
+        .filter_map(|step| step.api.as_ref().map(|name| &scenario.apis[name]))
+        .collect();
+    (
+        Providers::new(&settings),
+        TableApi::new(&tables, &scenario.hosts),
+    )
+}
+
 fn go_steps() -> BTreeMap<(String, usize), GoStep> {
     let text = std::fs::read_to_string(format!("{TESTDATA}/go/webservice-steps.json")).unwrap();
     text.lines()
@@ -245,6 +297,21 @@ fn go_steps() -> BTreeMap<(String, usize), GoStep> {
 // checked otherwise; another order (named by the registry, then likely
 // web ports, then by number), more or fewer than 8 unnamed ports; another
 // ID, name, URL or metadata; the scan's count or switch in the report.
+// Reverse proxies: a provider read while the source or its switch is
+// off, or its proxy found otherwise (image, published API port, Traefik's
+// `api@internal` labels, a stopped container, the address variables);
+// another request (path, method, basic or bearer auth, NPM's login body,
+// the token asked again within its hour, a redirect not followed as Go's
+// client follows it, the auth kept on another host); a request the
+// outbound rules refuse sent, or one they allow refused; a route read
+// otherwise (internal or disabled routers, the rule's hosts, TLS, the
+// backend, Caddy's nested routes and TLS ports, NPM's disabled hosts); a
+// route given to another service (router labels, private port, public
+// port, the same backend twice) or made a service of its own with
+// another ID, name, category or metadata; the `raw_url`, `alt_urls` and
+// `proxy_provider` written otherwise; the last proxy services not kept
+// while a provider fails, or kept after a new connection; the proxy
+// statistics.
 #[test]
 fn cycles_match_go() {
     let text = std::fs::read_to_string(format!("{TESTDATA}/scenario.json")).unwrap();
@@ -262,6 +329,8 @@ fn cycles_match_go() {
         let host = FakeHost::new(&host_ip);
         let mut collector = Collector::new(host_ip.clone(), run.docker != "off", interval);
         collector.scan = scan_settings(run);
+        let api;
+        (collector.proxy, api) = proxy_setup(&scenario, run);
         let mut previous = Value::Null;
         for (index, step) in run.steps.iter().enumerate() {
             if let Some(name) = &step.engine {
@@ -289,9 +358,12 @@ fn cycles_match_go() {
             if let Some(name) = &step.listeners {
                 host.set(scenario.listeners[name].clone());
             }
+            if let Some(name) = &step.api {
+                api.set(scenario.apis[name].clone());
+            }
             let docker = (run.docker != "none").then_some(&engine as &dyn EngineApi);
             let now: SystemTime = base + Duration::from_secs(step.at);
-            collector.run(&sender, docker, &prober, &host, &runner, &|| now);
+            collector.run(&sender, docker, &api, &prober, &host, &runner, &|| now);
             let where_ = format!("run {} step {index} (at {} s)", run.name, step.at);
             let go = &expected[&(run.name.clone(), index)];
             let engine_asked = std::mem::take(&mut *engine.asked.lock().unwrap()).len();
@@ -314,12 +386,18 @@ fn cycles_match_go() {
                 assert_eq!((dialled, scanned.len()), (0, 0), "{where_}: scan when off");
             }
             assert_eq!(dials, go.dials, "{where_}: connections");
+            assert_eq!(api.take(), go.proxy, "{where_}: proxy API requests");
             assert_eq!(
                 recognition(&fetched, run.digest),
                 go.recognition,
                 "{where_}: recognition requests\nrust: {fetched:#?}"
             );
-            assert_eq!(attempted, go.health, "{where_}: health checks");
+            let health = if run.digest_health {
+                digested(&attempted)
+            } else {
+                json!(attempted)
+            };
+            assert_eq!(health, go.health, "{where_}: health checks");
             let sent = sender.take();
             let report = match sent.as_slice() {
                 [] => Value::Null,

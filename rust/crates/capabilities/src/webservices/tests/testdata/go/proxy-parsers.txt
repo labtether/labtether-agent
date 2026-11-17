@@ -1,0 +1,67 @@
+rule	["a.example"]
+rule	["a.example","b.example"]
+rule	["a.example","b.example"]
+rule	["lower.example"]
+rule	["UP.example"]
+rule	null
+rule	["fixed.example"]
+rule	["fold.example"]
+rule	null
+rule	["a.example"]
+rule	["spaced.example","c.example"]
+rule	["inner.example"]
+rule	null
+rule	null
+rule	["a.example","b.example"]
+rule	["x.example","y.example"]
+rule	null
+rule	null
+rule	["ünï.example"]
+rule	null
+rule	["twice.example"]
+rule	["a.example","b.example"]
+labels	true	=http://traefik.example
+labels	true	=https://traefik.example
+labels	true	=https://traefik.example
+labels	true	=https://traefik.example
+labels	true	=http://traefik.example
+labels	true	=http://up.example
+labels	false	=
+labels	false	=
+labels	false	=
+labels	true	=http://odd.example
+labels	false	=
+labels	false	=
+image	=traefik
+image	=traefik
+image	=traefik
+image	=traefik
+image	=traefik
+image	=traefik
+image	=traefik
+image	=traefik/traefik
+image	=traefik
+image	=caddy
+image	=lucaslorentz/caddy-docker-proxy
+image	=jc21/nginx-proxy-manager
+image	=jc21/nginx-proxy-manager
+image	=caddy
+image	=caddy
+image	=
+image	=caddy
+image	=user/repo
+image	=caddy
+image	=/caddy
+image	=caddy
+npmurl	http://localhost:81/api/tokens
+npmurl	http://localhost:81/api/tokens
+npmurl	http://npm.example:81/base/api/nginx/proxy-hosts
+npmurl	https://npm.example/api/tokens
+npmurl	http://npm.example/base/api/tokens
+npmurl	error
+npmurl	error
+npmurl	error
+npmurl	http://[::1]:81/x/api/tokens
+npmurl	http://h/a%20b/api/tokens
+npmurl	http://h/api/tokens?
+npmurl	http://u:p@h:81/api/tokens

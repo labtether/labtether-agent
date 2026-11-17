@@ -37,6 +37,8 @@ pub(crate) struct Answer {
 /// Go's `doProbeRequest(GET, url)`: `None` when no answer came or the page
 /// could not be read (Go's `ok == false`).
 pub(crate) async fn get(prober: &dyn Prober, url: &str) -> Option<Answer> {
+    // Go's `http.NewRequest` refuses a URL its parser refuses: no request.
+    super::gourl::parse(url)?;
     let https = url.trim().to_ascii_lowercase().starts_with("https://");
     let first = if https {
         Client::Insecure

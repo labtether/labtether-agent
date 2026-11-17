@@ -144,12 +144,13 @@ Read user-facing text once against this list before you ship it.
   `connectors`; its tests replay recorded engine answers against the Go
   collector's own output. The web service page
   (`crates/capabilities/src/webservices/`, Linux only) sends
-  `webservice.report` from the Docker page's containers and a local port
+  `webservice.report` from the Docker page's containers, the routes of
+  the reverse proxies among them (Traefik, Caddy, NPM) and a local port
   scan of the host's own address, with the Go registry in one Rust file
   per category and Go's recognition and connector probes, and answers
-  `webservice.sync`; its tests replay container lists, probe answers and
-  the host's listening ports against the Go collector's own reports,
-  requests and connections. The
+  `webservice.sync`; its tests replay container lists, probe and proxy API
+  answers and the host's listening ports against the Go collector's own
+  reports, requests and connections. The
   heartbeat says `agent_capability_mode=explicit` (the Hub refuses what is
   not advertised); a page's `cap_*` word comes only from registering its
   handler (`crates/core/src/offers.rs` copies the Hub's `internal/agentcaps`

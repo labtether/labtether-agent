@@ -1,0 +1,169 @@
+{"kind": "rule", "a": "Host(`a.example`)"}
+{"kind": "rule", "a": "Host(`a.example`,`b.example`)"}
+{"kind": "rule", "a": "Host(\"a.example\") || Host('b.example')"}
+{"kind": "rule", "a": "host(`lower.example`) && PathPrefix(`/x`)"}
+{"kind": "rule", "a": "HOST(`UP.example`)"}
+{"kind": "rule", "a": "HostRegexp(`{sub:[a-z]+}.example`)"}
+{"kind": "rule", "a": "HostRegexp(`fixed.example`)"}
+{"kind": "rule", "a": "Ho\u017ft(`fold.example`)"}
+{"kind": "rule", "a": "PathPrefix(`/api`)"}
+{"kind": "rule", "a": "Host(`a.example`) || Host(`a.example`)"}
+{"kind": "rule", "a": "Host(` spaced.example `, ``, `c.example`)"}
+{"kind": "rule", "a": "XHost(`inner.example`)"}
+{"kind": "rule", "a": "Host(`unclosed.example`"}
+{"kind": "rule", "a": "HostSNI(`tcp.example`)"}
+{"kind": "rule", "a": "Host(`a.example`)Host(`b.example`)"}
+{"kind": "rule", "a": "Host(`x.example`) && !Host(`y.example`)"}
+{"kind": "rule", "a": "Host()"}
+{"kind": "rule", "a": "HostRegexp(`^[a-z]+\\.example$`)"}
+{"kind": "rule", "a": "Host(`\u00fcn\u00ef.example`)"}
+{"kind": "rule", "a": ""}
+{"kind": "rule", "a": "HostHost(`twice.example`)"}
+{"kind": "rule", "a": "Host(`a.example`) || HostRegexp(`b.example`, `{x}.example`)"}
+{"kind": "labels", "labels": {"traefik.http.routers.dash.rule": "Host(`traefik.example`)", "traefik.http.routers.dash.service": "api@internal", "traefik.http.routers.dash.entrypoints": "web"}}
+{"kind": "labels", "labels": {"traefik.http.routers.dash.rule": "Host(`traefik.example`)", "traefik.http.routers.dash.service": "api@internal", "traefik.http.routers.dash.entrypoints": "web, WebSecure"}}
+{"kind": "labels", "labels": {"traefik.http.routers.dash.rule": "Host(`traefik.example`)", "traefik.http.routers.dash.service": "api@internal", "traefik.http.routers.dash.entrypoints": "web", "traefik.http.routers.dash.tls": "true"}}
+{"kind": "labels", "labels": {"traefik.http.routers.dash.rule": "Host(`traefik.example`)", "traefik.http.routers.dash.service": "api@internal", "traefik.http.routers.dash.entrypoints": "web", "traefik.http.routers.dash.tls.certresolver": "le"}}
+{"kind": "labels", "labels": {"traefik.http.routers.dash.rule": "Host(`traefik.example`)", "traefik.http.routers.dash.service": " API@Internal ", "traefik.http.routers.dash.entrypoints": "web"}}
+{"kind": "labels", "labels": {"Traefik.HTTP.Routers.Dash.Service": "api@internal", " traefik.http.routers.dash.rule ": "Host(`up.example`)"}}
+{"kind": "labels", "labels": {"traefik.http.routers.dash.service": "api@internal", "traefik.http.routers.dash.entrypoints": "web"}}
+{"kind": "labels", "labels": {"traefik.http.routers.dash.rule": "PathPrefix(`/api`)", "traefik.http.routers.dash.service": "api@internal", "traefik.http.routers.dash.entrypoints": "web"}}
+{"kind": "labels", "labels": {"traefik.http.routers.dash.rule": "Host(`traefik.example`)", "traefik.http.routers.dash.service": "app@docker", "traefik.http.routers.dash.entrypoints": "web"}}
+{"kind": "labels", "labels": {"traefik.http.routers.service": "api@internal", "traefik.http.routers.service.rule": "Host(`odd.example`)"}}
+{"kind": "labels", "labels": {"traefik.http.routers..service": "api@internal"}}
+{"kind": "labels", "labels": {}}
+{"kind": "image", "a": "traefik"}
+{"kind": "image", "a": "traefik:v3.3"}
+{"kind": "image", "a": "docker.io/library/traefik:v3.3"}
+{"kind": "image", "a": "registry-1.docker.io/library/traefik"}
+{"kind": "image", "a": "index.docker.io/traefik:latest"}
+{"kind": "image", "a": "TRAEFIK:V3"}
+{"kind": "image", "a": "traefik@sha256:abc"}
+{"kind": "image", "a": "ghcr.io/traefik/traefik:v3"}
+{"kind": "image", "a": "localhost:5000/traefik:v3"}
+{"kind": "image", "a": "my.registry:5000/library/caddy:2"}
+{"kind": "image", "a": "lucaslorentz/caddy-docker-proxy:ci-alpine"}
+{"kind": "image", "a": "jc21/nginx-proxy-manager:2"}
+{"kind": "image", "a": "docker.io/jc21/nginx-proxy-manager:latest"}
+{"kind": "image", "a": "library/caddy"}
+{"kind": "image", "a": " caddy "}
+{"kind": "image", "a": ""}
+{"kind": "image", "a": "docker.io/docker.io/caddy"}
+{"kind": "image", "a": "user/repo:tag@sha256:x"}
+{"kind": "image", "a": "localhost/caddy"}
+{"kind": "image", "a": "/caddy"}
+{"kind": "image", "a": "caddy:"}
+{"kind": "npmurl", "a": "http://localhost:81", "b": "/api/tokens"}
+{"kind": "npmurl", "a": "http://localhost:81/", "b": "/api/tokens"}
+{"kind": "npmurl", "a": "http://npm.example:81/base/", "b": "/api/nginx/proxy-hosts"}
+{"kind": "npmurl", "a": " https://npm.example ", "b": "/api/tokens"}
+{"kind": "npmurl", "a": "http://npm.example/base?x=1#f", "b": "/api/tokens"}
+{"kind": "npmurl", "a": "npm.example:81", "b": "/api/tokens"}
+{"kind": "npmurl", "a": "", "b": "/api/tokens"}
+{"kind": "npmurl", "a": "http://", "b": "/api/tokens"}
+{"kind": "npmurl", "a": "http://[::1]:81/x//", "b": "/api/tokens"}
+{"kind": "npmurl", "a": "http://h/a b/", "b": "/api/tokens"}
+{"kind": "npmurl", "a": "http://h/?", "b": "/api/tokens"}
+{"kind": "npmurl", "a": "http://u:p@h:81", "b": "/api/tokens"}
+{"kind": "url", "a": "http://172.18.0.3:80"}
+{"kind": "url", "a": "http://172.18.0.3"}
+{"kind": "url", "a": "https://192.0.2.31"}
+{"kind": "url", "a": "HTTP://Example.COM:8080/Path/"}
+{"kind": "url", "a": "http://{upstream}:3000"}
+{"kind": "url", "a": "http://ltqa-a2i-app2:8090"}
+{"kind": "url", "a": "http://[::1]:8080/x"}
+{"kind": "url", "a": "http://[fe80::1%25eth0]:80/"}
+{"kind": "url", "a": "http://a:b:80"}
+{"kind": "url", "a": "ftp://a:b:21/"}
+{"kind": "url", "a": "http://host:abc"}
+{"kind": "url", "a": "http://host:"}
+{"kind": "url", "a": "http://user:pw@host:9000/"}
+{"kind": "url", "a": "http://host/a b"}
+{"kind": "url", "a": "http://host/a%20b"}
+{"kind": "url", "a": "http://host/%zz"}
+{"kind": "url", "a": "http://host:99999"}
+{"kind": "url", "a": "http://[1.2.3.4]:80"}
+{"kind": "url", "a": "//host:80/x"}
+{"kind": "url", "a": "host:8080"}
+{"kind": "url", "a": ""}
+{"kind": "url", "a": "  http://spaced:81  "}
+{"kind": "url", "a": "http://host/a/../b"}
+{"kind": "url", "a": "http://host?q=1"}
+{"kind": "url", "a": "http://host#frag"}
+{"kind": "url", "a": "http://Host:080/"}
+{"kind": "url", "a": "http://host:0/"}
+{"kind": "url", "a": "http://\u00fcn\u00ef.example:8080/"}
+{"kind": "url", "a": "http://host/%41"}
+{"kind": "url", "a": "http://host/a%2Fb"}
+{"kind": "url", "a": "http://h/\u00e9"}
+{"kind": "url", "a": "http://h%41:80"}
+{"kind": "url", "a": "http://h%c3%a9:80/"}
+{"kind": "url", "a": "http://[::1%25]:80"}
+{"kind": "url", "a": "https://x/\u0001"}
+{"kind": "url", "a": "http:opaque"}
+{"kind": "url", "a": "http:///path"}
+{"kind": "url", "a": "http://a@b@c:81/"}
+{"kind": "alt", "a": "", "b": "https://a"}
+{"kind": "alt", "a": "https://a", "b": "https://A"}
+{"kind": "alt", "a": "https://a, ,https://b,https://a", "b": "https://c"}
+{"kind": "alt", "a": "x", "b": " "}
+{"kind": "alt", "a": "", "b": ""}
+{"kind": "alt", "a": "https://b,https://B", "b": "https://b"}
+{"kind": "redirect", "a": "http://h:1/api/x?per_page=1000", "b": "/api/y?z=1"}
+{"kind": "redirect", "a": "http://h:1/api/x", "b": "y"}
+{"kind": "redirect", "a": "http://h:1/api/x", "b": "../z"}
+{"kind": "redirect", "a": "http://h:1/a/b/", "b": "./c"}
+{"kind": "redirect", "a": "http://h:1/a", "b": "http://other:2/b"}
+{"kind": "redirect", "a": "http://h:1/a", "b": "//other/b"}
+{"kind": "redirect", "a": "http://h:1/a?q=1", "b": ""}
+{"kind": "redirect", "a": "http://h:1/a?q=1", "b": "?r=2"}
+{"kind": "redirect", "a": "http://h:1/a", "b": "%zz"}
+{"kind": "redirect", "a": "http://h:1/a/b", "b": "/c/./d/../e"}
+{"kind": "redirect", "a": "https://h/a", "b": "http://u:p@x/y"}
+{"kind": "redirect", "a": "http://h/a", "b": "HTTPS://H2/B"}
+{"kind": "redirect", "a": "http://h/a/b", "b": ".."}
+{"kind": "redirect", "a": "http://h", "b": "x"}
+{"kind": "outbound", "env": {}, "a": "https://localhost:81/api/tokens"}
+{"kind": "outbound", "env": {}, "a": "http://localhost:81"}
+{"kind": "outbound", "env": {"LABTETHER_ALLOW_INSECURE_TRANSPORT": "true"}, "a": "http://localhost:81"}
+{"kind": "outbound", "env": {"LABTETHER_ALLOW_INSECURE_TRANSPORT": "true", "LABTETHER_OUTBOUND_ALLOW_LOOPBACK": "true"}, "a": "http://localhost:81"}
+{"kind": "outbound", "env": {"LABTETHER_ALLOW_INSECURE_TRANSPORT": "true", "LABTETHER_OUTBOUND_ALLOW_LOOPBACK": "true"}, "a": "http://127.0.0.1:81"}
+{"kind": "outbound", "env": {"LABTETHER_ALLOW_INSECURE_TRANSPORT": "true", "LABTETHER_OUTBOUND_ALLOW_LOOPBACK": "true"}, "a": "http://[::1]:81"}
+{"kind": "outbound", "env": {}, "a": "https://192.168.1.10"}
+{"kind": "outbound", "env": {}, "a": "https://10.0.0.1"}
+{"kind": "outbound", "env": {"LABTETHER_ALLOW_INSECURE_TRANSPORT": "true"}, "a": "http://10.0.0.1"}
+{"kind": "outbound", "env": {"LABTETHER_ALLOW_INSECURE_TRANSPORT": "true", "LABTETHER_OUTBOUND_ALLOW_PRIVATE": "true"}, "a": "http://10.0.0.1"}
+{"kind": "outbound", "env": {"LABTETHER_OUTBOUND_ALLOW_PRIVATE": "false"}, "a": "https://10.0.0.1"}
+{"kind": "outbound", "env": {"LABTETHER_OUTBOUND_ALLOW_PRIVATE": "bogus"}, "a": "https://10.0.0.1"}
+{"kind": "outbound", "env": {}, "a": "https://169.254.1.1"}
+{"kind": "outbound", "env": {"LABTETHER_OUTBOUND_ALLOW_PRIVATE": "false"}, "a": "https://169.254.1.1"}
+{"kind": "outbound", "env": {}, "a": "https://nas01"}
+{"kind": "outbound", "env": {"LABTETHER_ALLOW_INSECURE_TRANSPORT": "true"}, "a": "http://nas01"}
+{"kind": "outbound", "env": {"LABTETHER_OUTBOUND_ALLOW_PRIVATE": "false"}, "a": "https://nas01.lan"}
+{"kind": "outbound", "env": {}, "a": "https://npm.example.com"}
+{"kind": "outbound", "env": {}, "a": "https://traefik.ltqa.example"}
+{"kind": "outbound", "env": {"LABTETHER_ALLOW_INSECURE_TRANSPORT": "true", "LABTETHER_OUTBOUND_ALLOW_LOOPBACK": "true"}, "a": "https://traefik.ltqa.example"}
+{"kind": "outbound", "env": {"LABTETHER_OUTBOUND_ALLOWLIST_MODE": "true", "LABTETHER_OUTBOUND_ALLOWED_HOSTS": "*.ltqa.example, 10.0.0.0/8", "LABTETHER_OUTBOUND_ALLOW_PRIVATE": "true"}, "a": "https://x.ltqa.example"}
+{"kind": "outbound", "env": {"LABTETHER_OUTBOUND_ALLOWLIST_MODE": "true", "LABTETHER_OUTBOUND_ALLOWED_HOSTS": "*.ltqa.example, 10.0.0.0/8"}, "a": "https://other.example"}
+{"kind": "outbound", "env": {"LABTETHER_OUTBOUND_ALLOWLIST_MODE": "true", "LABTETHER_OUTBOUND_ALLOWED_HOSTS": "*.ltqa.example, 10.0.0.0/8"}, "a": "https://10.1.2.3"}
+{"kind": "outbound", "env": {"LABTETHER_OUTBOUND_ALLOWLIST_MODE": "true", "LABTETHER_OUTBOUND_ALLOWED_HOSTS": "*.ltqa.example, 10.0.0.0/8"}, "a": "https://172.16.5.4"}
+{"kind": "outbound", "env": {"LABTETHER_ALLOW_INSECURE_TRANSPORT": "true", "LABTETHER_OUTBOUND_ALLOW_LOOPBACK": "true", "LABTETHER_OUTBOUND_ALLOWLIST_MODE": "true", "LABTETHER_OUTBOUND_ALLOWED_HOSTS": "*.ltqa.example, 10.0.0.0/8"}, "a": "http://traefik.ltqa.example"}
+{"kind": "outbound", "env": {"LABTETHER_ALLOW_INSECURE_TRANSPORT": "true", "LABTETHER_OUTBOUND_ALLOW_LOOPBACK": "true", "LABTETHER_OUTBOUND_ALLOWLIST_MODE": "true", "LABTETHER_OUTBOUND_ALLOWED_HOSTS": "*.ltqa.example, 10.0.0.0/8"}, "a": "http://localhost"}
+{"kind": "outbound", "env": {"LABTETHER_OUTBOUND_ALLOWED_SCHEMES": "http"}, "a": "https://example.com"}
+{"kind": "outbound", "env": {}, "a": "ftp://example.com"}
+{"kind": "outbound", "env": {}, "a": "https://"}
+{"kind": "outbound", "env": {}, "a": ""}
+{"kind": "outbound", "env": {}, "a": "relative/path"}
+{"kind": "outbound", "env": {}, "a": "https://[fe80::1]"}
+{"kind": "outbound", "env": {}, "a": "https://[fc00::1]"}
+{"kind": "outbound", "env": {}, "a": "https://[::ffff:127.0.0.1]"}
+{"kind": "outbound", "env": {}, "a": "https://224.0.0.5"}
+{"kind": "outbound", "env": {"LABTETHER_OUTBOUND_ALLOW_PRIVATE": "false"}, "a": "https://224.0.0.5"}
+{"kind": "outbound", "env": {}, "a": "https://8.8.8.8"}
+{"kind": "outbound", "env": {}, "a": "https://LOCALHOST."}
+{"kind": "outbound", "env": {}, "a": "https://127.0.0.1."}
+{"kind": "outbound", "env": {"LABTETHER_OUTBOUND_ALLOWED_SCHEMES": " HTTPS , wss"}, "a": "https://example.com"}
+{"kind": "outbound", "env": {"LABTETHER_ALLOW_INSECURE_TRANSPORT": "true", "LABTETHER_OUTBOUND_ALLOWED_SCHEMES": "https"}, "a": "http://example.com"}
+{"kind": "outbound", "env": {"LABTETHER_OUTBOUND_ALLOWLIST_MODE": "true", "LABTETHER_OUTBOUND_ALLOWED_HOSTS": "https://Example.COM:8443"}, "a": "https://example.com"}
+{"kind": "outbound", "env": {"LABTETHER_OUTBOUND_ALLOWLIST_MODE": "true", "LABTETHER_OUTBOUND_ALLOWED_HOSTS": "[2001:db8::1]:443"}, "a": "https://[2001:db8::1]"}
+{"kind": "outbound", "env": {"LABTETHER_OUTBOUND_ALLOWED_SCHEMES": "http,https"}, "a": "http://example.com"}

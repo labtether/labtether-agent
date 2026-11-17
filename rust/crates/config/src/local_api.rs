@@ -148,6 +148,8 @@ pub fn parent_pid(env: &Environment) -> ParentPid {
 /// (see `rust/README.md` for why each is safe to ignore for now).
 pub const IGNORED_APP_VARIABLES: &[&str] = &[
     "LABTETHER_AUTO_UPDATE",
+    // Read on Linux, where NPM's requests pass the outbound rules.
+    #[cfg(target_os = "macos")]
     "LABTETHER_OUTBOUND_ALLOW_LOOPBACK",
     // Read on Linux, where the Docker page sends the inventory.
     #[cfg(target_os = "macos")]
@@ -169,9 +171,14 @@ pub const IGNORED_APP_VARIABLES: &[&str] = &[
     // Read on Linux, where the web service page lists containers.
     #[cfg(target_os = "macos")]
     "LABTETHER_SERVICES_DISCOVERY_DOCKER_ENABLED",
+    // Read on Linux, where the web service page reads reverse proxies.
+    #[cfg(target_os = "macos")]
     "LABTETHER_SERVICES_DISCOVERY_PROXY_ENABLED",
+    #[cfg(target_os = "macos")]
     "LABTETHER_SERVICES_DISCOVERY_PROXY_TRAEFIK_ENABLED",
+    #[cfg(target_os = "macos")]
     "LABTETHER_SERVICES_DISCOVERY_PROXY_CADDY_ENABLED",
+    #[cfg(target_os = "macos")]
     "LABTETHER_SERVICES_DISCOVERY_PROXY_NPM_ENABLED",
     // Read on Linux, where the web service page scans the host's ports.
     #[cfg(target_os = "macos")]

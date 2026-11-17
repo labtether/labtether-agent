@@ -84,7 +84,14 @@ All notable changes to `labtether-agent` are documented in this file.
   agent's local port scan of the host's own address: its default ports
   and listening TCP ports, kept when they answer HTTP, with the Go agent's
   settings (`LABTETHER_SERVICES_DISCOVERY_PORT_SCAN_*`, off in low-power
-  mode). Reverse-proxy routes and the LAN scan are not in it.
+  mode). Reverse proxies among the containers (Traefik, Caddy, Nginx Proxy
+  Manager) give services their proxied URLs and add routes to services not
+  found otherwise, with the Go agent's settings
+  (`LABTETHER_SERVICES_DISCOVERY_PROXY_*`, `LABTETHER_TRAEFIK_*`,
+  `LABTETHER_CADDY_URL`, `LABTETHER_NPM_*`) and, for NPM, its outbound
+  rules. The first report comes one interval after start, as the Go
+  agent's, also when the agent connected before the page started. The LAN
+  scan is not in it.
   `LABTETHER_DOCKER_ENABLED=false` turns the container source off.
 - The Rust agent builds and runs on macOS as the monitoring edition for the
   Mac App Store app: CPU, memory, disk and network telemetry, the host

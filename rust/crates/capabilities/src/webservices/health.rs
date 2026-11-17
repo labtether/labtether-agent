@@ -52,6 +52,8 @@ pub(crate) trait Prober: Send + Sync {
 /// certificates first and, when that gets no answer, to the one that does.
 /// The port scan's HTTP check uses it too.
 pub(crate) async fn request(prober: &dyn Prober, method: Method, url: &str) -> Option<u16> {
+    // Go's `http.NewRequest` refuses a URL its parser refuses: no request.
+    super::gourl::parse(url)?;
     let https = url.trim().to_ascii_lowercase().starts_with("https://");
     let first = if https {
         Client::Insecure
