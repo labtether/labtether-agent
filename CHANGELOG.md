@@ -103,6 +103,15 @@ All notable changes to `labtether-agent` are documented in this file.
 
 ### Fixed
 
+- Traefik routes join the web service they proxy again. Traefik's API gives
+  a router's service without its provider when both come from the same
+  one (`app` for router `app@file`, `app@file` in its services list), and
+  the agent looked it up by that name and found nothing. So each route
+  became a service of its own with no backend address, and the service
+  it proxies kept its plain URL. A service name without `@` is now read
+  in the router's provider, as Traefik reads it; a name with `@` is used
+  as it is. Seen with Traefik v2.11 and v3.7, file and Docker providers.
+- Rust agent: the same.
 - An agent started while its Hub cannot be reached now enrolls with its
   one-use token as soon as the Hub answers. Before, it connected without the
   token, so the Hub held it as a device waiting for an admin's approval and

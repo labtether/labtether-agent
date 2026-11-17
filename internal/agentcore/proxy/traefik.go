@@ -127,7 +127,7 @@ func (p *TraefikProvider) FetchRoutes(apiURL string) ([]Route, error) {
 
 		// Look up backend URL from the service map.
 		backendURL := ""
-		if svc, ok := svcMap[r.Service]; ok {
+		if svc, ok := svcMap[traefikServiceName(r.Name, r.Service)]; ok {
 			if svc.LoadBalancer != nil && len(svc.LoadBalancer.Servers) > 0 {
 				backendURL = svc.LoadBalancer.Servers[0].URL
 			}
@@ -227,6 +227,24 @@ func (p *TraefikProvider) fetchServices(apiURL string) ([]traefikServiceItem, er
 		return nil, fmt.Errorf("decode services: %w", err)
 	}
 	return services, nil
+}
+
+// traefikServiceName returns the services-list name of a router's service.
+// The routers list gives the service as configured: "app" for a service in
+// the router's own provider, "app@docker" for one in another provider.
+// Traefik v2 and v3 give a name without "@" the router's provider, the text
+// after the router name's first "@" (provider.AddInContext and
+// GetQualifiedName in Traefik), so router "app@file" with service "app"
+// uses "app@file". A name with "@" is used as it is.
+func traefikServiceName(routerName, service string) string {
+	if service == "" || strings.Contains(service, "@") {
+		return service
+	}
+	parts := strings.Split(routerName, "@")
+	if len(parts) == 1 {
+		return service
+	}
+	return service + "@" + parts[1]
 }
 
 // isTraefikInternal returns true if the router name ends with "@internal",

@@ -28,7 +28,7 @@ use outbound::Outbound;
 #[cfg(test)]
 pub(crate) use npm::{endpoint as npm_endpoint, go_json_string};
 #[cfg(test)]
-pub(crate) use traefik::{dashboard_url_from_labels, hosts_in_rule};
+pub(crate) use traefik::{dashboard_url_from_labels, fetch as traefik_fetch, hosts_in_rule};
 
 /// Go's `proxy.Route`.
 #[derive(Debug, Clone, PartialEq, Eq)]
