@@ -20,9 +20,10 @@ serde_json.workspace = true
 # Linux only: the Docker page reads the engine over its Unix socket with
 # hyper's HTTP/1 client on a tokio Unix stream; the web service page probes
 # services with the same client over TCP and rustls (core's TLS settings),
-# reads gzip pages as Go's transport does, and names them with SHA-256
-# IDs, as Go.
+# reads gzip pages as Go's transport does, names them with SHA-256 IDs, as
+# Go, and logs in to Traefik with basic auth (base64).
 [target.'cfg(target_os = "linux")'.dependencies]
+data-encoding.workspace = true
 flate2.workspace = true
 futures-util.workspace = true
 http.workspace = true

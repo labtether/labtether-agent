@@ -8,6 +8,8 @@
 
 mod client;
 mod pages;
+mod proxy;
+mod proxy_api;
 mod registry;
 mod scan;
 mod steps;

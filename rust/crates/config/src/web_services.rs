@@ -18,11 +18,13 @@
 //! with any bad entry gives the default ports, as Go's
 //! `NormalizeDiscoveryPortListValue` failing.
 //!
-//! The proxy and LAN scan settings come with the parts that read them.
+//! The reverse-proxy settings are in `web_proxy.rs`; the LAN scan's come
+//! with the part that reads them.
 
 use std::time::Duration;
 
 use crate::env::{Environment, parse_duration_or, parse_go_bool};
+use crate::web_proxy::{self, FileProxy, ProxySettings};
 
 const DEFAULT_INTERVAL: Duration = Duration::from_secs(60);
 const LOW_POWER_INTERVAL: Duration = Duration::from_secs(600);
@@ -42,6 +44,7 @@ pub struct WebServiceSettings {
     /// Go's `ServicesDiscoveryDockerEnabled`.
     pub docker_enabled: bool,
     pub port_scan: PortScanSettings,
+    pub proxy: ProxySettings,
 }
 
 /// Go's `ServicesDiscoveryPortScan*` settings.
@@ -62,6 +65,7 @@ pub(crate) struct FileServices {
     pub port_scan_include_listening: Option<bool>,
     /// A valid list (Go drops a bad one when it reads the file).
     pub port_scan_ports: Option<Vec<u16>>,
+    pub proxy: FileProxy,
 }
 
 /// Go's `NormalizeDiscoveryPortListValue`: entries split at commas,
@@ -107,6 +111,7 @@ pub(crate) fn load(env: &Environment, file: &FileServices, low_power: bool) -> W
         interval,
         docker_enabled,
         port_scan: port_scan(env, file, low_power),
+        proxy: web_proxy::load(env, &file.proxy),
     }
 }
 

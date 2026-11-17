@@ -152,8 +152,29 @@ On Linux, the `labtether-agent-rs` binary:
   then name and check them. `_PORT_SCAN_ENABLED` turns it off; low-power
   mode turns the scan and its listening ports off; Go's older
   `LABTETHER_WEBSVC_PORTSCAN_*` names and the `services_discovery_port_scan_*`
-  keys in `agent-config.json` are read as Go reads them. The report says
-  the proxy and LAN scan sources are not enabled.
+  keys in `agent-config.json` are read as Go reads them. Reverse proxies
+  among the containers give their routes (`webservices/proxy/`,
+  `routes.rs`): Traefik (its API on published port 8080, else at the host
+  of an `api@internal` router in its labels; `LABTETHER_TRAEFIK_URL`,
+  `_USER`, `_PASSWORD`), Caddy (its admin API on published port 2019;
+  `LABTETHER_CADDY_URL`) and Nginx Proxy Manager (port 81, https unless
+  `LABTETHER_ALLOW_INSECURE_TRANSPORT` is `true`, `1` or `yes`;
+  `LABTETHER_NPM_URL`; it logs in with `LABTETHER_NPM_EMAIL` and
+  `_PASSWORD` and keeps the token an hour), read at once with 5 s each and
+  Go's client's redirects. NPM's requests pass Go's outbound rules
+  (`LABTETHER_OUTBOUND_*`), so a local NPM needs
+  `LABTETHER_OUTBOUND_ALLOW_LOOPBACK`. A route goes to the service of the
+  container its Traefik router labels name, else of the first container
+  publishing the backend's port, else of the one service on that port:
+  its URL becomes the proxied one (the old one kept as `raw_url`, more
+  domains in `alt_urls`); other routes become services of their own
+  (source `proxy`, named by the registry from the backend's port or the
+  domain). The last report's proxy services are kept while a provider
+  fails. `LABTETHER_SERVICES_DISCOVERY_PROXY_ENABLED` (or Go's older
+  `LABTETHER_PROXY_DISABLED`) and `_PROXY_TRAEFIK_ENABLED`,
+  `_CADDY_ENABLED`, `_NPM_ENABLED` turn them off. No probe goes to a URL
+  Go cannot parse (a proxy backend such as `{upstream}:3000`). The report
+  says the LAN scan source is not enabled.
   `webservice.sync` (the Services page's sync) runs one cycle at once, after
   any cycle in progress, and advertises `cap_web_services=sync`;
 - checks the agent token's capability claims before any handler runs, with
@@ -327,21 +348,22 @@ Variables the apps set that this agent does not use yet. Each belongs to a
 feature this agent does not have, so ignoring it changes nothing today; each
 must be read when its feature arrives: `LABTETHER_AUTO_UPDATE` (no
 self-update; the apps set it to `false`), `LABTETHER_OUTBOUND_ALLOW_LOOPBACK`
-(no outbound rules yet, so loopback is never refused),
+(on macOS; on Linux only NPM's requests read it),
 `LABTETHER_DOCKER_*`, `LABTETHER_FILES_ROOT_MODE`,
 `LABTETHER_LOG_STREAM_ENABLED` (on macOS only; read on Linux),
 `LABTETHER_WEBRTC_*`,
 `LABTETHER_CAPTURE_FPS` and the `LABTETHER_SERVICES_DISCOVERY_*` switches
-other than the Docker source, the local port scan and the interval.
+other than the Docker source, the proxies, the local port scan and the
+interval.
 The agent lists the ones that are set in one debug line at start.
 
 ## Not yet
 
 This binary is not hardened and not a replacement for the Go agent:
 
-- no outbound rules: the enrollment request and the WebSocket dial do not
-  refuse loopback or private addresses the way the Go agent's outbound
-  policy does;
+- outbound rules for NPM's requests only: the enrollment request and the
+  WebSocket dial do not refuse loopback or private addresses the way the
+  Go agent's outbound policy does;
 - no Tailscale details beyond whether it is installed, no connector probes
   for Proxmox, PBS, TrueNAS or Home Assistant ports (the Docker endpoint is
   the only connector), and no `cap_*` words for pages it does not answer;
@@ -359,10 +381,10 @@ This binary is not hardened and not a replacement for the Go agent:
   exec, container logs and the endpoint test are not advertised
   (`cap_docker=manage`), so the Hub refuses them; Docker is read only over
   a Unix socket (Go also reads an http(s) endpoint);
-- web services from containers and the local port scan only: no
-  reverse-proxy routes (Traefik, Caddy, NPM) and no LAN scan. The probes
-  read no `HTTP_PROXY` variable, speak HTTP/1.1 only and open a connection
-  per request;
+- web services from containers, reverse proxies and the local port scan
+  only: no LAN scan. The probes and the proxy API requests read no
+  `HTTP_PROXY` variable, speak HTTP/1.1 only and open a connection per
+  request;
 - no terminal, files or Remote View pages;
 - a stream line of 256 KiB or more: this agent skips it and goes on, as
   the Go agent does from its fix for that line; a Go agent without the fix

@@ -11,6 +11,7 @@ use crate::LogLevel;
 use crate::docker::FileDocker;
 use crate::env::parse_go_bool;
 use crate::files::{self, MAX_STATE_FILE_BYTES};
+use crate::web_proxy::FileProxy;
 use crate::web_services::{FileServices, normalize_port_list};
 
 pub(crate) const KEY_COLLECT_INTERVAL_SEC: &str = "collect_interval_sec";
@@ -25,6 +26,10 @@ pub(crate) const KEY_SERVICES_DOCKER_ENABLED: &str = "services_discovery_docker_
 pub(crate) const KEY_PORT_SCAN_ENABLED: &str = "services_discovery_port_scan_enabled";
 pub(crate) const KEY_PORT_SCAN_LISTENING: &str = "services_discovery_port_scan_include_listening";
 pub(crate) const KEY_PORT_SCAN_PORTS: &str = "services_discovery_port_scan_ports";
+pub(crate) const KEY_PROXY_ENABLED: &str = "services_discovery_proxy_enabled";
+pub(crate) const KEY_PROXY_TRAEFIK: &str = "services_discovery_proxy_traefik_enabled";
+pub(crate) const KEY_PROXY_CADDY: &str = "services_discovery_proxy_caddy_enabled";
+pub(crate) const KEY_PROXY_NPM: &str = "services_discovery_proxy_npm_enabled";
 
 #[derive(Deserialize)]
 struct RawFile {
@@ -110,6 +115,12 @@ fn parse_values(values: &BTreeMap<String, String>) -> FileValues {
             port_scan_enabled: get(KEY_PORT_SCAN_ENABLED).and_then(parse_go_bool),
             port_scan_include_listening: get(KEY_PORT_SCAN_LISTENING).and_then(parse_go_bool),
             port_scan_ports: get(KEY_PORT_SCAN_PORTS).and_then(normalize_port_list),
+            proxy: FileProxy {
+                enabled: get(KEY_PROXY_ENABLED).and_then(parse_go_bool),
+                traefik: get(KEY_PROXY_TRAEFIK).and_then(parse_go_bool),
+                caddy: get(KEY_PROXY_CADDY).and_then(parse_go_bool),
+                npm: get(KEY_PROXY_NPM).and_then(parse_go_bool),
+            },
         },
     }
 }

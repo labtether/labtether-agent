@@ -25,6 +25,7 @@ pub mod local_api;
 mod secret;
 mod settings_file;
 pub mod urls;
+pub mod web_proxy;
 pub mod web_services;
 
 use std::path::{Path, PathBuf};
@@ -37,6 +38,7 @@ pub use local_api::{LocalApiSettings, LocalAuth, ParentPid};
 pub use secret::Secret;
 pub use settings_file::SettingsFileError;
 use urls::UrlKind;
+pub use web_proxy::{OutboundSettings, ProxySettings};
 pub use web_services::{PortScanSettings, WebServiceSettings};
 
 /// Where the Go agent keeps its state on Linux.

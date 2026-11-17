@@ -1,0 +1,102 @@
+url	"172.18.0.3" "80" ""	80	=http://172.18.0.3:80/
+url	"172.18.0.3" "" ""	0	=http://172.18.0.3:80/
+url	"192.0.2.31" "" ""	0	=https://192.0.2.31:443/
+url	"Example.COM" "8080" "/Path/"	8080	=http://example.com:8080/Path/
+url	error	0	=
+url	"ltqa-a2i-app2" "8090" ""	8090	=http://ltqa-a2i-app2:8090/
+url	"::1" "8080" "/x"	8080	=http://::1:8080/x
+url	"fe80::1%eth0" "80" "/"	80	=http://fe80::1%eth0:80/
+url	error	0	=
+url	"a:b" "21" "/"	21	=ftp://a:b:21/
+url	error	0	=
+url	"host" "" ""	0	=http://host:80/
+url	"host" "9000" "/"	9000	=http://host:9000/
+url	"host" "" "/a%20b"	0	=http://host:80/a%20b
+url	"host" "" "/a%20b"	0	=http://host:80/a%20b
+url	error	0	=
+url	"host" "99999" ""	0	=http://host:99999/
+url	error	0	=
+url	"host" "80" "/x"	80	=http://host:80/x
+url	"" "" ""	0	=
+url	"" "" ""	0	=
+url	error	0	=http://spaced:81/
+url	"host" "" "/a/../b"	0	=http://host:80/a/../b
+url	"host" "" ""	0	=http://host:80/
+url	"host" "" ""	0	=http://host:80/
+url	"Host" "080" "/"	80	=http://host:080/
+url	"host" "0" "/"	0	=http://host:0/
+url	"ünï.example" "8080" "/"	8080	=http://ünï.example:8080/
+url	"host" "" "/%41"	0	=http://host:80/%41
+url	"host" "" "/a%2Fb"	0	=http://host:80/a%2Fb
+url	"h" "" "/%C3%A9"	0	=http://h:80/%C3%A9
+url	error	0	=
+url	"hé" "80" "/"	80	=http://hé:80/
+url	error	0	=
+url	error	0	=
+url	"" "" ""	0	=
+url	"" "" "/path"	0	=
+url	"c" "81" "/"	81	=http://c:81/
+alt	=https://a
+alt	=https://a
+alt	=https://a,https://b,https://c
+alt	=x
+alt	=
+alt	=https://b
+redirect	http://h:1/api/y?z=1
+redirect	http://h:1/api/y
+redirect	http://h:1/z
+redirect	http://h:1/a/b/c
+redirect	http://other:2/b
+redirect	http://other/b
+redirect	http://h:1/a?q=1
+redirect	http://h:1/a?r=2
+redirect	error
+redirect	http://h:1/c/e
+redirect	http://u:p@x/y
+redirect	https://H2/B
+redirect	http://h/
+redirect	http://h/x
+outbound	refused
+outbound	refused
+outbound	refused
+outbound	ok
+outbound	ok
+outbound	ok
+outbound	ok
+outbound	ok
+outbound	refused
+outbound	ok
+outbound	refused
+outbound	refused
+outbound	ok
+outbound	refused
+outbound	ok
+outbound	refused
+outbound	refused
+outbound	ok
+outbound	refused
+outbound	ok
+outbound	ok
+outbound	refused
+outbound	ok
+outbound	refused
+outbound	ok
+outbound	refused
+outbound	refused
+outbound	refused
+outbound	refused
+outbound	refused
+outbound	refused
+outbound	ok
+outbound	ok
+outbound	refused
+outbound	ok
+outbound	refused
+outbound	ok
+outbound	refused
+outbound	refused
+outbound	ok
+outbound	ok
+outbound	ok
+outbound	ok
+outbound	refused

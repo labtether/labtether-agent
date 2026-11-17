@@ -1,0 +1,6 @@
+[
+{"Id": "a2i0020000000000000000000000000000000000000000000000000000000000", "Names": ["/ltqa-a2i-app"], "Image": "traefik/whoami:v1.10", "State": "running", "Ports": [{"IP": "0.0.0.0", "PrivatePort": 80, "PublicPort": 18381, "Type": "tcp"}], "Labels": {"ltqa": "a2i", "traefik.http.routers.app.rule": "Host(`app.ltqa.example`)", "traefik.http.routers.app.entrypoints": "websecure"}},
+{"Id": "a2i0030000000000000000000000000000000000000000000000000000000000", "Names": ["/ltqa-a2i-app2"], "Image": "traefik/whoami:v1.10", "State": "running", "Ports": [{"IP": "0.0.0.0", "PrivatePort": 8090, "PublicPort": 18382, "Type": "tcp"}], "Labels": {"ltqa": "a2i"}},
+{"Id": "a2i0040000000000000000000000000000000000000000000000000000000000", "Names": ["/ltqa-a2i-app3"], "Image": "traefik/whoami:v1.10", "State": "running", "Ports": [{"IP": "0.0.0.0", "PrivatePort": 8091, "PublicPort": 18384, "Type": "tcp"}], "Labels": {"ltqa": "a2i"}},
+{"Id": "a2i0050000000000000000000000000000000000000000000000000000000000", "Names": ["/ltqa-a2i-caddy"], "Image": "caddy:2.9-alpine", "State": "running", "Ports": [{"IP": "0.0.0.0", "PrivatePort": 80, "PublicPort": 18086, "Type": "tcp"}], "Labels": {"ltqa": "a2i"}}
+]

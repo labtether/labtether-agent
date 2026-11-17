@@ -2,13 +2,16 @@
 //! (`collector.go`) for the sources this agent reads. Only while
 //! connected: the running containers' services (when the Docker source is
 //! on and the Docker collector runs), the last report's Docker services
-//! again when the container list fails, the local port scan (when on),
-//! the recognition probes (names for unknown services and the connector
+//! again when the container list fails, the reverse proxies' routes (when
+//! on: services get their proxied URLs, routes to nothing found become
+//! services of their own, and the last report's proxy services are kept
+//! while a provider fails), the local port scan (when on), the
+//! recognition probes (names for unknown services and the connector
 //! suggestions' `compat_*` metadata), LabTether naming, health checks,
 //! then one `webservice.report` with the asset ID in use when it is sent.
 //!
-//! Go also reads reverse-proxy routes and runs a LAN scan; those come in
-//! later parts, so their sources are reported as not enabled.
+//! Go also runs a LAN scan; that comes in a later part, so its source is
+//! reported as not enabled.
 
 use std::collections::BTreeMap;
 use std::future::Future;
@@ -25,9 +28,12 @@ use tokio::sync::watch;
 
 use super::fingerprint::Recognizer;
 use super::health::{HealthCache, Prober};
+use super::proxy::Providers;
+use super::proxy::api::ProxyApi;
 use super::scan::ScanHost;
-use super::{containers, labtether, scan};
+use super::{containers, labtether, routes, scan};
 use crate::docker::engine::{self, EngineApi};
+use crate::docker::raw::Container;
 
 /// Go's source names, in its log line's order.
 pub(crate) const SOURCES: [&str; 4] = ["docker", "proxy", "local_scan", "lan_scan"];
@@ -103,6 +109,8 @@ pub(crate) struct Collector {
     pub docker_enabled: bool,
     /// Go's `PortScan*` settings; off unless set.
     pub scan: PortScanSettings,
+    /// Go's proxy providers; none (and the source off) unless set.
+    pub proxy: Providers,
     health: HealthCache,
     recognizer: Recognizer,
     /// The last sent report's services and the connection it went on: Go's
@@ -116,20 +124,38 @@ impl Collector {
             host_ip,
             docker_enabled,
             scan: PortScanSettings::default(),
+            proxy: Providers::new(&labtether_agent_config::ProxySettings::default()),
             health: HealthCache::new(interval),
             recognizer: Recognizer::default(),
             last: None,
         }
     }
 
+    /// The last report's services from `source`, when it went on this
+    /// connection (Go's `lastServices`, cleared at each new connection).
+    fn last_from(&self, sender: &dyn HubSender, source: &str) -> Vec<DiscoveredWebService> {
+        self.last
+            .as_ref()
+            .filter(|(connection, _)| *connection == sender.connection())
+            .map(|(_, last)| {
+                last.iter()
+                    .filter(|s| s.source == source)
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
     /// Go's `RunCycle`. `docker` is the engine when the Docker collector
-    /// runs; `host` is what the port scan reads; `clock` is Go's
-    /// `wsc.now()`: read once at the start for the health results and at
-    /// each recognition cache look-up.
+    /// runs; `api` reaches the proxies; `host` is what the port scan
+    /// reads; `clock` is Go's `wsc.now()`: read once at the start for the
+    /// health results and at each recognition cache look-up.
+    #[allow(clippy::too_many_arguments)]
     pub fn run(
         &mut self,
         sender: &dyn HubSender,
         docker: Option<&dyn EngineApi>,
+        api: &dyn ProxyApi,
         prober: &dyn Prober,
         host: &dyn ScanHost,
         runner: &Runner,
@@ -152,26 +178,22 @@ impl Collector {
             },
         );
         let mut services = Vec::new();
-        if let (true, Some(api)) = (self.docker_enabled, docker) {
+        let mut listed: Vec<Container> = Vec::new();
+        if let (true, Some(engine_api)) = (self.docker_enabled, docker) {
             let docker_started = Instant::now();
-            let found = match engine::containers(api) {
-                Ok(listed) => {
-                    let found = containers::services(&listed, &self.host_ip, &sender.asset_id());
+            let found = match engine::containers(engine_api) {
+                Ok(all) => {
+                    let found = containers::services(&all, &self.host_ip, &sender.asset_id());
                     let count = found.len();
                     services.extend(found);
+                    listed = all;
                     count
                 }
                 Err(error) => {
                     log::warn!("webservices: docker list failed: {error}");
                     // Go keeps the last report's Docker services while the
                     // list fails, until the next connection.
-                    if let Some((_, last)) = self
-                        .last
-                        .as_ref()
-                        .filter(|(connection, _)| *connection == sender.connection())
-                    {
-                        services.extend(last.iter().filter(|s| s.source == "docker").cloned());
-                    }
+                    services.extend(self.last_from(sender, "docker"));
                     0
                 }
             };
@@ -184,6 +206,47 @@ impl Collector {
                 },
             );
         }
+        let proxy_started = Instant::now();
+        let mut proxy_found = 0;
+        if self.proxy.enabled() && !self.proxy.is_empty() {
+            let Some(fetched) = runner.run(self.proxy.fetch(api, &listed)) else {
+                return;
+            };
+            let before = services.len();
+            let mut failed = false;
+            for (kind, result) in fetched {
+                let name = kind.name();
+                match result {
+                    Err(error) => {
+                        failed = true;
+                        log::warn!("webservices: proxy/{name} error: {error}");
+                    }
+                    Ok(found) if !found.is_empty() => {
+                        log::info!(
+                            "webservices: proxy/{name} discovered {} routes",
+                            found.len()
+                        );
+                        let asset = sender.asset_id();
+                        routes::enrich(&mut services, &found, name, &asset, &self.host_ip, &listed);
+                    }
+                    Ok(_) => {}
+                }
+            }
+            proxy_found = services.len().saturating_sub(before);
+            // Go keeps the last report's proxy services while a provider
+            // fails, until the next connection.
+            if failed {
+                services.extend(self.last_from(sender, "proxy"));
+            }
+        }
+        sources.insert(
+            "proxy".to_owned(),
+            WebServiceDiscoverySourceStat {
+                enabled: self.proxy.enabled(),
+                duration_ms: millis_since(proxy_started),
+                services_found: i64::try_from(proxy_found).unwrap_or(i64::MAX),
+            },
+        );
         let scan_started = Instant::now();
         let asset = || sender.asset_id();
         let scanned = runner.run(scan::services(

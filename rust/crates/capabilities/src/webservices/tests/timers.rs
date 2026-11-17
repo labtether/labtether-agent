@@ -1,12 +1,14 @@
-//! The producer's timers, as Go's `Run`: a cycle at start, then one per
-//! interval; nothing while not connected; one cycle at once per
-//! `webservice.sync`.
+//! The producer's timers, as Go's `Run` in the agent: one cycle per
+//! interval from start (Go's cycle at start runs before the agent's first
+//! connection, so it never sends); nothing while not connected; one cycle
+//! at once per `webservice.sync`.
 
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
+use labtether_agent_config::ProxySettings;
 use labtether_agent_config::web_services::{PortScanSettings, WebServiceSettings};
 use labtether_agent_core::Stop;
 use serde_json::{Value, json};
@@ -34,6 +36,11 @@ fn reports(
             enabled: true,
             include_listening: false,
             ports: vec![1],
+        },
+        // The source on, every provider off: nothing to ask.
+        proxy: ProxySettings {
+            enabled: true,
+            ..ProxySettings::default()
         },
     };
     let (done, ended) = mpsc::channel();
@@ -68,18 +75,16 @@ fn reports(
     (times, data, ended)
 }
 
-// Faults: no report at start (Go's `Run` sends one as soon as it runs
-// connected); reports more often than the interval; the thread outlives
-// the agent's stop; the report leaves out a source or says a source not
-// read here (proxy or LAN scan) is enabled, or the Docker source or the
-// local scan is off when its setting is on (the setting not handed to
-// the collector).
+// Faults: reports more often than the interval; the thread outlives the
+// agent's stop; the report leaves out a source or says a source not read
+// here (the LAN scan) is enabled, or the Docker source, the proxies or the
+// local scan is off when its setting is on (the setting not handed to the
+// collector).
 #[test]
-fn reports_at_start_then_every_interval_and_stops() {
+fn reports_every_interval_and_stops() {
     let sender = Arc::new(Recorder::default());
     let (times, data, ended) = reports(sender, 3, Duration::ZERO);
     assert_eq!(times.len(), 3, "{times:?}");
-    assert!(times[0] < Duration::from_millis(700), "{times:?}");
     for pair in times.windows(2) {
         assert!(pair[1] - pair[0] >= Duration::from_millis(900), "{times:?}");
     }
@@ -90,9 +95,26 @@ fn reports_at_start_then_every_interval_and_stops() {
     let enabled = |name: &str| sources[name]["enabled"].clone();
     assert_eq!(
         ["docker", "proxy", "local_scan", "lan_scan"].map(enabled),
-        [json!(true), json!(false), json!(true), json!(false)]
+        [json!(true), json!(true), json!(true), json!(false)]
     );
     assert_eq!(report["discovery"]["total_services"], 0);
+}
+
+// Fault: a report at start when the thread starts with the agent already
+// connected. Go's collector starts before the agent's first connection,
+// so its cycle at start never sends and its first report comes one
+// interval later; in about one start in six on the lab VM the Rust agent
+// was connected first and sent a report 0.9 s after start.
+#[test]
+fn first_report_waits_an_interval_when_connected_at_start() {
+    let sender = Arc::new(Recorder::default());
+    let (times, _, ended) = reports(sender, 1, Duration::ZERO);
+    assert_eq!(times.len(), 1, "{times:?}");
+    assert!(
+        times[0] >= INTERVAL - Duration::from_millis(50),
+        "{times:?}"
+    );
+    assert!(ended);
 }
 
 // Faults: a report as soon as the agent connects, or once connected
@@ -140,6 +162,7 @@ fn sync_runs_one_cycle_per_request_at_once() {
         interval: INTERVAL,
         docker_enabled: true,
         port_scan: PortScanSettings::default(),
+        proxy: ProxySettings::default(),
     };
     let (done, ended) = mpsc::channel();
     let started = Instant::now();
@@ -158,7 +181,7 @@ fn sync_runs_one_cycle_per_request_at_once() {
     });
     let mut times = Vec::new();
     collect(&sender, started, Duration::from_millis(300), &mut times);
-    assert_eq!(times.len(), 1, "the report at start: {times:?}");
+    assert_eq!(times.len(), 0, "a report at start: {times:?}");
     let asks: Vec<_> = (0..2)
         .map(|_| {
             let requests = Arc::clone(&requests);
@@ -175,10 +198,10 @@ fn sync_runs_one_cycle_per_request_at_once() {
         "returned before its cycle: {seen:?}"
     );
     collect(&sender, started, Duration::from_millis(1600), &mut times);
-    assert_eq!(times.len(), 4, "{times:?}");
+    assert_eq!(times.len(), 3, "{times:?}");
+    assert!(times[0] < Duration::from_millis(700), "{times:?}");
     assert!(times[1] < Duration::from_millis(700), "{times:?}");
-    assert!(times[2] < Duration::from_millis(700), "{times:?}");
-    let tick = times[3];
+    let tick = times[2];
     assert!(
         tick >= Duration::from_millis(900) && tick < Duration::from_millis(1250),
         "the interval moved: {times:?}"
