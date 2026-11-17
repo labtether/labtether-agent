@@ -10,18 +10,28 @@
 //! one line; a run marked `digest` keeps only the count and SHA-256 of
 //! its recognition requests (they are many and none answers); a report
 //! equal to the step before is written as `"same"`.
+//!
+//! Runs with the local port scan also compare the listening ports Go
+//! read, each connection its scan made (as the oracle's listeners saw
+//! them) and its HTTP checks (as a set: Go runs 16 at once). Go ran them in
+//! an empty network namespace with the scenario's listeners on loopback;
+//! [`FakeHost`] stands for it here.
 
 use std::collections::BTreeMap;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use labtether_agent_config::PortScanSettings;
+use labtether_agent_config::web_services::normalize_port_list;
 use labtether_agent_core::Stop;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
+use super::scan::{FakeHost, Listener};
 use super::{FixtureEngine, Recorder, Reply, Site, TESTDATA, TableProber};
 use crate::docker::engine::EngineApi;
 use crate::webservices::cycle::{Collector, Runner};
+use crate::webservices::scan::ScanHost;
 
 #[derive(Debug, Clone, Deserialize)]
 struct Engine {
@@ -43,6 +53,14 @@ struct Step {
     asset: Option<String>,
     #[serde(default)]
     reconnect: bool,
+    listeners: Option<String>,
+}
+
+/// A run's port scan setting: the list as written in the settings.
+#[derive(Debug, Clone, Deserialize)]
+struct ScanSetting {
+    ports: String,
+    include_listening: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -51,6 +69,8 @@ struct Run {
     docker: String,
     #[serde(default)]
     digest: bool,
+    host_ip: Option<String>,
+    scan: Option<ScanSetting>,
     steps: Vec<Step>,
 }
 
@@ -62,6 +82,8 @@ struct Scenario {
     probes: BTreeMap<String, BTreeMap<String, Option<Reply>>>,
     #[serde(default)]
     sites: BTreeMap<String, BTreeMap<String, Site>>,
+    #[serde(default)]
+    listeners: BTreeMap<String, Vec<Listener>>,
     runs: Vec<Run>,
 }
 
@@ -74,6 +96,13 @@ struct GoStep {
     recognition: Value,
     health: Vec<String>,
     report: Value,
+    #[serde(default)]
+    listening: Vec<u16>,
+    #[serde(default)]
+    dials: Vec<String>,
+    /// The scan's HTTP checks, sorted, or their count and SHA-256.
+    #[serde(default)]
+    scan: Value,
 }
 
 /// Requests in a row with the same client, method and origin on one
@@ -99,17 +128,35 @@ fn grouped(asked: &[String]) -> Vec<String> {
     out
 }
 
-/// The recognition requests as Go's output keeps them for this run.
-fn recognition(asked: &[String], digest: bool) -> Value {
-    if !digest {
-        return json!(grouped(asked));
-    }
+/// The count and SHA-256 of requests, one per line.
+fn digested(asked: &[String]) -> Value {
     let text = asked.join("\n");
     let hash: String = Sha256::digest(text.as_bytes())
         .iter()
         .map(|b| format!("{b:02x}"))
         .collect();
     json!({"count": asked.len(), "sha256": hash})
+}
+
+/// The recognition requests as Go's output keeps them for this run.
+fn recognition(asked: &[String], digest: bool) -> Value {
+    if digest {
+        digested(asked)
+    } else {
+        json!(grouped(asked))
+    }
+}
+
+/// A run's port scan settings, the list read as the agent's settings
+/// read it.
+fn scan_settings(run: &Run) -> PortScanSettings {
+    run.scan
+        .as_ref()
+        .map_or_else(PortScanSettings::default, |scan| PortScanSettings {
+            enabled: true,
+            include_listening: scan.include_listening,
+            ports: normalize_port_list(&scan.ports).unwrap_or_default(),
+        })
 }
 
 /// An engine answer as the Go test serves it: a recorded list, or a row
@@ -189,6 +236,15 @@ fn go_steps() -> BTreeMap<(String, usize), GoStep> {
 // connector, confidence, auth hint, profile or evidence; Portainer or
 // Home Assistant known by key probed; a result kept past Go's 15 or 5
 // minutes (names) or 10 or 3 minutes (connectors), or asked again before.
+// Local port scan: a scan while its setting is off; another port list
+// (Go's 49 defaults, the owner's list instead of them, the first 128
+// listening ports added only when asked); a port a service found earlier
+// uses (its URL, public or private port) dialled; another address than
+// the host's dialled; a TLS hello on other ports than Go's HTTPS ones, or
+// none on them; a port kept without an HTTP answer at either scheme, or
+// checked otherwise; another order (named by the registry, then likely
+// web ports, then by number), more or fewer than 8 unnamed ports; another
+// ID, name, URL or metadata; the scan's count or switch in the report.
 #[test]
 fn cycles_match_go() {
     let text = std::fs::read_to_string(format!("{TESTDATA}/scenario.json")).unwrap();
@@ -202,7 +258,10 @@ fn cycles_match_go() {
         let engine = FixtureEngine::new();
         let runner = Runner::new(&Stop::new()).unwrap();
         let interval = Duration::from_secs(scenario.interval_s);
-        let mut collector = Collector::new(scenario.host_ip.clone(), run.docker != "off", interval);
+        let host_ip = run.host_ip.clone().unwrap_or(scenario.host_ip.clone());
+        let host = FakeHost::new(&host_ip);
+        let mut collector = Collector::new(host_ip.clone(), run.docker != "off", interval);
+        collector.scan = scan_settings(run);
         let mut previous = Value::Null;
         for (index, step) in run.steps.iter().enumerate() {
             if let Some(name) = &step.engine {
@@ -227,14 +286,34 @@ fn cycles_match_go() {
                     .connections
                     .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             }
+            if let Some(name) = &step.listeners {
+                host.set(scenario.listeners[name].clone());
+            }
             let docker = (run.docker != "none").then_some(&engine as &dyn EngineApi);
             let now: SystemTime = base + Duration::from_secs(step.at);
-            collector.run(&sender, docker, &prober, &runner, &|| now);
+            collector.run(&sender, docker, &prober, &host, &runner, &|| now);
             let where_ = format!("run {} step {index} (at {} s)", run.name, step.at);
             let go = &expected[&(run.name.clone(), index)];
             let engine_asked = std::mem::take(&mut *engine.asked.lock().unwrap()).len();
             assert_eq!(engine_asked, go.engine_asked, "{where_}: engine reads");
-            let (fetched, attempted) = prober.take();
+            let (scanned, fetched, attempted) = prober.take();
+            let (dials, hosts, dialled) = host.take();
+            if run.scan.is_some() {
+                assert_eq!(host.listening(), go.listening, "{where_}: listening");
+                let scanned = if run.digest {
+                    digested(&scanned)
+                } else {
+                    json!(scanned)
+                };
+                assert_eq!(scanned, go.scan, "{where_}: scan's HTTP checks");
+                assert!(
+                    hosts.iter().all(|h| *h == host_ip),
+                    "{where_}: dialled {hosts:?}"
+                );
+            } else {
+                assert_eq!((dialled, scanned.len()), (0, 0), "{where_}: scan when off");
+            }
+            assert_eq!(dials, go.dials, "{where_}: connections");
             assert_eq!(
                 recognition(&fetched, run.digest),
                 go.recognition,

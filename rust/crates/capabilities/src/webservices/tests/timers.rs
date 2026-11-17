@@ -7,7 +7,7 @@ use std::sync::atomic::Ordering;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use labtether_agent_config::web_services::WebServiceSettings;
+use labtether_agent_config::web_services::{PortScanSettings, WebServiceSettings};
 use labtether_agent_core::Stop;
 use serde_json::{Value, json};
 
@@ -26,9 +26,15 @@ fn reports(
     online_after: Duration,
 ) -> (Vec<Duration>, Vec<Value>, bool) {
     let stop = Stop::new();
+    // The scan dials only port 1 of this machine: refused at once.
     let config = WebServiceSettings {
         interval: INTERVAL,
         docker_enabled: true,
+        port_scan: PortScanSettings {
+            enabled: true,
+            include_listening: false,
+            ports: vec![1],
+        },
     };
     let (done, ended) = mpsc::channel();
     let (thread_sender, thread_stop) = (Arc::clone(&sender), stop.clone());
@@ -65,8 +71,9 @@ fn reports(
 // Faults: no report at start (Go's `Run` sends one as soon as it runs
 // connected); reports more often than the interval; the thread outlives
 // the agent's stop; the report leaves out a source or says a source not
-// read here (proxy, local or LAN scan) is enabled, or the Docker source is
-// off when its setting is on.
+// read here (proxy or LAN scan) is enabled, or the Docker source or the
+// local scan is off when its setting is on (the setting not handed to
+// the collector).
 #[test]
 fn reports_at_start_then_every_interval_and_stops() {
     let sender = Arc::new(Recorder::default());
@@ -83,7 +90,7 @@ fn reports_at_start_then_every_interval_and_stops() {
     let enabled = |name: &str| sources[name]["enabled"].clone();
     assert_eq!(
         ["docker", "proxy", "local_scan", "lan_scan"].map(enabled),
-        [json!(true), json!(false), json!(false), json!(false)]
+        [json!(true), json!(false), json!(true), json!(false)]
     );
     assert_eq!(report["discovery"]["total_services"], 0);
 }
@@ -132,6 +139,7 @@ fn sync_runs_one_cycle_per_request_at_once() {
     let config = WebServiceSettings {
         interval: INTERVAL,
         docker_enabled: true,
+        port_scan: PortScanSettings::default(),
     };
     let (done, ended) = mpsc::channel();
     let started = Instant::now();

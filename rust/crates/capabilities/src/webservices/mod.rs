@@ -6,11 +6,15 @@
 //! asked. The Services page lists them and the Hub suggests connectors
 //! from them.
 //!
+//! Services on the host outside Docker come from the local port scan
+//! (`scan.rs`): Go's default ports and the listening ones, dialled on the
+//! host's own address only.
+//!
 //! The report needs no capability word: the Hub takes it from any agent.
 //! `webservice.sync` (the page's sync) runs one cycle at once
 //! (`sync.rs`); its handler advertises `cap_web_services=sync`.
-//! Reverse-proxy routes and the port scans are later parts; the report
-//! says their sources are not enabled.
+//! Reverse-proxy routes and the LAN scan are later parts; the report says
+//! their sources are not enabled.
 //!
 //! Timers as Go's `Run`: the host's address is read once at start, a cycle
 //! runs at start only if the agent is already connected (in the agent it
@@ -30,6 +34,8 @@ mod labtether;
 mod location;
 mod pages;
 mod registry;
+mod scan;
+mod scan_host;
 mod sync;
 mod urls;
 
@@ -46,6 +52,7 @@ use crate::docker::engine::{Blocking, EngineApi, Socket};
 use crate::docker::schedule::Ticker;
 use client::{HttpProber, TIMEOUT};
 use cycle::{Collector, Runner};
+use scan_host::LocalHost;
 use sync::{Requests, Woken};
 
 /// The producer's name.
@@ -103,6 +110,10 @@ fn run(
         Ok(prober) => prober,
         Err(error) => return log::error!("{PRODUCER}: could not start: {error}"),
     };
+    let host = match LocalHost::new() {
+        Ok(host) => host,
+        Err(error) => return log::error!("{PRODUCER}: could not start: {error}"),
+    };
     let engine = docker.and_then(|socket| {
         Blocking::new(socket, stop)
             .map_err(|error| log::error!("{PRODUCER}: Docker source not started: {error}"))
@@ -111,21 +122,22 @@ fn run(
     let docker = engine.as_ref().map(|engine| engine as &dyn EngineApi);
     log::info!("{name}: Web service collector enabled (host IP: {host_ip})");
     let mut collector = Collector::new(host_ip, config.docker_enabled, config.interval);
+    collector.scan = config.port_scan.clone();
     let mut ticker = Ticker::new(config.interval, started);
     let clock = SystemTime::now;
     let _open = requests.open(stop);
     if connected_at_start {
-        collector.run(sender, docker, &prober, &runner, &clock);
+        collector.run(sender, docker, &prober, &host, &runner, &clock);
         ticker = Ticker::new(config.interval, Instant::now());
     }
     while !stop.is_stopped() {
         if ticker.due(Instant::now()) {
-            collector.run(sender, docker, &prober, &runner, &clock);
+            collector.run(sender, docker, &prober, &host, &runner, &clock);
             continue;
         }
         match requests.wait(ticker.next, stop) {
             Woken::Sync => {
-                collector.run(sender, docker, &prober, &runner, &clock);
+                collector.run(sender, docker, &prober, &host, &runner, &clock);
                 requests.served();
             }
             Woken::Due => {}

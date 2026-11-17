@@ -9,6 +9,7 @@
 mod client;
 mod pages;
 mod registry;
+mod scan;
 mod steps;
 mod timers;
 
@@ -105,14 +106,31 @@ pub(crate) type Site = BTreeMap<String, Option<Reply>>;
 
 /// Probe answers: an exact table (`"HEAD http://..."` to an answer or
 /// `null`) first, then the sites by origin; anything else gets no answer.
-/// Records every attempt as `client method url`: the recognition probes'
-/// GETs in order, the health checks apart.
-#[derive(Default)]
+/// Records every attempt as `client method url`: the port scan's GETs,
+/// the recognition probes' GETs in order, the health checks apart. The
+/// scan's checks are the GETs before the first page fetch or HEAD: the
+/// scan ends before recognition (which only fetches pages) and the health
+/// checks (which start with HEAD) begin.
 pub(crate) struct TableProber {
     pub answers: Mutex<BTreeMap<String, Option<Reply>>>,
     pub sites: Mutex<BTreeMap<String, Site>>,
+    pub scanned: Mutex<Vec<String>>,
     pub fetched: Mutex<Vec<String>>,
     pub attempted: Mutex<Vec<String>>,
+    scanning: AtomicBool,
+}
+
+impl Default for TableProber {
+    fn default() -> Self {
+        Self {
+            answers: Mutex::default(),
+            sites: Mutex::default(),
+            scanned: Mutex::default(),
+            fetched: Mutex::default(),
+            attempted: Mutex::default(),
+            scanning: AtomicBool::new(true),
+        }
+    }
 }
 
 impl TableProber {
@@ -124,13 +142,17 @@ impl TableProber {
         *self.sites.lock().unwrap() = sites;
     }
 
-    /// The recognition requests since the last call in order, and the
-    /// health checks sorted (Go runs them at once).
-    pub fn take(&self) -> (Vec<String>, Vec<String>) {
+    /// The scan's checks since the last call sorted (Go runs 16 at
+    /// once), the recognition requests in order and the health checks
+    /// sorted (Go runs them at once).
+    pub fn take(&self) -> (Vec<String>, Vec<String>, Vec<String>) {
+        let mut scanned = std::mem::take(&mut *self.scanned.lock().unwrap());
         let fetched = std::mem::take(&mut *self.fetched.lock().unwrap());
         let mut attempted = std::mem::take(&mut *self.attempted.lock().unwrap());
+        self.scanning.store(true, Ordering::SeqCst);
+        scanned.sort();
         attempted.sort();
-        (fetched, attempted)
+        (scanned, fetched, attempted)
     }
 
     fn lookup(&self, method: Method, url: &str) -> Option<Reply> {
@@ -152,16 +174,19 @@ impl TableProber {
 
 impl Prober for TableProber {
     fn attempt<'a>(&'a self, client: Client, method: Method, url: &'a str) -> Pending<'a> {
-        self.attempted.lock().unwrap().push(format!(
-            "{} {} {url}",
-            client_name(client),
-            method_name(method)
-        ));
+        let entry = format!("{} {} {url}", client_name(client), method_name(method));
+        if method == Method::Get && self.scanning.load(Ordering::SeqCst) {
+            self.scanned.lock().unwrap().push(entry);
+        } else {
+            self.scanning.store(false, Ordering::SeqCst);
+            self.attempted.lock().unwrap().push(entry);
+        }
         let answer = self.lookup(method, url).map(|reply| reply.status());
         Box::pin(async move { answer })
     }
 
     fn fetch<'a>(&'a self, client: Client, url: &'a str) -> Fetching<'a> {
+        self.scanning.store(false, Ordering::SeqCst);
         self.fetched
             .lock()
             .unwrap()

@@ -2,19 +2,19 @@
 //! (`collector.go`) for the sources this agent reads. Only while
 //! connected: the running containers' services (when the Docker source is
 //! on and the Docker collector runs), the last report's Docker services
-//! again when the container list fails, the recognition probes (names for
-//! unknown services and the connector suggestions' `compat_*` metadata),
-//! LabTether naming, health checks, then one `webservice.report` with the
-//! asset ID in use when it is sent.
+//! again when the container list fails, the local port scan (when on),
+//! the recognition probes (names for unknown services and the connector
+//! suggestions' `compat_*` metadata), LabTether naming, health checks,
+//! then one `webservice.report` with the asset ID in use when it is sent.
 //!
-//! Go also reads reverse-proxy routes and runs a local and a LAN port
-//! scan; those come in later parts, so their sources are reported as not
-//! enabled.
+//! Go also reads reverse-proxy routes and runs a LAN scan; those come in
+//! later parts, so their sources are reported as not enabled.
 
 use std::collections::BTreeMap;
 use std::future::Future;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
+use labtether_agent_config::PortScanSettings;
 use labtether_agent_core::{HubSender, OnStop, Stop};
 use labtether_agent_platform::gotime::rfc3339;
 use labtether_protocol::{
@@ -25,7 +25,8 @@ use tokio::sync::watch;
 
 use super::fingerprint::Recognizer;
 use super::health::{HealthCache, Prober};
-use super::{containers, labtether};
+use super::scan::ScanHost;
+use super::{containers, labtether, scan};
 use crate::docker::engine::{self, EngineApi};
 
 /// Go's source names, in its log line's order.
@@ -100,6 +101,8 @@ pub(crate) struct Collector {
     pub host_ip: String,
     /// Go's `DockerEnabled`: the Docker source's setting.
     pub docker_enabled: bool,
+    /// Go's `PortScan*` settings; off unless set.
+    pub scan: PortScanSettings,
     health: HealthCache,
     recognizer: Recognizer,
     /// The last sent report's services and the connection it went on: Go's
@@ -112,6 +115,7 @@ impl Collector {
         Self {
             host_ip,
             docker_enabled,
+            scan: PortScanSettings::default(),
             health: HealthCache::new(interval),
             recognizer: Recognizer::default(),
             last: None,
@@ -119,13 +123,15 @@ impl Collector {
     }
 
     /// Go's `RunCycle`. `docker` is the engine when the Docker collector
-    /// runs; `clock` is Go's `wsc.now()`: read once at the start for the
-    /// health results and at each recognition cache look-up.
+    /// runs; `host` is what the port scan reads; `clock` is Go's
+    /// `wsc.now()`: read once at the start for the health results and at
+    /// each recognition cache look-up.
     pub fn run(
         &mut self,
         sender: &dyn HubSender,
         docker: Option<&dyn EngineApi>,
         prober: &dyn Prober,
+        host: &dyn ScanHost,
         runner: &Runner,
         clock: &dyn Fn() -> SystemTime,
     ) {
@@ -178,6 +184,28 @@ impl Collector {
                 },
             );
         }
+        let scan_started = Instant::now();
+        let asset = || sender.asset_id();
+        let scanned = runner.run(scan::services(
+            &self.scan,
+            &self.host_ip,
+            &asset,
+            &services,
+            host,
+            prober,
+        ));
+        let Some(scanned) = scanned else {
+            return;
+        };
+        sources.insert(
+            "local_scan".to_owned(),
+            WebServiceDiscoverySourceStat {
+                enabled: self.scan.enabled,
+                duration_ms: millis_since(scan_started),
+                services_found: i64::try_from(scanned.len()).unwrap_or(i64::MAX),
+            },
+        );
+        services.extend(scanned);
         let mut services = dedupe(services);
         let (recognizer, health) = (&mut self.recognizer, &mut self.health);
         let checked = runner.run(async {

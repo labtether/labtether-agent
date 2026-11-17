@@ -139,8 +139,21 @@ On Linux, the `labtether-agent-rs` binary:
   64 KiB of a page (gzip decoded) within the same 2 s, try the other scheme
   only when nothing answered, and keep a name 15 minutes (none 5) and a
   connector match 10 minutes (none 3). LabTether's console and API are
-  named, and the API is hidden when the console is listed. The report says
-  the proxy, local scan and LAN scan sources are not enabled.
+  named, and the API is hidden when the console is listed. Services
+  outside Docker come from Go's local port scan (`webservices/scan.rs`):
+  Go's 49 default ports (or the list in
+  `LABTETHER_SERVICES_DISCOVERY_PORT_SCAN_PORTS`) and the lowest 128
+  listening TCP ports from `/proc/net/tcp` and `tcp6`
+  (`_PORT_SCAN_INCLUDE_LISTENING`), less the ports the containers' services
+  already use, are dialled on the host's own address only (250 ms, 16 at
+  once, a TLS hello on the usual HTTPS ports) and kept when a GET answers
+  at either scheme; a port the registry gives to one service is named
+  after it, at most 8 others are listed as "Port N", and the probes above
+  then name and check them. `_PORT_SCAN_ENABLED` turns it off; low-power
+  mode turns the scan and its listening ports off; Go's older
+  `LABTETHER_WEBSVC_PORTSCAN_*` names and the `services_discovery_port_scan_*`
+  keys in `agent-config.json` are read as Go reads them. The report says
+  the proxy and LAN scan sources are not enabled.
   `webservice.sync` (the Services page's sync) runs one cycle at once, after
   any cycle in progress, and advertises `cap_web_services=sync`;
 - checks the agent token's capability claims before any handler runs, with
@@ -319,7 +332,7 @@ self-update; the apps set it to `false`), `LABTETHER_OUTBOUND_ALLOW_LOOPBACK`
 `LABTETHER_LOG_STREAM_ENABLED` (on macOS only; read on Linux),
 `LABTETHER_WEBRTC_*`,
 `LABTETHER_CAPTURE_FPS` and the `LABTETHER_SERVICES_DISCOVERY_*` switches
-other than the Docker source and the interval.
+other than the Docker source, the local port scan and the interval.
 The agent lists the ones that are set in one debug line at start.
 
 ## Not yet
@@ -346,10 +359,10 @@ This binary is not hardened and not a replacement for the Go agent:
   exec, container logs and the endpoint test are not advertised
   (`cap_docker=manage`), so the Hub refuses them; Docker is read only over
   a Unix socket (Go also reads an http(s) endpoint);
-- web services from containers only: no reverse-proxy routes (Traefik,
-  Caddy, NPM) and no local or LAN port scan. The probes read no
-  `HTTP_PROXY` variable, speak HTTP/1.1 only and open a connection per
-  request;
+- web services from containers and the local port scan only: no
+  reverse-proxy routes (Traefik, Caddy, NPM) and no LAN scan. The probes
+  read no `HTTP_PROXY` variable, speak HTTP/1.1 only and open a connection
+  per request;
 - no terminal, files or Remote View pages;
 - a stream line of 256 KiB or more: this agent skips it and goes on, as
   the Go agent does from its fix for that line; a Go agent without the fix
@@ -459,7 +472,12 @@ every report and every probe request, the recognition probes in order,
 with what the Go collector did for the same inputs; its registry, the
 login page's redirect target and the cache pruning are compared with Go's
 too (`crates/capabilities/src/webservices/tests/testdata/`); its probe
-client is tested against stand-in services on loopback. The producer path is tested
+client is tested against stand-in services on loopback. The local port
+scan runs through the same cycles against a stand-in for the host whose
+listening ports and connections match what Go's scan met in an empty
+network namespace with the scenario's listeners on loopback; the
+`/proc/net/tcp` reader and the port list setting are compared with Go's
+over made-up and captured text. The producer path is tested
 against a Hub that stops reading, drops the connection or is offline
 (`crates/core/tests/producers.rs`). CI
 runs the checks on Linux and on macOS. A test fails when a page is

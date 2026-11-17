@@ -80,8 +80,12 @@ All notable changes to `labtether-agent` are documented in this file.
   connector suggestions (Portainer, Home Assistant, TrueNAS, Proxmox
   Backup Server, Proxmox VE, Docker). The Services page's sync runs a
   discovery at once (`webservice.sync`, advertised as
-  `cap_web_services=sync`). Reverse-proxy routes and the port scans are
-  not in it. `LABTETHER_DOCKER_ENABLED=false` turns it off.
+  `cap_web_services=sync`). Web services outside Docker come from the Go
+  agent's local port scan of the host's own address: its default ports
+  and listening TCP ports, kept when they answer HTTP, with the Go agent's
+  settings (`LABTETHER_SERVICES_DISCOVERY_PORT_SCAN_*`, off in low-power
+  mode). Reverse-proxy routes and the LAN scan are not in it.
+  `LABTETHER_DOCKER_ENABLED=false` turns the container source off.
 - The Rust agent builds and runs on macOS as the monitoring edition for the
   Mac App Store app: CPU, memory, disk and network telemetry, the host
   details in the heartbeat, and the disk and network interface lists, read

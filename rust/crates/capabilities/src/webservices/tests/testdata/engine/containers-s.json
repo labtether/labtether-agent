@@ -1,0 +1,4 @@
+[
+{"Id": "a2h0010000000000000000000000000000000000000000000000000000000000", "Names": ["/ltqa-a2h-s01"], "Image": "ltqa-a2h/app:1", "State": "running", "Ports": [{"IP": "0.0.0.0", "PrivatePort": 80, "PublicPort": 8081, "Type": "tcp"}], "Labels": {"ltqa": "a2h"}},
+{"Id": "a2h0020000000000000000000000000000000000000000000000000000000000", "Names": ["/ltqa-a2h-s02"], "Image": "portainer/portainer-ce:2.21.4", "State": "running", "Ports": [{"IP": "0.0.0.0", "PrivatePort": 9443, "PublicPort": 9443, "Type": "tcp"}], "Labels": {"ltqa": "a2h"}}
+]

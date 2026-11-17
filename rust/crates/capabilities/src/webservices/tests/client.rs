@@ -99,7 +99,7 @@ fn serve(
 trait ReadWrite: std::io::Read + Write {}
 impl<T: std::io::Read + Write> ReadWrite for T {}
 
-fn self_signed() -> Arc<ServerConfig> {
+pub(crate) fn self_signed() -> Arc<ServerConfig> {
     let key = KeyPair::generate().unwrap();
     let cert = CertificateParams::new(vec!["127.0.0.1".to_owned()])
         .unwrap()

@@ -1,0 +1,119 @@
+mixed	[8080 80 8083 9000 9000 8084]
+headerless	[80]
+empty	[]
+only-header	[]
+tcp6	[8080 9090]
+captured-tcp	[5000 9000 7443 40010 40009 40008 40003 40002 40001 40007 40006 40005 40004 8081 7878 8443 80 8989 9001 1234 8181 2222 3000]
+captured-tcp6	[9000 9090 8123]
+list	=
+list	=
+list	=80
+list	=80,8080
+list	=80,443
+list	=80,443,8080,9000
+list	=80
+list	=80
+list	error
+list	error
+list	=65535
+list	error
+list	error
+list	error
+list	=
+list	=
+list	=80
+list	error
+list	error
+list	error
+list	error
+list	error
+list	=80,443
+list	=80
+list	=80
+list	error
+list	=80,2222,3000,8443
+list	error
+list	error
+list	=80,443
+port	53	pihole	pihole
+port	80	bookstack	-
+port	81	nginx-proxy-manager	nginx-proxy-manager
+port	443	caddy	-
+port	1337	planka	planka
+port	1880	nodered	nodered
+port	1883	mqtt	mqtt
+port	1984	go2rtc	go2rtc
+port	2283	immich	immich
+port	2342	photoprism	photoprism
+port	3000	adguardhome	-
+port	3001	uptime-kuma	uptime-kuma
+port	3100	loki	loki
+port	3456	vikunja	vikunja
+port	4000	blocky	blocky
+port	4040	airsonic	airsonic
+port	4180	oauth2-proxy	oauth2-proxy
+port	4533	navidrome	navidrome
+port	4545	requestrr	requestrr
+port	5000	changedetection	-
+port	5001	dockge	dockge
+port	5005	flame	flame
+port	5006	actual-budget	actual-budget
+port	5055	jellyseerr	-
+port	5076	nzbhydra	nzbhydra
+port	5380	technitium	technitium
+port	5678	n8n	n8n
+port	5800	jdownloader	jdownloader
+port	6052	esphome	esphome
+port	6767	bazarr	bazarr
+port	6789	nzbget	nzbget
+port	6800	aria2	aria2
+port	6969	whisparr	whisparr
+port	7095	streammaster	streammaster
+port	7575	homarr	homarr
+port	7878	radarr	radarr
+port	8000	ddns-updater	-
+port	8006	proxmox	proxmox
+port	8007	proxmox-backup	proxmox-backup
+port	8080	adminer	-
+port	8081	metube	-
+port	8083	calibre-web	calibre-web
+port	8086	influxdb	influxdb
+port	8090	beszel	-
+port	8091	zwavejs	zwavejs
+port	8096	emby	-
+port	8112	deluge	deluge
+port	8123	homeassistant	homeassistant
+port	8181	tautulli	tautulli
+port	8191	flaresolverr	flaresolverr
+port	8200	duplicati	-
+port	8265	tdarr	tdarr
+port	8384	syncthing	syncthing
+port	8404	haproxy	haproxy
+port	8443	codeserver	-
+port	8686	lidarr	lidarr
+port	8787	readarr	readarr
+port	8888	unmanic	unmanic
+port	8978	cloudbeaver	cloudbeaver
+port	8989	sonarr	sonarr
+port	9000	authentik	-
+port	9001	etherpad	etherpad
+port	9090	cockpit	-
+port	9091	authelia	-
+port	9120	komodo	komodo
+port	9200	ocis	ocis
+port	9443	portainer	portainer
+port	9696	prowlarr	prowlarr
+port	9925	mealie	mealie
+port	9999	stash	stash
+port	10443	scrypted	scrypted
+port	13378	audiobookshelf	audiobookshelf
+port	17170	lldap	lldap
+port	19999	netdata	netdata
+port	21118	rustdesk	rustdesk
+port	25600	komga	komga
+port	32400	plex	plex
+port	41641	tailscale	tailscale
+port	51515	kopia	kopia
+port	51820	wireguard	wireguard
+port	51821	wg-easy	wg-easy
+port	61208	glances	glances
